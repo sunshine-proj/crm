@@ -33,7 +33,7 @@ services:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: secret
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./storage/postgres/data/pg:/var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     networks:
@@ -43,4 +43,4 @@ networks:
   app:
 
 volumes:
-  postgres_data:
+  static_volume:

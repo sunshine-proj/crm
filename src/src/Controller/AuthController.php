@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Repository\UserRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -10,8 +11,7 @@ use Symfony\Component\Routing\Attribute\Route;
 class AuthController extends AbstractController
 {
     public function __construct(
-        private readonly string $loginEmail,
-        private readonly string $loginPasswordHash,
+        private readonly UserRepository $userRepository,
     ) {
     }
 
@@ -33,17 +33,15 @@ class AuthController extends AbstractController
             ], JsonResponse::HTTP_BAD_REQUEST);
         }
 
-        if (
-            !hash_equals($this->loginEmail, $email)
-            || $this->loginPasswordHash === ''
-            || !password_verify($password, $this->loginPasswordHash)
-        ) {
+        $user = $this->userRepository->findOneByEmail($email);
+
+        if ($user === null || !password_verify($password, $user->getPasswordHash() ?? '')) {
             return $this->json(['error' => 'Invalid email or password.'], JsonResponse::HTTP_UNAUTHORIZED);
         }
 
         return $this->json([
             'message' => 'Login successful.',
-            'user' => ['email' => $this->loginEmail],
+            'user' => ['email' => $user->getEmail()],
         ]);
     }
 }
