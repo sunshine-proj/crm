@@ -40,7 +40,7 @@ class AuthController extends AbstractController
         }
 
         return $this->json([
-            'message' => 'Login successful.',
+            'token' => 'Login successful.',
             'user' => ['email' => $user->getEmail()],
         ]);
     }
