@@ -10,6 +10,16 @@ composer require lexik/jwt-authentication-bundle
 composer require --dev symfony/profiler-pack
 composer require --dev symfony/maker-bundle
 
+### Debug
+docker compose exec php composer show doctrine/dbal doctrine/doctrine-migrations-bundle --format=json
+docker compose exec php composer update doctrine/dbal --with-dependencies --no-interaction
+docker compose exec php composer show doctrine/doctrine-migrations-bundle --all --no-interaction
+docker compose exec php composer show doctrine/migrations 4.0.x-dev --available --no-interaction
+=> "doctrine/dbal": "^4.5@dev",
+
+docker compose exec php composer update doctrine/dbal --with-all-dependencies --no-interaction
+docker compose exec php bin/console doctrine:migrations:diff --no-interaction
+
 
 ## commands
 bin/console make:migration
