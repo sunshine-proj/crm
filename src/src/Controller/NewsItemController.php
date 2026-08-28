@@ -2,13 +2,14 @@
 
 namespace App\Controller;
 
+use App\Dto\NewsItemInput;
 use App\Entity\NewsItem;
 use App\Entity\User;
 use App\Repository\NewsItemRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\Routing\Attribute\Route;
 
 #[Route('/api/news', name: 'api_news_')]
@@ -29,16 +30,9 @@ class NewsItemController extends AbstractController
     }
 
     #[Route('', name: 'create', methods: ['POST'])]
-    public function create(Request $request): JsonResponse
+    public function create(#[MapRequestPayload] NewsItemInput $input): JsonResponse
     {
-        $data = $this->getRequestData($request);
-        if ($data === null) {
-            return $this->json(['error' => 'Request body must be valid JSON.'], JsonResponse::HTTP_BAD_REQUEST);
-        }
-
-        $title = $this->getTextField($data, 'title');
-        $content = $this->getTextField($data, 'content');
-        if ($title === null || $content === null) {
+        if ($input->title === null || $input->content === null) {
             return $this->json(['error' => 'Title and content are required.'], JsonResponse::HTTP_BAD_REQUEST);
         }
 
@@ -49,8 +43,8 @@ class NewsItemController extends AbstractController
 
         $now = new \DateTimeImmutable();
         $item = (new NewsItem())
-            ->setTitle($title)
-            ->setContent($content)
+            ->setTitle(trim($input->title))
+            ->setContent(trim($input->content))
             ->setCreatedAt($now)
             ->setUpdatedAt($now)
             ->setUser($user);
@@ -73,7 +67,7 @@ class NewsItemController extends AbstractController
     }
 
     #[Route('/{id<\d+>}', name: 'update', methods: ['PUT', 'PATCH'])]
-    public function update(int $id, Request $request): JsonResponse
+    public function update(int $id, #[MapRequestPayload] NewsItemInput $input): JsonResponse
     {
         $item = $this->newsItemRepository->find($id);
         if ($item === null) {
@@ -83,13 +77,8 @@ class NewsItemController extends AbstractController
             return $this->json(['error' => 'You can only edit your own news items.'], JsonResponse::HTTP_FORBIDDEN);
         }
 
-        $data = $this->getRequestData($request);
-        if ($data === null) {
-            return $this->json(['error' => 'Request body must be valid JSON.'], JsonResponse::HTTP_BAD_REQUEST);
-        }
-
-        $title = array_key_exists('title', $data) ? $this->getTextField($data, 'title') : $item->getTitle();
-        $content = array_key_exists('content', $data) ? $this->getTextField($data, 'content') : $item->getContent();
+        $title = $input->title !== null ? trim($input->title) : $item->getTitle();
+        $content = $input->content !== null ? trim($input->content) : $item->getContent();
         if ($title === null || $content === null) {
             return $this->json(['error' => 'Title and content are required.'], JsonResponse::HTTP_BAD_REQUEST);
         }
@@ -115,26 +104,6 @@ class NewsItemController extends AbstractController
         $this->entityManager->flush();
 
         return new JsonResponse(null, JsonResponse::HTTP_NO_CONTENT);
-    }
-
-    /** @return array<string, mixed>|null */
-    private function getRequestData(Request $request): ?array
-    {
-        try {
-            $data = $request->toArray();
-        } catch (\JsonException) {
-            return null;
-        }
-
-        return $data;
-    }
-
-    /** @param array<string, mixed> $data */
-    private function getTextField(array $data, string $field): ?string
-    {
-        $value = $data[$field] ?? null;
-
-        return is_string($value) && trim($value) !== '' ? trim($value) : null;
     }
 
     private function getAuthenticatedUser(): ?User
