@@ -21,6 +21,15 @@ docker compose exec php composer update doctrine/dbal --with-all-dependencies --
 docker compose exec php bin/console doctrine:migrations:diff --no-interaction
 
 
+### Reformat files
+awk 'length($0) > 120 { print FNR ":" length($0) ":" $0 }' frontend/src/*.ts frontend/src/*.vue frontend/src/components/*.vue
+
+find . -type f \( -name '*.vue' -o -name '*.ts' -o -name '*.css' -o -name '*.html' \) -print0 | xargs -0 awk 'length($0) > 120 { count++; print FILENAME ":" FNR ":" length($0) } END { print "TOTAL:" count }'
+
+command -v prettier || true; find . -maxdepth 2 -type f -name 'prettier*' -o -name '.prettierrc*'
+
+npx --yes prettier@3.6.2 --print-width 120 --write src
+
 ## commands
 bin/console make:migration
 bin/console cache:clear
