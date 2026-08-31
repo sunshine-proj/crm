@@ -50,3 +50,7 @@
 
 # Embedded web-server pid file
 /.web-server-pid
+
+/frontend/dist
+/frontend/node_modules
+/storage
