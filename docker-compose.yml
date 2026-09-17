@@ -1,14 +1,24 @@
 services:
   php:
-    build:
-      context: ./docker/php
-      dockerfile: Dockerfile
+    # build:
+    #   context: ./docker/php
+    #   dockerfile: Dockerfile
+    image: crm/php-1.1
     container_name: php
     working_dir: /var/www/html
     volumes:
       - ./src:/var/www/html
+      - ./docker/php/rsyslog.conf:/etc/rsyslog.conf
+      - ./docker/php/app-audit.conf:/etc/rsyslog.d/app-audit.conf
     depends_on:
       - postgres
+    command: |
+      sh -c "
+        rsyslogd;
+        tail -f /dev/null;
+      "
+      #  tail -f /dev/null;
+      # rsyslogd;
     networks:
       - app
 
@@ -44,6 +54,41 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  logrotate:
+    image: crm/php-1.1
+    volumes:
+      # - ./docker/php/app-audit:/etc/logrotate.d/app-audit:ro
+      - ./docker/php/app-audit:/etc/logrotate.d/tmp-app-audit:ro
+      - ./storage/logs:/var/log/app
+    networks:
+      - app
+    depends_on:
+      - php
+    command: >
+      sh -c "
+        cp /etc/logrotate.d/tmp-app-audit /etc/logrotate.d/app-audit;
+        chmod 0600 /etc/logrotate.d/app-audit;
+        while true; do
+          logrotate /etc/logrotate.d/app-audit;
+          sleep 86400;
+        done
+      "
+      # cp /opt/app-audit /etc/logrotate.d/app-audit;
+  
+  rabbitmq:
+    image: "rabbitmq:3-management"
+    container_name: rabbitmq
+    ports:
+      - "5674:5672"
+      - "15674:15672"
+    volumes:
+      - ./storage/rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app
+    environment:
+      - RABBITMQ_DEFAULT_USER
+      - RABBITMQ_DEFAULT_PASS
 
 networks:
   app:

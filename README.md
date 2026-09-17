@@ -10,6 +10,17 @@ composer require lexik/jwt-authentication-bundle
 composer require --dev symfony/profiler-pack
 composer require --dev symfony/maker-bundle
 
+## Install
+
+### Rsyslog
+In php container execute commands
+```
+chmod +x bootstrap/setup-rsyslog-audit.sh
+bootstrap/setup-rsyslog-audit.sh
+
+chmod 600 /etc/logrotate.d/app-audit
+```
+
 ### Debug
 docker compose exec php composer show doctrine/dbal doctrine/doctrine-migrations-bundle --format=json
 docker compose exec php composer update doctrine/dbal --with-dependencies --no-interaction
