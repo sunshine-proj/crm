@@ -9,6 +9,7 @@ composer require lexik/jwt-authentication-bundle
 
 composer require --dev symfony/profiler-pack
 composer require --dev symfony/maker-bundle
+composer require symfony/monolog-bundle
 
 ## Install
 
