@@ -8,10 +8,12 @@ use App\Entity\User;
 use App\Repository\ClientRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
+use Psr\Log\LoggerInterface;
 
 #[Route('/api/clients', name: 'api_clients_')]
 class ClientController extends AbstractController
@@ -19,6 +21,8 @@ class ClientController extends AbstractController
     public function __construct(
         private readonly ClientRepository $clientRepository,
         private readonly EntityManagerInterface $entityManager,
+        #[Autowire(service: 'monolog.logger.audit')]
+        private readonly LoggerInterface $auditLogger,
     ) {
     }
 
@@ -27,6 +31,11 @@ class ClientController extends AbstractController
     public function list(): JsonResponse
     {
         $items = $this->clientRepository->findBy([], ['createdAt' => 'DESC']);
+        $this->auditLogger->info('Client list requested.', [
+            'action' => 'client.list',
+            'actor' => $this->getAuditActor(),
+            'result_count' => count($items),
+        ]);
 
         return $this->json(array_map(fn (Client $item): array => $this->serializeItem($item), $items));
     }
@@ -55,6 +64,11 @@ class ClientController extends AbstractController
 
         $this->entityManager->persist($item);
         $this->entityManager->flush();
+        $this->auditLogger->info('Client created.', [
+            'action' => 'client.create',
+            'actor' => $this->getAuditActor(),
+            'client_id' => $item->getId(),
+        ]);
 
         return $this->json($this->serializeItem($item), JsonResponse::HTTP_CREATED);
     }
@@ -65,8 +79,20 @@ class ClientController extends AbstractController
     {
         $item = $this->clientRepository->find($id);
         if ($item === null) {
+            $this->auditLogger->info('Client lookup failed.', [
+                'action' => 'client.show',
+                'actor' => $this->getAuditActor(),
+                'client_id' => $id,
+                'outcome' => 'not_found',
+            ]);
+
             return $this->json(['error' => 'Client not found.'], JsonResponse::HTTP_NOT_FOUND);
         }
+        $this->auditLogger->info('Client viewed.', [
+            'action' => 'client.show',
+            'actor' => $this->getAuditActor(),
+            'client_id' => $item->getId(),
+        ]);
 
         return $this->json($this->serializeItem($item));
     }
@@ -77,6 +103,13 @@ class ClientController extends AbstractController
     {
         $item = $this->clientRepository->find($id);
         if ($item === null) {
+            $this->auditLogger->info('Client update failed.', [
+                'action' => 'client.update',
+                'actor' => $this->getAuditActor(),
+                'client_id' => $id,
+                'outcome' => 'not_found',
+            ]);
+
             return $this->json(['error' => 'Client not found.'], JsonResponse::HTTP_NOT_FOUND);
         }
 
@@ -88,6 +121,11 @@ class ClientController extends AbstractController
 
         $item->setTitle($title)->setNotes($notes)->setUpdatedAt(new \DateTimeImmutable());
         $this->entityManager->flush();
+        $this->auditLogger->info('Client updated.', [
+            'action' => 'client.update',
+            'actor' => $this->getAuditActor(),
+            'client_id' => $item->getId(),
+        ]);
 
         return $this->json($this->serializeItem($item));
     }
@@ -98,13 +136,32 @@ class ClientController extends AbstractController
     {
         $item = $this->clientRepository->find($id);
         if ($item === null) {
+            $this->auditLogger->info('Client deletion failed.', [
+                'action' => 'client.delete',
+                'actor' => $this->getAuditActor(),
+                'client_id' => $id,
+                'outcome' => 'not_found',
+            ]);
+
             return $this->json(['error' => 'Client not found.'], JsonResponse::HTTP_NOT_FOUND);
         }
 
         $this->entityManager->remove($item);
         $this->entityManager->flush();
+        $this->auditLogger->info('Client deleted.', [
+            'action' => 'client.delete',
+            'actor' => $this->getAuditActor(),
+            'client_id' => $id,
+        ]);
 
         return new JsonResponse(null, JsonResponse::HTTP_NO_CONTENT);
+    }
+
+    private function getAuditActor(): string
+    {
+        $user = $this->getUser();
+
+        return $user instanceof User ? $user->getUserIdentifier() : 'anonymous';
     }
 
     /** @return array<string, int|string|null> */
