@@ -13,6 +13,9 @@ composer require symfony/monolog-bundle
 
 ## Install
 
+Default admin:
+INSERT INTO app_user (email, password, roles) VALUES ('super@admin.local', '', '{'ROLE_ADMIN'}');
+
 ### Rsyslog
 In php container execute commands
 ```
@@ -54,4 +57,14 @@ php bin/console lexik:jwt:generate-keypair
 php bin/console messenger:consume async_incoming
 
 php bin/console app:import-file /var/www/html/static/archive/file.csv
+
+## Upgrade node
+
+node --version
+which node
+apt policy nodejs
+
+sudo apt update
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
 
