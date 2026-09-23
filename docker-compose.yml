@@ -61,6 +61,7 @@ services:
       # - ./docker/php/app-audit:/etc/logrotate.d/app-audit:ro
       - ./docker/php/app-audit:/etc/logrotate.d/tmp-app-audit:ro
       - ./storage/logs:/var/log/app
+      - ./docker/php/zabbix_agent2.conf:/etc/zabbix/zabbix_agent2.conf:ro
     networks:
       - app
     depends_on:
@@ -90,8 +91,75 @@ services:
       - RABBITMQ_DEFAULT_USER
       - RABBITMQ_DEFAULT_PASS
 
+  # -----------------------
+  # Zabbix database
+  # -----------------------
+  zabbix-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: mySuperDFGSecret#$%Password425
+      POSTGRES_DB: zabbix
+    volumes:
+      - zabbix-db-data:/var/lib/postgresql/data
+    ports:
+      - "5440:5432"
+    networks:
+      - erp-zabbix
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zabbix -d zabbix"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------
+  # Zabbix server
+  # -----------------------
+  zabbix-server:
+    image: zabbix/zabbix-server-pgsql:alpine-7.4-latest
+    restart: unless-stopped
+    depends_on:
+      zabbix-db:
+        condition: service_healthy
+    environment:
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: mySuperDFGSecret#$%Password425
+      POSTGRES_DB: zabbix
+    ports:
+      - "10053:10051"
+    networks:
+      - erp-zabbix
+      - app
+  
+  # -----------------------
+  # Zabbix web interface
+  # -----------------------
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-7.4-latest
+    restart: unless-stopped
+    depends_on:
+      zabbix-server:
+        condition: service_started
+      zabbix-db:
+        condition: service_healthy
+    environment:
+      DB_SERVER_HOST: zabbix-db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: mySuperDFGSecret#$%Password425
+      POSTGRES_DB: zabbix
+      ZBX_SERVER_HOST: zabbix-server
+      PHP_TZ: Europe/Vilnius
+    ports:
+      - "8120:8080"
+    networks:
+      - erp-zabbix
+
 networks:
   app:
+  erp-zabbix:
 
 volumes:
   static_volume:
+  zabbix-db-data:
