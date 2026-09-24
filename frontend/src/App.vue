@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import DashboardPage from "./components/DashboardPage.vue";
 import NewsPage from "./components/NewsPage.vue";
 import ClientsPage from "./components/ClientsPage.vue";
+import ProjectsPage from "./components/ProjectsPage.vue";
 import TasksPage from "./components/TasksPage.vue";
 
 type LoginResponse = {
@@ -17,11 +18,12 @@ const userEmail = ref(localStorage.getItem("crm_user_email"));
 const errorMessage = ref("");
 const isSubmitting = ref(false);
 const activeSection = ref("Dashboard");
-const sections = ["Dashboard", "News", "Clients", "Tasks"];
+const sections = ["Dashboard", "News", "Clients", "Projects", "Tasks"];
 const pageComponents = {
   Dashboard: DashboardPage,
   News: NewsPage,
   Clients: ClientsPage,
+  Projects: ProjectsPage,
   Tasks: TasksPage,
 };
 
@@ -106,6 +108,8 @@ function signOut() {
                 ? "&#9733;"
                 : section === "Clients"
                   ? "&#9673;"
+                  : section === "Projects"
+                    ? "&#9633;"
                   : "&#10003;"
           }}</span>
           {{ section }}
