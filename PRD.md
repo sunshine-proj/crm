@@ -23,14 +23,14 @@ The repository currently contains a Vue 3 and TypeScript single-page frontend an
 
 Implemented modules include:
 
-- **Clients:** create, list, edit, and delete records containing a title and notes. Client writes are restricted to administrators.
-- **Projects:** create, list, edit, and delete records containing a title and description.
-- **Tasks:** create, list, edit, and delete records containing a title, description, start time, and end time.
+- **Clients:** create, list, edit, and delete records containing a title and notes, with expandable structured contacts (name, role, email, and phone). Client and contact writes are restricted to administrators.
+- **Projects:** create, list, edit, and delete records containing a title and description, linked to a client for new records, with lifecycle status and planned start/end dates.
+- **Tasks:** create, list, edit, and delete records containing a title, description, start/end times, a project link, status, priority, and optional due date.
 - **News:** news-item records with user ownership behavior in the API.
-- **Dashboard:** a basic welcome view; its displayed open-task count is currently a placeholder, not a live metric.
+- **Dashboard:** displays live client, active-project, and open-task counts from an authenticated API summary endpoint.
 - **Authentication:** sign-in through `POST /api/login` and bearer-token API requests.
 
-Clients, projects, and tasks are currently separate records; projects do not belong to clients, and tasks do not belong to projects. The current client record is not yet a full contact/account profile. There is no implemented project planning, invoicing, payment tracking, expense management, bookkeeping, or financial reporting. Treat these as roadmap requirements, not existing features.
+New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. The client record is not yet a full structured organization/account profile; project ownership, milestones, dependencies, time tracking, invoicing, payment tracking, expense management, bookkeeping, and financial reporting are not implemented. Treat these as roadmap requirements, not existing features. PHPUnit backend tests and Vitest frontend unit tests are configured; coverage reporting is still outstanding.
 
 ## Product Principles
 
@@ -82,10 +82,12 @@ Phases describe intended order, not a commitment to dates. Each phase should be 
 
 ### Phase 1: Client And Project Operations
 
-- Expand client records with organization/account details and one or more contacts, while retaining a useful client overview.
-- Associate each project with a client and show projects from both client and project views.
-- Add project lifecycle status, owner, planned start/end dates, and budget/currency where applicable.
-- Associate tasks with projects; add task status, assignee, priority, and due dates. Preserve existing task scheduling where it remains useful.
+The initial relational planning slice is implemented: clients can manage structured contacts and see linked projects in the client list; new projects link to clients and have lifecycle status/planned dates; new tasks link to projects and have status, priority, and optional due date; the dashboard uses live counts. Legacy records remain readable. The following Phase 1 requirements are still outstanding:
+
+- Expand client records with structured organization/account details while retaining a useful client overview.
+- Add dedicated client and project detail views with activity history and related records.
+- Add project owner and budget/currency where applicable.
+- Add task assignee and complete task scheduling/ownership workflows.
 - Provide client and project detail pages with clear summaries, recent activity, related work, and next actions.
 - Support search, filtering, sorting, and pagination as record volumes grow.
 

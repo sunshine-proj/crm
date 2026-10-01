@@ -3,7 +3,9 @@
 namespace App\Controller;
 
 use App\Dto\ProjectInput;
+use App\Entity\ProjectStatus;
 use App\Entity\Project;
+use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -17,6 +19,7 @@ class ProjectController extends AbstractController
 {
 	public function __construct(
 		private readonly ProjectRepository $projectRepository,
+		private readonly ClientRepository $clientRepository,
 		private readonly EntityManagerInterface $entityManager,
 	) {
 	}
@@ -34,14 +37,28 @@ class ProjectController extends AbstractController
 	#[IsGranted('ROLE_USER')]
 	public function create(#[MapRequestPayload] ProjectInput $input): JsonResponse
 	{
-		if ($input->title === null || $input->description === null) {
-			return $this->json(['error' => 'Title and description are required.'], JsonResponse::HTTP_BAD_REQUEST);
+		if ($input->title === null || $input->description === null || $input->client_id === null) {
+			return $this->json(['error' => 'Title, description and client_id are required.'], JsonResponse::HTTP_BAD_REQUEST);
+		}
+
+		$client = $this->clientRepository->find($input->client_id);
+		if ($client === null) {
+			return $this->json(['error' => 'Client not found.'], JsonResponse::HTTP_NOT_FOUND);
+		}
+
+		$startDate = $input->start_date !== null ? new \DateTimeImmutable($input->start_date) : null;
+		$endDate = $input->end_date !== null ? new \DateTimeImmutable($input->end_date) : null;
+		if ($startDate !== null && $endDate !== null && $endDate < $startDate) {
+			return $this->json(['error' => 'Project end date must be on or after its start date.'], JsonResponse::HTTP_BAD_REQUEST);
 		}
 
 		$now = new \DateTimeImmutable();
 		$item = (new Project())
 			->setTitle(trim($input->title))
 			->setDescription(trim($input->description))
+			->setClient($client)
+			->setStatus(ProjectStatus::from($input->status ?? ProjectStatus::Planned->value))
+			->setPlannedDates($startDate, $endDate)
 			->setCreatedAt($now)
 			->setUpdatedAt($now);
 
@@ -74,13 +91,28 @@ class ProjectController extends AbstractController
 
 		$title = $input->title !== null ? trim($input->title) : $item->getTitle();
 		$description = $input->description !== null ? trim($input->description) : $item->getDescription();
+		$startDate = $input->start_date !== null ? new \DateTimeImmutable($input->start_date) : $item->getStartDate();
+		$endDate = $input->end_date !== null ? new \DateTimeImmutable($input->end_date) : $item->getEndDate();
 		if ($title === null || $description === null) {
 			return $this->json(['error' => 'Title and description are required.'], JsonResponse::HTTP_BAD_REQUEST);
+		}
+		if ($startDate !== null && $endDate !== null && $endDate < $startDate) {
+			return $this->json(['error' => 'Project end date must be on or after its start date.'], JsonResponse::HTTP_BAD_REQUEST);
+		}
+
+		if ($input->client_id !== null) {
+			$client = $this->clientRepository->find($input->client_id);
+			if ($client === null) {
+				return $this->json(['error' => 'Client not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+			$item->setClient($client);
 		}
 
 		$item
 			->setTitle($title)
 			->setDescription($description)
+			->setStatus(ProjectStatus::from($input->status ?? $item->getStatus()->value))
+			->setPlannedDates($startDate, $endDate)
 			->setUpdatedAt(new \DateTimeImmutable());
 		$this->entityManager->flush();
 
@@ -109,6 +141,11 @@ class ProjectController extends AbstractController
 			'id' => $item->getId(),
 			'title' => $item->getTitle(),
 			'description' => $item->getDescription(),
+			'client_id' => $item->getClient()?->getId(),
+			'client_title' => $item->getClient()?->getTitle(),
+			'status' => $item->getStatus()->value,
+			'start_date' => $item->getStartDate()?->format('Y-m-d'),
+			'end_date' => $item->getEndDate()?->format('Y-m-d'),
 			'created_at' => $item->getCreatedAt()?->format(\DateTimeInterface::ATOM),
 			'updated_at' => $item->getUpdatedAt()?->format(\DateTimeInterface::ATOM),
 		];

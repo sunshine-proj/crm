@@ -12,8 +12,16 @@ final class TaskInput
         public readonly ?string $title = null,
         #[Assert\NotBlank(allowNull: true)]
         public readonly ?string $description = null,
+        #[Assert\Positive]
+        public readonly ?int $project_id = null,
         public readonly ?\DateTimeImmutable $start_datetime = null,
         public readonly ?\DateTimeImmutable $end_datetime = null,
+        #[Assert\Choice(choices: ['todo', 'in_progress', 'blocked', 'done'])]
+        public readonly ?string $status = null,
+        #[Assert\Choice(choices: ['low', 'normal', 'high', 'urgent'])]
+        public readonly ?string $priority = null,
+        #[Assert\Date]
+        public readonly ?string $due_date = null,
     ) {
     }
 }

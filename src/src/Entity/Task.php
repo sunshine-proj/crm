@@ -21,6 +21,19 @@ class Task
 	#[ORM\Column(type: Types::TEXT)]
 	private ?string $description = null;
 
+	#[ORM\ManyToOne(targetEntity: Project::class)]
+	#[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+	private ?Project $project = null;
+
+	#[ORM\Column(length: 20, enumType: TaskStatus::class, options: ['default' => 'todo'])]
+	private TaskStatus $status = TaskStatus::Todo;
+
+	#[ORM\Column(length: 20, enumType: TaskPriority::class, options: ['default' => 'normal'])]
+	private TaskPriority $priority = TaskPriority::Normal;
+
+	#[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
+	private ?\DateTimeImmutable $dueDate = null;
+
 	#[ORM\Column]
 	private ?\DateTimeImmutable $startDatetime = null;
 
@@ -62,6 +75,59 @@ class Task
 		return $this;
 	}
 
+	public function getProject(): ?Project
+	{
+		return $this->project;
+	}
+
+	public function setProject(?Project $project): static
+	{
+		$this->project = $project;
+
+		return $this;
+	}
+
+	public function getStatus(): TaskStatus
+	{
+		return $this->status;
+	}
+
+	public function setStatus(TaskStatus $status): static
+	{
+		$this->status = $status;
+
+		return $this;
+	}
+
+	public function isOpen(): bool
+	{
+		return $this->status !== TaskStatus::Done;
+	}
+
+	public function getPriority(): TaskPriority
+	{
+		return $this->priority;
+	}
+
+	public function setPriority(TaskPriority $priority): static
+	{
+		$this->priority = $priority;
+
+		return $this;
+	}
+
+	public function getDueDate(): ?\DateTimeImmutable
+	{
+		return $this->dueDate;
+	}
+
+	public function setDueDate(?\DateTimeImmutable $dueDate): static
+	{
+		$this->dueDate = $dueDate;
+
+		return $this;
+	}
+
 	public function getStartDatetime(): ?\DateTimeImmutable
 	{
 		return $this->startDatetime;
@@ -69,9 +135,7 @@ class Task
 
 	public function setStartDatetime(\DateTimeImmutable $startDatetime): static
 	{
-		$this->startDatetime = $startDatetime;
-
-		return $this;
+		return $this->setSchedule($startDatetime, $this->endDatetime);
 	}
 
 	public function getEndDatetime(): ?\DateTimeImmutable
@@ -81,6 +145,16 @@ class Task
 
 	public function setEndDatetime(\DateTimeImmutable $endDatetime): static
 	{
+		return $this->setSchedule($this->startDatetime, $endDatetime);
+	}
+
+	public function setSchedule(?\DateTimeImmutable $startDatetime, ?\DateTimeImmutable $endDatetime): static
+	{
+		if ($startDatetime !== null && $endDatetime !== null && $endDatetime < $startDatetime) {
+			throw new \InvalidArgumentException('Task end must be on or after its start.');
+		}
+
+		$this->startDatetime = $startDatetime;
 		$this->endDatetime = $endDatetime;
 
 		return $this;

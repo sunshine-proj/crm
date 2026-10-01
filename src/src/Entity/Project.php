@@ -21,6 +21,19 @@ class Project
     #[ORM\Column(type: Types::TEXT)]
     private ?string $description = null;
 
+    #[ORM\ManyToOne(targetEntity: Client::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?Client $client = null;
+
+    #[ORM\Column(length: 20, enumType: ProjectStatus::class, options: ['default' => 'planned'])]
+    private ProjectStatus $status = ProjectStatus::Planned;
+
+    #[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $startDate = null;
+
+    #[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $endDate = null;
+
     #[ORM\Column]
     private ?\DateTimeImmutable $createdAt = null;
 
@@ -52,6 +65,52 @@ class Project
     public function setDescription(string $description): static
     {
         $this->description = $description;
+
+        return $this;
+    }
+
+    public function getClient(): ?Client
+    {
+        return $this->client;
+    }
+
+    public function setClient(?Client $client): static
+    {
+        $this->client = $client;
+
+        return $this;
+    }
+
+    public function getStatus(): ProjectStatus
+    {
+        return $this->status;
+    }
+
+    public function setStatus(ProjectStatus $status): static
+    {
+        $this->status = $status;
+
+        return $this;
+    }
+
+    public function getStartDate(): ?\DateTimeImmutable
+    {
+        return $this->startDate;
+    }
+
+    public function getEndDate(): ?\DateTimeImmutable
+    {
+        return $this->endDate;
+    }
+
+    public function setPlannedDates(?\DateTimeImmutable $startDate, ?\DateTimeImmutable $endDate): static
+    {
+        if ($startDate !== null && $endDate !== null && $endDate < $startDate) {
+            throw new \InvalidArgumentException('Project end date must be on or after its start date.');
+        }
+
+        $this->startDate = $startDate;
+        $this->endDate = $endDate;
 
         return $this;
     }

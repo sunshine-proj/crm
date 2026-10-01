@@ -1,21 +1,42 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { isValidDateRange } from "../lib/planning";
 
 type Project = {
   id: number;
   title: string;
   description: string;
+  client_id: number | null;
+  client_title: string | null;
+  status: ProjectStatus;
+  start_date: string | null;
+  end_date: string | null;
   created_at: string;
   updated_at: string;
 };
 
-type ProjectInput = Pick<Project, "title" | "description">;
+type Client = { id: number; title: string };
+type ProjectStatus = "planned" | "active" | "on_hold" | "completed" | "cancelled";
+type ProjectInput = Pick<Project, "title" | "description" | "client_id" | "status" | "start_date" | "end_date">;
+
+const projectStatuses: { value: ProjectStatus; label: string }[] = [
+  { value: "planned", label: "Planned" },
+  { value: "active", label: "Active" },
+  { value: "on_hold", label: "On hold" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+];
 
 const isFormVisible = ref(false);
 const projects = ref<Project[]>([]);
+const clients = ref<Client[]>([]);
 const editingId = ref<number | null>(null);
 const title = ref("");
 const description = ref("");
+const clientId = ref<number | null>(null);
+const status = ref<ProjectStatus>("planned");
+const startDate = ref("");
+const endDate = ref("");
 const errorMessage = ref("");
 const isLoading = ref(true);
 const isSaving = ref(false);
@@ -27,7 +48,7 @@ function formatProjectDate(value: string) {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("crm_token");
-  const response = await fetch(`/api/projects${path}`, {
+  const response = await fetch(`/api${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -49,7 +70,12 @@ async function loadProjects() {
   isLoading.value = true;
 
   try {
-    projects.value = await request<Project[]>("");
+    const [loadedProjects, loadedClients] = await Promise.all([
+      request<Project[]>("/projects"),
+      request<Client[]>("/clients"),
+    ]);
+    projects.value = loadedProjects;
+    clients.value = loadedClients;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to load projects.";
   } finally {
@@ -63,6 +89,10 @@ function openCreateForm() {
   editingId.value = null;
   title.value = "";
   description.value = "";
+  clientId.value = clients.value[0]?.id ?? null;
+  status.value = "planned";
+  startDate.value = "";
+  endDate.value = "";
   errorMessage.value = "";
   isFormVisible.value = true;
 }
@@ -71,6 +101,10 @@ function editProject(project: Project) {
   editingId.value = project.id;
   title.value = project.title;
   description.value = project.description;
+  clientId.value = project.client_id;
+  status.value = project.status;
+  startDate.value = project.start_date ?? "";
+  endDate.value = project.end_date ?? "";
   errorMessage.value = "";
   isFormVisible.value = true;
 }
@@ -83,10 +117,18 @@ async function saveProject() {
   const project: ProjectInput = {
     title: title.value.trim(),
     description: description.value.trim(),
+    client_id: clientId.value,
+    status: status.value,
+    start_date: startDate.value || null,
+    end_date: endDate.value || null,
   };
 
-  if (!project.title || !project.description) {
-    errorMessage.value = "Complete the title and description before saving.";
+  if (!project.title || !project.description || project.client_id === null) {
+    errorMessage.value = "Complete the title, description, and client before saving.";
+    return;
+  }
+  if (!isValidDateRange(project.start_date, project.end_date)) {
+    errorMessage.value = "The end date must be on or after the start date.";
     return;
   }
 
@@ -94,7 +136,7 @@ async function saveProject() {
   isSaving.value = true;
 
   try {
-    const savedProject = await request<Project>(editingId.value === null ? "" : `/${editingId.value}`, {
+    const savedProject = await request<Project>(editingId.value === null ? "/projects" : `/projects/${editingId.value}`, {
       method: editingId.value === null ? "POST" : "PUT",
       body: JSON.stringify(project),
     });
@@ -122,7 +164,7 @@ async function deleteProject() {
   isDeleting.value = true;
 
   try {
-    await request(`/${project.id}`, { method: "DELETE" });
+    await request(`/projects/${project.id}`, { method: "DELETE" });
     projects.value = projects.value.filter((item) => item.id !== project.id);
     isFormVisible.value = false;
   } catch (error) {
@@ -163,6 +205,28 @@ async function deleteProject() {
       <label for="project-description">Description</label>
       <textarea id="project-description" v-model="description" rows="7" placeholder="Describe the outcome this project should deliver..." required></textarea>
 
+      <label for="project-client">Client</label>
+      <select id="project-client" v-model="clientId" required>
+        <option :value="null" disabled>Select a client</option>
+        <option v-for="client in clients" :key="client.id" :value="client.id">{{ client.title }}</option>
+      </select>
+
+      <label for="project-status">Status</label>
+      <select id="project-status" v-model="status">
+        <option v-for="option in projectStatuses" :key="option.value" :value="option.value">{{ option.label }}</option>
+      </select>
+
+      <div class="task-datetime-grid">
+        <div>
+          <label for="project-start">Planned start</label>
+          <input id="project-start" v-model="startDate" type="date" />
+        </div>
+        <div>
+          <label for="project-end">Planned end</label>
+          <input id="project-end" v-model="endDate" type="date" />
+        </div>
+      </div>
+
       <div class="task-form-actions">
         <button class="button article-submit" type="submit" :disabled="isSaving || isDeleting">
           {{ isSaving ? "Saving..." : "Save" }} <span aria-hidden="true">&#8594;</span>
@@ -183,9 +247,12 @@ async function deleteProject() {
     <div v-else class="article-list project-list">
       <article v-for="project in projects" :key="project.id" class="article-item project-item">
         <div>
-          <p class="card-kicker">Created {{ formatProjectDate(project.created_at) }}</p>
+          <p class="card-kicker">{{ project.client_title ?? "Unlinked legacy project" }} · {{ project.status.replace("_", " ") }}</p>
           <h2>{{ project.title }}</h2>
           <p class="muted">{{ project.description }}</p>
+          <p v-if="project.start_date || project.end_date" class="card-kicker">
+            {{ project.start_date || "Start not set" }} to {{ project.end_date || "End not set" }}
+          </p>
         </div>
         <button class="edit-button" type="button" @click="editProject(project)">Edit</button>
       </article>

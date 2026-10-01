@@ -2,11 +2,13 @@
 
 namespace App\Entity;
 
-use App\Repository\NewsItemRepository;
+use App\Repository\ClientRepository;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 
-#[ORM\Entity(repositoryClass: NewsItemRepository::class)]
+#[ORM\Entity(repositoryClass: ClientRepository::class)]
 #[ORM\Table(name: 'client')]
 class Client
 {
@@ -26,6 +28,15 @@ class Client
 
     #[ORM\Column]
     private ?\DateTimeImmutable $updatedAt = null;
+
+    /** @var Collection<int, ClientContact> */
+    #[ORM\OneToMany(mappedBy: 'client', targetEntity: ClientContact::class)]
+    private Collection $contacts;
+
+    public function __construct()
+    {
+        $this->contacts = new ArrayCollection();
+    }
 
     public function getId(): ?int
     {
@@ -78,6 +89,12 @@ class Client
         $this->updatedAt = $updatedAt;
 
         return $this;
+    }
+
+    /** @return Collection<int, ClientContact> */
+    public function getContacts(): Collection
+    {
+        return $this->contacts;
     }
 
 }

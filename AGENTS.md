@@ -14,7 +14,8 @@ This repository contains a Vue 3 + TypeScript single-page CRM frontend in `front
 
 - Start the containerized backend and supporting services: `docker compose up -d`.
 - Start the frontend from `frontend/`: `npm run dev`.
-- Check and build the frontend from `frontend/`: `npm run build` (runs Vue/TypeScript type-checking and the Vite production build).
+- Check and build the frontend from `frontend/`: `npm run build` (runs Vue/TypeScript type-checking and the Vite production build); run frontend unit tests with `npm test`.
 - Run Symfony console commands from `src/`, or in the PHP container with `docker compose exec php bin/console ...`.
+- Run backend tests from the repository root with `docker compose run --rm --no-deps php php bin/phpunit`.
 
-There is no frontend lint or test script defined in `frontend/package.json`. Do not report tests as run unless a relevant test command is available and has actually been executed.
+There is no frontend lint script currently defined in `frontend/package.json`. Do not report tests as run unless a relevant test command is available and has actually been executed.

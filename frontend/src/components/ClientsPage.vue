@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import ClientContactsPanel from "./ClientContactsPanel.vue";
 
 type Client = {
   id: number;
@@ -9,10 +10,12 @@ type Client = {
   updated_at: string;
 };
 
+type ProjectSummary = { id: number; title: string; status: string };
 type ClientInput = Pick<Client, "title" | "notes">;
 
 const isFormVisible = ref(false);
 const clients = ref<Client[]>([]);
+const projectsByClient = ref<Record<number, ProjectSummary[]>>({});
 const editingId = ref<number | null>(null);
 const title = ref("");
 const notes = ref("");
@@ -31,7 +34,7 @@ function wasClientUpdated(client: Client) {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("crm_token");
-  const response = await fetch(`/api/clients${path}`, {
+  const response = await fetch(`/api${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -53,7 +56,17 @@ async function loadClients() {
   isLoading.value = true;
 
   try {
-    clients.value = await request<Client[]>("");
+    const [loadedClients, projects] = await Promise.all([
+      request<Client[]>("/clients"),
+      request<(ProjectSummary & { client_id: number | null })[]>("/projects"),
+    ]);
+    clients.value = loadedClients;
+    projectsByClient.value = projects.reduce<Record<number, ProjectSummary[]>>((grouped, project) => {
+      if (project.client_id === null) return grouped;
+      grouped[project.client_id] ??= [];
+      grouped[project.client_id].push(project);
+      return grouped;
+    }, {});
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to load clients.";
   } finally {
@@ -91,7 +104,7 @@ async function saveClient() {
   isSaving.value = true;
 
   try {
-    const savedClient = await request<Client>(editingId.value === null ? "" : `/${editingId.value}`, {
+    const savedClient = await request<Client>(editingId.value === null ? "/clients" : `/clients/${editingId.value}`, {
       method: editingId.value === null ? "POST" : "PUT",
       body: JSON.stringify(client),
     });
@@ -117,7 +130,7 @@ async function deleteClient(client: Client) {
   deletingId.value = client.id;
 
   try {
-    await request(`/${client.id}`, { method: "DELETE" });
+    await request(`/clients/${client.id}`, { method: "DELETE" });
     clients.value = clients.value.filter((item) => item.id !== client.id);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to delete the client.";
@@ -178,6 +191,16 @@ async function deleteClient(client: Client) {
           </p>
           <h2>{{ client.title }}</h2>
           <p class="muted">{{ client.notes }}</p>
+          <div v-if="projectsByClient[client.id]?.length" class="client-project-list">
+            <p class="card-kicker">Projects</p>
+            <ul>
+              <li v-for="project in projectsByClient[client.id]" :key="project.id">
+                {{ project.title }} <span class="muted">· {{ project.status.replace("_", " ") }}</span>
+              </li>
+            </ul>
+          </div>
+          <p v-else class="card-kicker">No projects linked yet</p>
+          <ClientContactsPanel :client-id="client.id" />
         </div>
 
         <div class="article-actions">

@@ -4,6 +4,9 @@ namespace App\Controller;
 
 use App\Dto\TaskInput;
 use App\Entity\Task;
+use App\Entity\TaskPriority;
+use App\Entity\TaskStatus;
+use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -17,6 +20,7 @@ class TaskController extends AbstractController
 {
 	public function __construct(
 		private readonly TaskRepository $taskRepository,
+		private readonly ProjectRepository $projectRepository,
 		private readonly EntityManagerInterface $entityManager,
 	) {
 	}
@@ -34,16 +38,27 @@ class TaskController extends AbstractController
 	#[IsGranted('ROLE_USER')]
 	public function create(#[MapRequestPayload] TaskInput $input): JsonResponse
 	{
-		if ($input->title === null || $input->description === null || $input->start_datetime === null || $input->end_datetime === null) {
-			return $this->json(['error' => 'Title, description, start_datetime and end_datetime are required.'], JsonResponse::HTTP_BAD_REQUEST);
+		if ($input->title === null || $input->description === null || $input->project_id === null || $input->start_datetime === null || $input->end_datetime === null) {
+			return $this->json(['error' => 'Title, description, project_id, start_datetime and end_datetime are required.'], JsonResponse::HTTP_BAD_REQUEST);
+		}
+		if ($input->end_datetime < $input->start_datetime) {
+			return $this->json(['error' => 'Task end must be on or after its start.'], JsonResponse::HTTP_BAD_REQUEST);
+		}
+
+		$project = $this->projectRepository->find($input->project_id);
+		if ($project === null) {
+			return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
 		}
 
 		$now = new \DateTimeImmutable();
 		$item = (new Task())
 			->setTitle(trim($input->title))
 			->setDescription(trim($input->description))
-			->setStartDatetime($input->start_datetime)
-			->setEndDatetime($input->end_datetime)
+			->setProject($project)
+			->setStatus(TaskStatus::from($input->status ?? TaskStatus::Todo->value))
+			->setPriority(TaskPriority::from($input->priority ?? TaskPriority::Normal->value))
+			->setSchedule($input->start_datetime, $input->end_datetime)
+			->setDueDate($input->due_date !== null ? new \DateTimeImmutable($input->due_date) : null)
 			->setCreatedAt($now)
 			->setUpdatedAt($now);
 
@@ -76,15 +91,30 @@ class TaskController extends AbstractController
 
 		$title = $input->title !== null ? trim($input->title) : $item->getTitle();
 		$description = $input->description !== null ? trim($input->description) : $item->getDescription();
-		if ($title === null || $description === null || $input->start_datetime === null && $item->getStartDatetime() === null || $input->end_datetime === null && $item->getEndDatetime() === null) {
+		$startDatetime = $input->start_datetime ?? $item->getStartDatetime();
+		$endDatetime = $input->end_datetime ?? $item->getEndDatetime();
+		if ($title === null || $description === null || $startDatetime === null || $endDatetime === null) {
 			return $this->json(['error' => 'Title, description, start_datetime and end_datetime are required.'], JsonResponse::HTTP_BAD_REQUEST);
+		}
+		if ($endDatetime < $startDatetime) {
+			return $this->json(['error' => 'Task end must be on or after its start.'], JsonResponse::HTTP_BAD_REQUEST);
+		}
+
+		if ($input->project_id !== null) {
+			$project = $this->projectRepository->find($input->project_id);
+			if ($project === null) {
+				return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+			$item->setProject($project);
 		}
 
 		$item
 			->setTitle($title)
 			->setDescription($description)
-			->setStartDatetime($input->start_datetime ?? $item->getStartDatetime())
-			->setEndDatetime($input->end_datetime ?? $item->getEndDatetime())
+			->setStatus(TaskStatus::from($input->status ?? $item->getStatus()->value))
+			->setPriority(TaskPriority::from($input->priority ?? $item->getPriority()->value))
+			->setSchedule($startDatetime, $endDatetime)
+			->setDueDate($input->due_date !== null ? new \DateTimeImmutable($input->due_date) : $item->getDueDate())
 			->setUpdatedAt(new \DateTimeImmutable());
 		$this->entityManager->flush();
 
@@ -113,6 +143,11 @@ class TaskController extends AbstractController
 			'id' => $item->getId(),
 			'title' => $item->getTitle(),
 			'description' => $item->getDescription(),
+			'project_id' => $item->getProject()?->getId(),
+			'project_title' => $item->getProject()?->getTitle(),
+			'status' => $item->getStatus()->value,
+			'priority' => $item->getPriority()->value,
+			'due_date' => $item->getDueDate()?->format('Y-m-d'),
 			'start_datetime' => $item->getStartDatetime()?->format(\DateTimeInterface::ATOM),
 			'end_datetime' => $item->getEndDatetime()?->format(\DateTimeInterface::ATOM),
 			'created_at' => $item->getCreatedAt()?->format(\DateTimeInterface::ATOM),

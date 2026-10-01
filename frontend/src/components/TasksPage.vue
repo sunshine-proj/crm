@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { isValidDateTimeRange } from "../lib/planning";
 
 type Task = {
   id: number;
   title: string;
   description: string;
+  project_id: number | null;
+  project_title: string | null;
+  status: TaskStatus;
+  priority: TaskPriority;
+  due_date: string | null;
   start_datetime: string;
   end_datetime: string;
   created_at: string;
@@ -14,15 +20,41 @@ type Task = {
 type TaskInput = {
   title: string;
   description: string;
+  project_id: number | null;
   start_datetime: string;
   end_datetime: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  due_date: string | null;
 };
+
+type Project = { id: number; title: string };
+type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
+type TaskPriority = "low" | "normal" | "high" | "urgent";
+
+const taskStatuses: { value: TaskStatus; label: string }[] = [
+  { value: "todo", label: "To do" },
+  { value: "in_progress", label: "In progress" },
+  { value: "blocked", label: "Blocked" },
+  { value: "done", label: "Done" },
+];
+const taskPriorities: { value: TaskPriority; label: string }[] = [
+  { value: "low", label: "Low" },
+  { value: "normal", label: "Normal" },
+  { value: "high", label: "High" },
+  { value: "urgent", label: "Urgent" },
+];
 
 const isFormVisible = ref(false);
 const tasks = ref<Task[]>([]);
+const projects = ref<Project[]>([]);
 const editingId = ref<number | null>(null);
 const title = ref("");
 const description = ref("");
+const projectId = ref<number | null>(null);
+const status = ref<TaskStatus>("todo");
+const priority = ref<TaskPriority>("normal");
+const dueDate = ref("");
 const startDatetime = ref("");
 const endDatetime = ref("");
 const errorMessage = ref("");
@@ -47,7 +79,7 @@ function toApiDatetime(value: string) {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("crm_token");
-  const response = await fetch(`/api/tasks${path}`, {
+  const response = await fetch(`/api${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -69,7 +101,12 @@ async function loadTasks() {
   isLoading.value = true;
 
   try {
-    tasks.value = await request<Task[]>("");
+    const [loadedTasks, loadedProjects] = await Promise.all([
+      request<Task[]>("/tasks"),
+      request<Project[]>("/projects"),
+    ]);
+    tasks.value = loadedTasks;
+    projects.value = loadedProjects;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to load tasks.";
   } finally {
@@ -83,6 +120,10 @@ function openCreateForm() {
   editingId.value = null;
   title.value = "";
   description.value = "";
+  projectId.value = projects.value[0]?.id ?? null;
+  status.value = "todo";
+  priority.value = "normal";
+  dueDate.value = "";
   startDatetime.value = "";
   endDatetime.value = "";
   errorMessage.value = "";
@@ -93,6 +134,10 @@ function editTask(task: Task) {
   editingId.value = task.id;
   title.value = task.title;
   description.value = task.description;
+  projectId.value = task.project_id;
+  status.value = task.status;
+  priority.value = task.priority;
+  dueDate.value = task.due_date ?? "";
   startDatetime.value = toDatetimeLocal(task.start_datetime);
   endDatetime.value = toDatetimeLocal(task.end_datetime);
   errorMessage.value = "";
@@ -107,15 +152,19 @@ async function saveTask() {
   const task: TaskInput = {
     title: title.value.trim(),
     description: description.value.trim(),
+    project_id: projectId.value,
     start_datetime: startDatetime.value ? toApiDatetime(startDatetime.value) : "",
     end_datetime: endDatetime.value ? toApiDatetime(endDatetime.value) : "",
+    status: status.value,
+    priority: priority.value,
+    due_date: dueDate.value || null,
   };
 
-  if (!task.title || !task.description || !task.start_datetime || !task.end_datetime) {
-    errorMessage.value = "Complete all task fields before saving.";
+  if (!task.title || !task.description || task.project_id === null || !task.start_datetime || !task.end_datetime) {
+    errorMessage.value = "Complete the title, description, project, and schedule before saving.";
     return;
   }
-  if (new Date(task.end_datetime) < new Date(task.start_datetime)) {
+  if (!isValidDateTimeRange(task.start_datetime, task.end_datetime)) {
     errorMessage.value = "End date and time must be after the start date and time.";
     return;
   }
@@ -124,7 +173,7 @@ async function saveTask() {
   isSaving.value = true;
 
   try {
-    const savedTask = await request<Task>(editingId.value === null ? "" : `/${editingId.value}`, {
+    const savedTask = await request<Task>(editingId.value === null ? "/tasks" : `/tasks/${editingId.value}`, {
       method: editingId.value === null ? "POST" : "PUT",
       body: JSON.stringify(task),
     });
@@ -152,7 +201,7 @@ async function deleteTask() {
   isDeleting.value = true;
 
   try {
-    await request(`/${task.id}`, { method: "DELETE" });
+    await request(`/tasks/${task.id}`, { method: "DELETE" });
     tasks.value = tasks.value.filter((item) => item.id !== task.id);
     isFormVisible.value = false;
   } catch (error) {
@@ -193,6 +242,30 @@ async function deleteTask() {
       <label for="task-description">Description</label>
       <textarea id="task-description" v-model="description" rows="5" placeholder="What needs to get done?" required></textarea>
 
+      <label for="task-project">Project</label>
+      <select id="task-project" v-model="projectId" required>
+        <option :value="null" disabled>Select a project</option>
+        <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.title }}</option>
+      </select>
+
+      <div class="task-datetime-grid">
+        <div>
+          <label for="task-status">Status</label>
+          <select id="task-status" v-model="status">
+            <option v-for="option in taskStatuses" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </div>
+        <div>
+          <label for="task-priority">Priority</label>
+          <select id="task-priority" v-model="priority">
+            <option v-for="option in taskPriorities" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </div>
+      </div>
+
+      <label for="task-due">Due date</label>
+      <input id="task-due" v-model="dueDate" type="date" />
+
       <div class="task-datetime-grid">
         <div>
           <label for="task-start">Start date and time</label>
@@ -224,9 +297,10 @@ async function deleteTask() {
     <div v-else class="article-list task-list">
       <article v-for="task in tasks" :key="task.id" class="article-item task-item">
         <div>
-          <p class="card-kicker">{{ formatTaskDate(task.start_datetime) }} to {{ formatTaskDate(task.end_datetime) }}</p>
+          <p class="card-kicker">{{ task.project_title ?? "Unlinked legacy task" }} · {{ task.status.replace("_", " ") }} · {{ task.priority }}</p>
           <h2>{{ task.title }}</h2>
           <p class="muted">{{ task.description }}</p>
+          <p class="card-kicker">{{ formatTaskDate(task.start_datetime) }} to {{ formatTaskDate(task.end_datetime) }}<span v-if="task.due_date"> · Due {{ task.due_date }}</span></p>
         </div>
         <button class="edit-button" type="button" @click="editTask(task)">Edit</button>
       </article>

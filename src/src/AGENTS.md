@@ -2,6 +2,10 @@
 
 This directory contains the Symfony 8 application code (PHP 8.4): API controllers, request DTOs, Doctrine entities, and repositories. Routes are declared with Symfony `#[Route]` attributes. The API returns JSON and persists CRM data to PostgreSQL through Doctrine ORM.
 
+## Development
+
+- backend is run in Docker container
+
 ## Structure And Conventions
 
 - Apply object-oriented design throughout application code: keep responsibilities cohesive, encapsulate state and business rules, use constructor dependency injection, and avoid procedural or static business logic. Keep controllers thin; put reusable use-case logic in services when it grows beyond HTTP coordination. Follow the existing Symfony and Doctrine patterns without adding abstractions that do not clarify a real responsibility.
@@ -19,6 +23,6 @@ This directory contains the Symfony 8 application code (PHP 8.4): API controller
 
 Automated tests are required for all project-owned backend behavior. Aim for complete coverage of production code, including successful flows, validation failures, missing records, authorization, and edge cases. Add regression tests with every behavior change; use unit tests for isolated rules and integration/API tests for persistence, HTTP, and security behavior. Use a coverage report to find and close gaps, and do not claim full coverage without a report.
 
-The backend currently has no `tests/` files or PHPUnit dependency configured in `composer.json`. Treat establishing and maintaining the test runner, test database/configuration, and coverage reporting as outstanding project work, not as a reason to omit tests for new behavior. Do not describe syntax checks as test coverage.
+PHPUnit 12 is configured with unit and SQLite-backed integration tests under `tests/`; run them with `php bin/phpunit` from the backend project directory, or `docker compose run --rm --no-deps php php bin/phpunit` from the repository root. Coverage reporting is not configured yet, so do not claim complete measured coverage. Do not describe syntax checks as test coverage.
 
 Run Symfony commands from the backend project directory (`src/` at the repository root), for example `php bin/console debug:router` or `php bin/console doctrine:migrations:diff`. In the containerized environment, use `docker compose exec php bin/console ...` from the repository root. Run `php -l path/to/changed.php` for a quick syntax check, in addition to relevant automated tests. Do not claim a migration was applied unless it was explicitly executed against the intended database.
