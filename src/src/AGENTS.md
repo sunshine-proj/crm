@@ -1,6 +1,6 @@
 # Backend Application Instructions
 
-This directory contains the Symfony 8 application code (PHP 8.4): API controllers, request DTOs, Doctrine entities, and repositories. Routes are declared with Symfony `#[Route]` attributes. The API returns JSON and persists CRM data to PostgreSQL through Doctrine ORM.
+This directory contains the Symfony 8 application code (PHP 8.4): API controllers, request DTOs, Doctrine entities, repositories, and focused application services. Routes are declared with Symfony `#[Route]` attributes. The API returns JSON and persists CRM data to PostgreSQL through Doctrine ORM; invoice PDF downloads return `application/pdf`.
 
 ## Development
 
@@ -17,6 +17,8 @@ This directory contains the Symfony 8 application code (PHP 8.4): API controller
 - Authentication is stateless JWT for `/api`; login is public. Authorization is resource-specific: projects/tasks require `ROLE_USER`, client writes require `ROLE_ADMIN`, and news-item edits/deletes are restricted to the owning user. Inspect the controller attributes and `config/packages/security.yaml` before changing these rules.
 - When changing entity mappings, add or update a Doctrine migration under `src/migrations/`; do not rely on schema auto-update. Keep migration changes consistent with the entity and existing database history. Use Doctrine migrations for schema changes, not as a way to perform unversioned application data access.
 - Audit-sensitive client operations use the `monolog.logger.audit` logger. Preserve relevant audit events and avoid logging credentials, JWTs, or other secrets.
+- Invoices are currently editable drafts linked to a client and project, with task and additional-cost line snapshots, explicit EUR/GBP/USD currency, server-calculated integer minor-unit totals, and PDF export through Dompdf. Add all invoice schema changes through Doctrine migrations and keep PDF output escaped and independent of remote resources.
+- Never use floating-point arithmetic for invoice amounts. Validate decimal strings at the API boundary, calculate in integer minor units, and require a currency when filtering by amount. Do not imply that a draft PDF is a legally issued invoice.
 - Do not put frontend code or container configuration in this directory; those have separate scopes in `frontend/` and the repository root.
 
 ## Testing And Verification

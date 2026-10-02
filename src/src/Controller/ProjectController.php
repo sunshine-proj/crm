@@ -7,9 +7,11 @@ use App\Entity\ProjectStatus;
 use App\Entity\Project;
 use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
+use App\Repository\UserRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
@@ -20,6 +22,7 @@ class ProjectController extends AbstractController
 	public function __construct(
 		private readonly ProjectRepository $projectRepository,
 		private readonly ClientRepository $clientRepository,
+		private readonly UserRepository $userRepository,
 		private readonly EntityManagerInterface $entityManager,
 	) {
 	}
@@ -31,6 +34,18 @@ class ProjectController extends AbstractController
 		$items = $this->projectRepository->findBy([], ['createdAt' => 'DESC']);
 
 		return $this->json(array_map(fn (Project $item): array => $this->serializeItem($item), $items));
+	}
+
+	#[Route('/managers', name: 'managers', methods: ['GET'])]
+	#[IsGranted('ROLE_USER')]
+	public function managers(): JsonResponse
+	{
+		$users = $this->userRepository->findBy([], ['email' => 'ASC']);
+
+		return $this->json(array_map(static fn ($user): array => [
+			'id' => $user->getId(),
+			'email' => $user->getUserIdentifier(),
+		], $users));
 	}
 
 	#[Route('', name: 'create', methods: ['POST'])]
@@ -45,6 +60,10 @@ class ProjectController extends AbstractController
 		if ($client === null) {
 			return $this->json(['error' => 'Client not found.'], JsonResponse::HTTP_NOT_FOUND);
 		}
+		$manager = $input->manager_id !== null ? $this->userRepository->find($input->manager_id) : null;
+		if ($input->manager_id !== null && $manager === null) {
+			return $this->json(['error' => 'Project manager not found.'], JsonResponse::HTTP_NOT_FOUND);
+		}
 
 		$startDate = $input->start_date !== null ? new \DateTimeImmutable($input->start_date) : null;
 		$endDate = $input->end_date !== null ? new \DateTimeImmutable($input->end_date) : null;
@@ -57,6 +76,7 @@ class ProjectController extends AbstractController
 			->setTitle(trim($input->title))
 			->setDescription(trim($input->description))
 			->setClient($client)
+			->setManager($manager)
 			->setStatus(ProjectStatus::from($input->status ?? ProjectStatus::Planned->value))
 			->setPlannedDates($startDate, $endDate)
 			->setCreatedAt($now)
@@ -82,7 +102,7 @@ class ProjectController extends AbstractController
 
 	#[Route('/{id<\d+>}', name: 'update', methods: ['PUT', 'PATCH'])]
 	#[IsGranted('ROLE_USER')]
-	public function update(int $id, #[MapRequestPayload] ProjectInput $input): JsonResponse
+	public function update(int $id, #[MapRequestPayload] ProjectInput $input, Request $request): JsonResponse
 	{
 		$item = $this->projectRepository->find($id);
 		if ($item === null) {
@@ -106,6 +126,14 @@ class ProjectController extends AbstractController
 				return $this->json(['error' => 'Client not found.'], JsonResponse::HTTP_NOT_FOUND);
 			}
 			$item->setClient($client);
+		}
+		$payload = $request->toArray();
+		if (array_key_exists('manager_id', $payload)) {
+			$manager = $input->manager_id !== null ? $this->userRepository->find($input->manager_id) : null;
+			if ($input->manager_id !== null && $manager === null) {
+				return $this->json(['error' => 'Project manager not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+			$item->setManager($manager);
 		}
 
 		$item
@@ -143,6 +171,8 @@ class ProjectController extends AbstractController
 			'description' => $item->getDescription(),
 			'client_id' => $item->getClient()?->getId(),
 			'client_title' => $item->getClient()?->getTitle(),
+			'manager_id' => $item->getManager()?->getId(),
+			'manager_email' => $item->getManager()?->getUserIdentifier(),
 			'status' => $item->getStatus()->value,
 			'start_date' => $item->getStartDate()?->format('Y-m-d'),
 			'end_date' => $item->getEndDate()?->format('Y-m-d'),

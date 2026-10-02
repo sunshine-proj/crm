@@ -14,6 +14,8 @@ final class ProjectInput
         public readonly ?string $description = null,
         #[Assert\Positive]
         public readonly ?int $client_id = null,
+        #[Assert\Positive]
+        public readonly ?int $manager_id = null,
         #[Assert\Choice(choices: ['planned', 'active', 'on_hold', 'completed', 'cancelled'])]
         public readonly ?string $status = null,
         #[Assert\Date]

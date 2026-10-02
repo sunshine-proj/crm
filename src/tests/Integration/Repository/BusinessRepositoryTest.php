@@ -4,10 +4,12 @@ namespace App\Tests\Integration\Repository;
 
 use App\Entity\Client;
 use App\Entity\ClientContact;
+use App\Entity\Invoice;
 use App\Entity\Project;
 use App\Entity\ProjectStatus;
 use App\Entity\Task;
 use App\Entity\TaskStatus;
+use App\Entity\User;
 use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
@@ -61,6 +63,25 @@ final class BusinessRepositoryTest extends KernelTestCase
             ->setStatus(ProjectStatus::Active)
             ->setCreatedAt($now)
             ->setUpdatedAt($now);
+        $manager = (new User())
+            ->setEmail('manager@example.com')
+            ->setPasswordHash('not-a-real-password-hash');
+        $project->setManager($manager);
+        $invoice = (new Invoice())
+            ->setInvoiceNumber('INV-2026-000001')
+            ->setDetails(
+                $client,
+                $project,
+                $manager,
+                'Acme',
+                'Onboarding',
+                'manager@example.com',
+                new DateTimeImmutable('2026-10-02'),
+                null,
+                'EUR',
+                [['task_id' => null, 'description' => 'Kickoff', 'amount' => '150.00']],
+                15000,
+            );
         $openTask = (new Task())
             ->setTitle('Kickoff')
             ->setDescription('Schedule the kickoff')
@@ -79,8 +100,10 @@ final class BusinessRepositoryTest extends KernelTestCase
             ->setUpdatedAt($now);
 
         $this->entityManager->persist($client);
+        $this->entityManager->persist($manager);
         $this->entityManager->persist($contact);
         $this->entityManager->persist($project);
+        $this->entityManager->persist($invoice);
         $this->entityManager->persist($openTask);
         $this->entityManager->persist($completedTask);
         $this->entityManager->flush();
@@ -97,5 +120,20 @@ final class BusinessRepositoryTest extends KernelTestCase
         $storedTask = $this->entityManager->getRepository(Task::class)->find($openTask->getId());
         self::assertSame('Onboarding', $storedTask?->getProject()?->getTitle());
         self::assertSame('Acme', $storedTask?->getProject()?->getClient()?->getTitle());
+        self::assertSame('manager@example.com', $storedTask?->getProject()?->getManager()?->getUserIdentifier());
+
+        $filteredInvoices = $this->entityManager->getRepository(Invoice::class)->findFiltered([
+            'client_id' => $client->getId(),
+            'project_id' => $project->getId(),
+            'manager_id' => $manager->getId(),
+            'from' => new DateTimeImmutable('2026-10-01'),
+            'to' => new DateTimeImmutable('2026-10-03'),
+            'currency' => 'EUR',
+            'min_minor' => 15000,
+            'max_minor' => 15000,
+        ]);
+        self::assertCount(1, $filteredInvoices);
+        self::assertSame(15000, $filteredInvoices[0]->getTotalMinor());
+        self::assertSame('150.00', $filteredInvoices[0]->getItems()[0]['amount']);
     }
 }

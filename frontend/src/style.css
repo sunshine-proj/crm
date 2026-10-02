@@ -534,6 +534,170 @@ input:focus {
 .task-item > .edit-button {
   flex: 0 0 auto;
 }
+.invoice-filters {
+  margin-top: 28px;
+  padding: 22px;
+  border-top: 3px solid #176b63;
+  background: #eeece4;
+}
+.invoice-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+.invoice-filter-grid label,
+.invoice-filter-grid input,
+.invoice-filter-grid select {
+  display: block;
+  width: 100%;
+}
+.invoice-filter-grid label {
+  margin: 3px 0 7px;
+}
+.invoice-filter-grid input,
+.invoice-filter-grid select,
+.invoice-form select {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid #cbd4ca;
+  border-radius: 2px;
+  color: #1d2928;
+  background: #f8f7f1;
+  font: inherit;
+}
+.invoice-filter-grid input {
+  margin: 0;
+}
+.invoice-filter-actions,
+.invoice-item-actions,
+.invoice-add-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.invoice-filter-actions {
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+.invoice-error {
+  margin-top: 18px;
+}
+.invoice-form {
+  max-width: 940px;
+}
+.invoice-form > label {
+  display: block;
+  margin: 15px 0 8px;
+}
+.invoice-form > input {
+  margin: 0;
+}
+.invoice-form .task-datetime-grid {
+  margin-top: 5px;
+}
+.invoice-number,
+.invoice-project-manager,
+.invoice-due-date {
+  margin: 8px 0 0;
+  color: #71807b;
+  font-size: 13px;
+}
+.invoice-lines {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #cbd4ca;
+}
+.invoice-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.invoice-section-heading h3 {
+  margin: 0;
+  color: #1d2928;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 18px;
+}
+.invoice-add-task select {
+  min-width: 170px;
+  padding: 8px;
+  border: 1px solid #cbd4ca;
+  border-radius: 2px;
+  background: #f8f7f1;
+  font: inherit;
+}
+.invoice-line-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 170px) 28px;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  color: #53645e;
+  font-size: 14px;
+}
+.invoice-line-row input {
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  background: #f8f7f1;
+}
+.invoice-cost-row {
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 170px) 28px;
+}
+.invoice-line-row .close-button {
+  padding: 5px;
+}
+.invoice-hint {
+  margin: 14px 0 0;
+  font-size: 13px;
+}
+.invoice-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 20px 0 0;
+  margin-top: 24px;
+  border-top: 2px solid #176b63;
+  color: #53645e;
+}
+.invoice-total strong,
+.invoice-item-total {
+  color: #176b63;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 20px;
+}
+.invoice-form-actions {
+  flex-wrap: wrap;
+}
+.invoice-form-actions .article-submit {
+  width: auto;
+}
+.invoice-list {
+  margin-top: 20px;
+}
+.invoice-item {
+  align-items: center;
+}
+.invoice-item-main .card-kicker {
+  margin-bottom: 9px;
+}
+.invoice-item-main h2 {
+  font-size: 22px;
+}
+.invoice-item-main .muted {
+  margin-top: 6px;
+}
+.invoice-item-actions {
+  flex: 0 0 auto;
+}
+.invoice-item-total {
+  white-space: nowrap;
+}
+.invoice-empty {
+  margin-top: 20px;
+}
 @media (max-width: 760px) {
   .top-panel {
     min-height: 72px;
@@ -593,6 +757,23 @@ input:focus {
   .task-form-actions .edit-button {
     width: 100%;
   }
+  .invoice-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .invoice-item-actions {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .invoice-form-actions .article-submit {
+    width: 100%;
+  }
+  .invoice-add-task {
+    min-width: 0;
+  }
+  .invoice-add-task select {
+    min-width: 0;
+    max-width: 180px;
+  }
   .article-item {
     padding: 22px 20px;
     flex-direction: column;
@@ -601,8 +782,32 @@ input:focus {
   .edit-button {
     align-self: start;
   }
+  .invoice-filter-actions {
+    justify-content: stretch;
+  }
+  .invoice-filter-actions .edit-button {
+    flex: 1;
+  }
+  .invoice-line-row {
+    grid-template-columns: minmax(0, 1fr) 100px 26px;
+    gap: 7px;
+  }
+  .invoice-section-heading {
+    align-items: flex-start;
+  }
   .form-panel {
     min-height: calc(100vh - 72px);
     padding: 56px 9vw;
+  }
+}
+@media (max-width: 420px) {
+  .invoice-filter-grid {
+    grid-template-columns: 1fr;
+  }
+  .invoice-filters {
+    padding: 18px 14px;
+  }
+  .invoice-add-task select {
+    max-width: 135px;
   }
 }

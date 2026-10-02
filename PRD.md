@@ -25,12 +25,14 @@ Implemented modules include:
 
 - **Clients:** create, list, edit, and delete records containing a title and notes, with expandable structured contacts (name, role, email, and phone). Client and contact writes are restricted to administrators.
 - **Projects:** create, list, edit, and delete records containing a title and description, linked to a client for new records, with lifecycle status and planned start/end dates.
+- **Projects:** can have an optional responsible manager selected from authenticated workspace users.
 - **Tasks:** create, list, edit, and delete records containing a title, description, start/end times, a project link, status, priority, and optional due date.
+- **Invoices:** authenticated users can create/edit/delete draft invoices linked to a project and its client, add priced project tasks and additional costs, select EUR/GBP/USD, filter by client/project/manager/date/currency/total range, and export a PDF draft. The API calculates totals using integer minor units; payments, tax, issuance, and accounting are not implemented.
 - **News:** news-item records with user ownership behavior in the API.
 - **Dashboard:** displays live client, active-project, and open-task counts from an authenticated API summary endpoint.
 - **Authentication:** sign-in through `POST /api/login` and bearer-token API requests.
 
-New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. The client record is not yet a full structured organization/account profile; project ownership, milestones, dependencies, time tracking, invoicing, payment tracking, expense management, bookkeeping, and financial reporting are not implemented. Treat these as roadmap requirements, not existing features. PHPUnit backend tests and Vitest frontend unit tests are configured; coverage reporting is still outstanding.
+New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. The client record is not yet a full structured organization/account profile; project ownership beyond the responsible manager, milestones, dependencies, time tracking, invoice issuance, payment tracking, expense management, bookkeeping, and financial reporting are not implemented. Treat these as roadmap requirements, not existing features. PHPUnit backend tests and Vitest frontend unit tests are configured; coverage reporting is still outstanding.
 
 ## Product Principles
 
@@ -100,12 +102,16 @@ The initial relational planning slice is implemented: clients can manage structu
 
 ### Phase 3: Invoicing And Payments
 
+- **Implemented MVP:** create/edit/delete project-linked draft invoices with project-task line items and additional costs; snapshot client/project/manager labels; select EUR, GBP, or USD; assign ID-based invoice identifiers; filter by client, project, project manager, invoice date range, currency, and total range; export a draft PDF from the API.
+- **Implemented MVP:** calculate line and invoice totals on the server using integer minor units; frontend amount previews use integer-safe arithmetic. The PDF is clearly marked Draft and is not a compliant issued invoice.
 - Create draft invoices from a client and optionally from approved project work, time, or fixed-fee milestones.
 - Support invoice line items, currency, issue/due dates, tax configuration, totals, notes, and lifecycle status.
 - Allow invoice review before issue; issued invoices must not be silently rewritten. Corrections should use explicit void, credit, or replacement flows appropriate to validated business rules.
 - Record full or partial payments, payment dates, references, and allocation to invoices; calculate outstanding balances consistently.
 - Provide printable/exportable invoice output and a clear client/project invoice history.
 - Confirm local invoice numbering, tax, retention, and document requirements before releasing invoices for real-world use.
+- Add payment records, partial-payment allocation, derived outstanding balances, immutable issuance, audit history, taxes/discounts, and jurisdiction-validated invoice numbering before invoices are used operationally.
+- Consider PDF branding and client billing address/contact snapshots, configurable payment instructions, and email delivery after legal and business requirements are confirmed.
 
 ### Phase 4: Bookkeeping And Broader ERP Direction
 
@@ -141,6 +147,8 @@ The initial relational planning slice is implemented: clients can manage structu
 - **FN-4:** Users can distinguish estimates, drafts, issued documents, payments, expenses, and accounting entries; a draft is not represented as received revenue.
 - **FN-5:** Financial reports disclose their date range, currency, and calculation basis.
 - **FN-6:** Bookkeeping scope and compliance claims require confirmation for the target jurisdictions; do not represent operational summaries as statutory accounts.
+- **FN-7:** Draft invoice PDF exports must be marked as drafts; ID-based identifiers are not a substitute for jurisdiction-approved invoice numbering.
+- **FN-8:** Invoice list amount filters must be currency-scoped; totals in different currencies must never be compared as if they shared a currency.
 
 ### Access, Privacy, And Audit
 
@@ -192,3 +200,4 @@ Do not present a candidate measure as a live KPI until its source data and calcu
 - What does bookkeeping mean for the first target users: expense tracking and cash summaries, accounting-system integration, or a general ledger?
 - Which roles need access to client data, project budgets, costs, invoices, and payment details?
 - What audit, retention, export, backup, and deletion policies apply to customer and financial data?
+- Which currencies beyond EUR, GBP, and USD, tax rules, billing addresses, payment instructions, and document templates are required for invoice drafts?

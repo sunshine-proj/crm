@@ -8,6 +8,8 @@ type Project = {
   description: string;
   client_id: number | null;
   client_title: string | null;
+  manager_id: number | null;
+  manager_email: string | null;
   status: ProjectStatus;
   start_date: string | null;
   end_date: string | null;
@@ -16,8 +18,9 @@ type Project = {
 };
 
 type Client = { id: number; title: string };
+type Manager = { id: number; email: string };
 type ProjectStatus = "planned" | "active" | "on_hold" | "completed" | "cancelled";
-type ProjectInput = Pick<Project, "title" | "description" | "client_id" | "status" | "start_date" | "end_date">;
+type ProjectInput = Pick<Project, "title" | "description" | "client_id" | "manager_id" | "status" | "start_date" | "end_date">;
 
 const projectStatuses: { value: ProjectStatus; label: string }[] = [
   { value: "planned", label: "Planned" },
@@ -30,10 +33,12 @@ const projectStatuses: { value: ProjectStatus; label: string }[] = [
 const isFormVisible = ref(false);
 const projects = ref<Project[]>([]);
 const clients = ref<Client[]>([]);
+const managers = ref<Manager[]>([]);
 const editingId = ref<number | null>(null);
 const title = ref("");
 const description = ref("");
 const clientId = ref<number | null>(null);
+const managerId = ref<number | null>(null);
 const status = ref<ProjectStatus>("planned");
 const startDate = ref("");
 const endDate = ref("");
@@ -70,12 +75,14 @@ async function loadProjects() {
   isLoading.value = true;
 
   try {
-    const [loadedProjects, loadedClients] = await Promise.all([
+    const [loadedProjects, loadedClients, loadedManagers] = await Promise.all([
       request<Project[]>("/projects"),
       request<Client[]>("/clients"),
+      request<Manager[]>("/projects/managers"),
     ]);
     projects.value = loadedProjects;
     clients.value = loadedClients;
+    managers.value = loadedManagers;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to load projects.";
   } finally {
@@ -90,6 +97,7 @@ function openCreateForm() {
   title.value = "";
   description.value = "";
   clientId.value = clients.value[0]?.id ?? null;
+  managerId.value = null;
   status.value = "planned";
   startDate.value = "";
   endDate.value = "";
@@ -102,6 +110,7 @@ function editProject(project: Project) {
   title.value = project.title;
   description.value = project.description;
   clientId.value = project.client_id;
+  managerId.value = project.manager_id;
   status.value = project.status;
   startDate.value = project.start_date ?? "";
   endDate.value = project.end_date ?? "";
@@ -118,6 +127,7 @@ async function saveProject() {
     title: title.value.trim(),
     description: description.value.trim(),
     client_id: clientId.value,
+    manager_id: managerId.value,
     status: status.value,
     start_date: startDate.value || null,
     end_date: endDate.value || null,
@@ -211,6 +221,12 @@ async function deleteProject() {
         <option v-for="client in clients" :key="client.id" :value="client.id">{{ client.title }}</option>
       </select>
 
+      <label for="project-manager">Responsible project manager</label>
+      <select id="project-manager" v-model="managerId">
+        <option :value="null">Unassigned</option>
+        <option v-for="manager in managers" :key="manager.id" :value="manager.id">{{ manager.email }}</option>
+      </select>
+
       <label for="project-status">Status</label>
       <select id="project-status" v-model="status">
         <option v-for="option in projectStatuses" :key="option.value" :value="option.value">{{ option.label }}</option>
@@ -247,7 +263,7 @@ async function deleteProject() {
     <div v-else class="article-list project-list">
       <article v-for="project in projects" :key="project.id" class="article-item project-item">
         <div>
-          <p class="card-kicker">{{ project.client_title ?? "Unlinked legacy project" }} · {{ project.status.replace("_", " ") }}</p>
+          <p class="card-kicker">{{ project.client_title ?? "Unlinked legacy project" }} · {{ project.status.replace("_", " ") }} · {{ project.manager_email ?? "No manager" }}</p>
           <h2>{{ project.title }}</h2>
           <p class="muted">{{ project.description }}</p>
           <p v-if="project.start_date || project.end_date" class="card-kicker">

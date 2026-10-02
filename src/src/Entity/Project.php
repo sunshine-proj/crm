@@ -25,6 +25,10 @@ class Project
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?Client $client = null;
 
+    #[ORM\ManyToOne(targetEntity: User::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?User $manager = null;
+
     #[ORM\Column(length: 20, enumType: ProjectStatus::class, options: ['default' => 'planned'])]
     private ProjectStatus $status = ProjectStatus::Planned;
 
@@ -77,6 +81,18 @@ class Project
     public function setClient(?Client $client): static
     {
         $this->client = $client;
+
+        return $this;
+    }
+
+    public function getManager(): ?User
+    {
+        return $this->manager;
+    }
+
+    public function setManager(?User $manager): static
+    {
+        $this->manager = $manager;
 
         return $this;
     }
