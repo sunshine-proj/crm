@@ -38,6 +38,12 @@ class Project
     #[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $endDate = null;
 
+    #[ORM\Column(type: Types::BIGINT, nullable: true)]
+    private ?int $budgetMinor = null;
+
+    #[ORM\Column(length: 3, nullable: true)]
+    private ?string $budgetCurrency = null;
+
     #[ORM\Column]
     private ?\DateTimeImmutable $createdAt = null;
 
@@ -117,6 +123,27 @@ class Project
     public function getEndDate(): ?\DateTimeImmutable
     {
         return $this->endDate;
+    }
+
+    public function getBudgetMinor(): ?int
+    {
+        return $this->budgetMinor;
+    }
+
+    public function getBudgetCurrency(): ?string
+    {
+        return $this->budgetCurrency;
+    }
+
+    public function setBudget(?int $budgetMinor, ?string $budgetCurrency): static
+    {
+        if (($budgetMinor === null) !== ($budgetCurrency === null) || ($budgetMinor !== null && $budgetMinor < 0)) {
+            throw new \InvalidArgumentException('Project budget requires a non-negative amount and currency together.');
+        }
+        $this->budgetMinor = $budgetMinor;
+        $this->budgetCurrency = $budgetCurrency;
+
+        return $this;
     }
 
     public function setPlannedDates(?\DateTimeImmutable $startDate, ?\DateTimeImmutable $endDate): static

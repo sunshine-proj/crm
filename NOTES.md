@@ -6183,13 +6183,34 @@ This is an operational bookkeeping foundation, not a statutory accounting or tax
 
  ### Stage 5 — Operations
 
-```
-Projects
-Expenses
-Workflows
-Documents
-Approvals
-```
+Strengthen delivery operations around the existing project/task records:
+
+- Projects may carry an optional approved budget and explicit EUR/GBP/USD currency, persisted in integer minor units.
+- Time entries record project, optional project task, author, work date, duration in minutes, billable flag, and a short description.
+- Expenses record project, submitter, date, currency, decimal-safe amount, and description. New expenses enter `pending_approval`.
+- Expense decisions use a constrained workflow: pending → approved or rejected. Only an administrator or the project's manager may decide; non-admin submitters cannot approve their own expense. Decisions are append-only approval-history rows with actor, date, and optional comment.
+- Project documents support authenticated upload/list/download/delete with generated storage keys, a 10 MB limit, and an allowlist of PDF, JPEG, PNG, plain text, CSV, DOCX, and XLSX. File bytes live under Symfony's ignored `var/project-documents`; metadata is stored in the database.
+
+#### Current implementation status (2026-10-05)
+
+Implemented in the current Vue + Symfony application:
+
+- Optional project budget amount/currency in project creation/editing and project list summaries.
+- Operations workspace with time entry capture, project expenses, approval queue/history, and project document handling.
+- Time entries are linked to a project, optionally to a task from that project, and attributed to the authenticated user.
+- Expenses are submitted for approval; only a project manager or administrator may approve/reject, and self-approval is denied for non-admins.
+- Expense approval decisions preserve who decided, when, and the optional decision comment.
+- Project file uploads use random storage names and server-detected MIME types; protected downloads use authenticated API responses.
+
+Not implemented and still required for a fuller Operations stage:
+
+- Task assignments, timesheet submission/approval, hourly billing rates, payroll/cost rates, time-entry editing/void history, and project budget actual-versus-committed calculations.
+- Expense categories, tax, receipt OCR, vendor/payment linkage, reimbursement processing, and expense-to-GL posting.
+- Configurable workflow definitions, multi-step approval chains, thresholds/delegation/escalation, notifications, and general workflow support for purchase orders or sales documents.
+- Document versions, virus scanning, retention/legal holds, external object storage, broader client/expense document links, and document preview.
+- Project milestones/dependencies, resource allocation, and project profitability reports.
+
+These features are operational tools. Time entries are not payroll records, expense approval is not reimbursement or accounting, and uploaded files are not virus-scanned or externally backed up by this implementation.
 
  ### Stage 6 — Advanced ERP
 

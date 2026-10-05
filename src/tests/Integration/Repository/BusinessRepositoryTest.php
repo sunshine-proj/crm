@@ -5,6 +5,8 @@ namespace App\Tests\Integration\Repository;
 use App\Entity\Activity;
 use App\Entity\Client;
 use App\Entity\ClientContact;
+use App\Entity\Expense;
+use App\Entity\ExpenseApproval;
 use App\Entity\Invoice;
 use App\Entity\GoodsReceipt;
 use App\Entity\FiscalPeriod;
@@ -16,6 +18,7 @@ use App\Entity\Note;
 use App\Entity\PayableBill;
 use App\Entity\PayablePayment;
 use App\Entity\Project;
+use App\Entity\ProjectDocument;
 use App\Entity\PurchaseOrder;
 use App\Entity\ProjectStatus;
 use App\Entity\Product;
@@ -25,6 +28,7 @@ use App\Entity\Payment;
 use App\Entity\Task;
 use App\Entity\TaskStatus;
 use App\Entity\TaxCode;
+use App\Entity\TimeEntry;
 use App\Entity\StockMovement;
 use App\Entity\Supplier;
 use App\Entity\User;
@@ -81,6 +85,7 @@ final class BusinessRepositoryTest extends KernelTestCase
             ->setTitle('Onboarding')
             ->setDescription('Customer implementation')
             ->setClient($client)
+            ->setBudget(250000, 'EUR')
             ->setStatus(ProjectStatus::Active)
             ->setCreatedAt($now)
             ->setUpdatedAt($now);
@@ -141,6 +146,8 @@ final class BusinessRepositoryTest extends KernelTestCase
         $storedTask = $this->entityManager->getRepository(Task::class)->find($openTask->getId());
         self::assertSame('Onboarding', $storedTask?->getProject()?->getTitle());
         self::assertSame('Acme', $storedTask?->getProject()?->getClient()?->getTitle());
+        self::assertSame(250000, $storedTask?->getProject()?->getBudgetMinor());
+        self::assertSame('EUR', $storedTask?->getProject()?->getBudgetCurrency());
         self::assertSame('manager@example.com', $storedTask?->getProject()?->getManager()?->getUserIdentifier());
 
         $filteredInvoices = $this->entityManager->getRepository(Invoice::class)->findFiltered([
@@ -418,6 +425,32 @@ final class BusinessRepositoryTest extends KernelTestCase
         self::assertSame(2, $ledger->onHand($product, $warehouse));
         $this->expectException(\DomainException::class);
         $ledger->record($product, $warehouse, 'supplier_return', -3, 'inventory_return', 7, new DateTimeImmutable('2026-10-05'), 'Return');
+    }
+
+    public function test_project_time_expense_approval_and_document_metadata_persist(): void
+    {
+        $now = new DateTimeImmutable('2026-10-05');
+        $user = (new User())->setEmail('manager@example.com')->setPasswordHash('not-a-real-password-hash');
+        $client = (new Client())->setTitle('Ops client')->setNotes('Operations test')->setCreatedAt($now)->setUpdatedAt($now);
+        $project = (new Project())->setTitle('Operations')->setDescription('Delivery work')->setClient($client)->setCreatedAt($now)->setUpdatedAt($now);
+        $task = (new Task())->setTitle('Implementation')->setDescription('Build and test')->setProject($project)->setSchedule($now, $now->modify('+2 hours'))->setCreatedAt($now)->setUpdatedAt($now);
+        $timeEntry = new TimeEntry($project, $task, $user, $now, 90, true, 'Implementation and test pass');
+        $expense = new Expense($project, $user, 'Cloud service', 4500, 'EUR', $now);
+        $expense->decide('approved');
+        $approval = new ExpenseApproval($expense, $user, 'approved', 'Within project budget');
+        $document = new ProjectDocument($project, $user, 'specification.pdf', str_repeat('a', 48), 'application/pdf', 1024);
+        foreach ([$user, $client, $project, $task, $timeEntry, $expense, $approval, $document] as $entity) {
+            $this->entityManager->persist($entity);
+        }
+        $this->entityManager->flush();
+        $this->entityManager->clear();
+
+        $storedExpense = $this->entityManager->getRepository(Expense::class)->find($expense->getId());
+
+        self::assertSame(90, $this->entityManager->getRepository(TimeEntry::class)->find($timeEntry->getId())?->getDurationMinutes());
+        self::assertSame('approved', $storedExpense?->getStatus());
+        self::assertCount(1, self::getContainer()->get(\App\Repository\ExpenseApprovalRepository::class)->findForExpense((int) $expense->getId()));
+        self::assertSame('specification.pdf', $this->entityManager->getRepository(ProjectDocument::class)->find($document->getId())?->getOriginalName());
     }
 }
 

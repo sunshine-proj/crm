@@ -14,6 +14,8 @@ type Project = {
   status: ProjectStatus;
   start_date: string | null;
   end_date: string | null;
+  budget_amount: string | null;
+  budget_currency: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -21,7 +23,7 @@ type Project = {
 type Client = { id: number; title: string };
 type Manager = { id: number; email: string };
 type ProjectStatus = "planned" | "active" | "on_hold" | "completed" | "cancelled";
-type ProjectInput = Pick<Project, "title" | "description" | "client_id" | "manager_id" | "status" | "start_date" | "end_date">;
+type ProjectInput = Pick<Project, "title" | "description" | "client_id" | "manager_id" | "status" | "start_date" | "end_date" | "budget_amount" | "budget_currency">;
 
 const projectStatuses: { value: ProjectStatus; label: string }[] = [
   { value: "planned", label: "Planned" },
@@ -43,6 +45,8 @@ const managerId = ref<number | null>(null);
 const status = ref<ProjectStatus>("planned");
 const startDate = ref("");
 const endDate = ref("");
+const budgetAmount = ref("");
+const budgetCurrency = ref("EUR");
 const errorMessage = ref("");
 const isLoading = ref(true);
 const isSaving = ref(false);
@@ -102,6 +106,8 @@ function openCreateForm() {
   status.value = "planned";
   startDate.value = "";
   endDate.value = "";
+  budgetAmount.value = "";
+  budgetCurrency.value = "EUR";
   errorMessage.value = "";
   isFormVisible.value = true;
 }
@@ -115,6 +121,8 @@ function editProject(project: Project) {
   status.value = project.status;
   startDate.value = project.start_date ?? "";
   endDate.value = project.end_date ?? "";
+  budgetAmount.value = project.budget_amount ?? "";
+  budgetCurrency.value = project.budget_currency ?? "EUR";
   errorMessage.value = "";
   isFormVisible.value = true;
 }
@@ -132,6 +140,8 @@ async function saveProject() {
     status: status.value,
     start_date: startDate.value || null,
     end_date: endDate.value || null,
+    budget_amount: budgetAmount.value.trim() || null,
+    budget_currency: budgetAmount.value.trim() ? budgetCurrency.value : null,
   };
 
   if (!project.title || !project.description || project.client_id === null) {
@@ -140,6 +150,10 @@ async function saveProject() {
   }
   if (!isValidDateRange(project.start_date, project.end_date)) {
     errorMessage.value = "The end date must be on or after the start date.";
+    return;
+  }
+  if (project.budget_amount !== null && !/^(0|[1-9]\d*)(?:\.\d{1,2})?$/.test(project.budget_amount)) {
+    errorMessage.value = "Project budget must be a non-negative amount with at most two decimal places.";
     return;
   }
 
@@ -244,6 +258,21 @@ async function deleteProject() {
         </div>
       </div>
 
+      <div class="task-datetime-grid">
+        <div>
+          <label for="project-budget">Approved budget</label>
+          <input id="project-budget" v-model="budgetAmount" inputmode="decimal" placeholder="Optional" />
+        </div>
+        <div>
+          <label for="project-budget-currency">Budget currency</label>
+          <select id="project-budget-currency" v-model="budgetCurrency" :disabled="!budgetAmount">
+            <option value="EUR">EUR</option>
+            <option value="GBP">GBP</option>
+            <option value="USD">USD</option>
+          </select>
+        </div>
+      </div>
+
       <div class="task-form-actions">
         <button class="button article-submit" type="submit" :disabled="isSaving || isDeleting">
           {{ isSaving ? "Saving..." : "Save" }} <span aria-hidden="true">&#8594;</span>
@@ -267,6 +296,7 @@ async function deleteProject() {
           <p class="card-kicker">{{ project.client_title ?? "Unlinked legacy project" }} · {{ project.status.replace("_", " ") }} · {{ project.manager_email ?? "No manager" }}</p>
           <h2>{{ project.title }}</h2>
           <p class="muted">{{ project.description }}</p>
+          <p v-if="project.budget_amount !== null" class="card-kicker">Budget {{ project.budget_amount }} {{ project.budget_currency }}</p>
           <p v-if="project.start_date || project.end_date" class="card-kicker">
             {{ project.start_date || "Start not set" }} to {{ project.end_date || "End not set" }}
           </p>

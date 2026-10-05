@@ -27,9 +27,12 @@ Implemented modules include:
 - **Projects:** create, list, edit, and delete records containing a title and description, linked to a client for new records, with lifecycle status and planned start/end dates.
 - **Projects:** can have an optional responsible manager selected from authenticated workspace users.
 - **Tasks:** create, list, edit, and delete records containing a title, description, start/end times, a project link, status, priority, and optional due date.
+- **Inventory and procurement:** authenticated users can configure warehouses and suppliers, create purchase orders, post partial receipts, inspect movement-derived stock, adjust counts, dispatch sales shipments from stock, and record bounded inventory returns. This is quantity tracking only; inventory valuation and GL integration are not implemented.
+- **Project operations:** projects can have an optional currency-scoped budget, users can log project/task time, expenses can be submitted and approved/rejected by project managers or administrators, and project files can be stored/downloaded through authenticated endpoints.
 - **Invoices and customer payments:** authenticated users can manage project-linked draft invoices, generate invoices from shipped sales orders, issue invoices, record partial/full customer receipts, view outstanding balances, and export invoice PDFs. Amounts use integer minor units. This is an operational workflow, not legally compliant invoice issuance or payment processing.
 - **Inventory and purchasing:** authenticated users can configure warehouses and suppliers, create product-based purchase orders, receive partial/full quantities into a warehouse, derive on-hand quantities from signed stock movements, post adjustments, explicitly dispatch sales shipments against warehouse stock, and record bounded customer/supplier returns. The ledger tracks quantities only and is not valued inventory.
 - **Finance foundation:** authenticated users can configure a chart of accounts and non-overlapping fiscal periods, post balanced manual journal entries, configure tax-code and supported-currency references, record vendor bills and AP payments, and review currency-scoped trial-balance and AR/AP reports. GL postings are not automatically reconciled with the operational subledgers.
+- **Project operations:** projects can carry an optional budget/currency; users can record project/task time; expenses can be submitted and decided by a project manager or administrator; project documents can be uploaded and downloaded through authenticated endpoints with a 10 MB file-size limit and MIME allowlist.
 - **News:** news-item records with user ownership behavior in the API.
 - **Dashboard:** displays live client, active-project, and open-task counts from an authenticated API summary endpoint.
 - **Authentication:** sign-in through `POST /api/login` and bearer-token API requests.
@@ -117,7 +120,7 @@ The initial relational planning slice is implemented: clients can manage structu
 
 ### Stage 2: Sales Workflow
 
-The current sales slice is an operational workflow built on the existing client and invoice model. It does not claim inventory control, tax compliance, accounting, or payment processing.
+The sales workflow is operational and links to a separate quantity-only inventory dispatch step. It does not claim tax compliance, accounting, or payment processing.
 
 - **Implemented MVP:** maintain products with unique SKUs, active state, fixed EUR/GBP/USD currency, and server-validated unit prices stored as integer minor units.
 - **Implemented MVP:** create client quotes from active catalog products; snapshot line descriptions, SKU, quantity, unit price, currency, and total; transition draft quotes to sent/accepted/rejected; reject acceptance after expiry.
@@ -127,7 +130,7 @@ The current sales slice is an operational workflow built on the existing client 
 - **Implemented MVP:** explicitly issue a draft invoice; lock issued invoices from editing/deletion; accept partial/full payment records; reject overpayment; derive invoice paid total, balance due, and paid state from payment records.
 - Keep payment entry manual and represent it only as an operational record. Do not imply card processing, bank reconciliation, or external payment confirmation.
 - A sales shipment remains distinct from stock until an explicit warehouse dispatch. Dispatch records stock movements and cannot permit negative stock.
-- Future requirements: tax rules, discounts, price lists, client-specific pricing, quote delivery/signature, order amendments/cancellations, returns/credit notes/refunds, inventory integration, payment-provider/bank integration, audit-grade issued document immutability, and jurisdiction-approved numbering and tax compliance.
+- Future requirements: tax rules, discounts, price lists, client-specific pricing, quote delivery/signature, order amendments/cancellations, financial sales returns/credit notes/refunds, payment-provider/bank integration, audit-grade issued document immutability, and jurisdiction-approved numbering and tax compliance. Inventory dispatch is available in the Stage 3 workflow; it does not imply valuation or automatic accounting.
 - Before production financial use, validate supported jurisdictions, invoice legal requirements, tax/rounding rules, document retention, permissions, and accounting integration. Tenant isolation is also a release blocker for a multi-organization service.
 
 ### Phase 4: Inventory And Procurement
@@ -142,7 +145,17 @@ The current sales slice is an operational workflow built on the existing client 
 - **Not implemented:** inter-warehouse transfers, stock reservation, bin locations, lots/serials/expiry dates, stock valuation, cost layers, landed costs, purchasing approvals, PO editing/cancellation, three-way matching, carrier integrations, or automated replenishment.
 - **Not implemented:** GL postings or valuation consequences for receipts, returns, or dispatch. Quantity stock is not an accounting asset balance.
 
-### Phase 5: Finance And Bookkeeping
+### Phase 5: Project Operations
+
+- **Implemented MVP:** optional project budget stored in integer minor units with an explicit EUR/GBP/USD currency.
+- **Implemented MVP:** time entries with project, optional same-project task, authenticated author, date, duration in minutes, billable flag, and description.
+- **Implemented MVP:** project expense submission with explicit currency and decimal-safe amount; each new expense enters `pending_approval`.
+- **Implemented MVP:** manager/admin approval or rejection with append-only actor/date/comment history. A non-admin submitter cannot approve their own expense.
+- **Implemented MVP:** project document upload/list/download/delete, generated storage keys, server MIME validation, a 10 MB limit, and authenticated access. Stored files are in local Symfony `var/` storage and are not virus-scanned or externally backed up.
+- **Not implemented:** timesheet approval, payroll, employee cost rates, reimbursement, expense categories/tax, configurable workflow definitions or multi-step approvals, escalation/notifications, milestones/dependencies, actual-vs-budget/profitability reports, document versioning/virus scanning, or object-storage backup.
+- Distinguish expense approval from reimbursement/accounting; distinguish project time capture from payroll; do not treat local document storage as a managed records-retention system.
+
+### Phase 6: Finance And Bookkeeping
 
 - **Implemented foundation:** maintain chart-of-account codes/types and active state; create non-overlapping fiscal periods and close them; post manual journal entries only when the date is in an open period, each line is one-sided and uses integer minor units, and total debits equal total credits.
 - **Implemented foundation:** posted manual journal entries cannot be updated or deleted through the API. Reports return a currency-scoped trial balance with date range and basis.
@@ -171,6 +184,16 @@ The current sales slice is an operational workflow built on the existing client 
 - **PR-4:** Project status and schedule summaries are calculated from defined persisted values, never hard-coded.
 - **PR-5:** A project view provides access to its client, tasks, schedule, budget, time, invoices, and expenses as those capabilities are released.
 - **PR-6:** Changes to project scope, dates, status, and commercial values preserve an auditable history appropriate to their impact.
+
+### Project Operations
+
+- **OPS-1:** A project may have an optional approved budget with an explicit currency; budget amounts use integer minor units on the server.
+- **OPS-2:** Time entries identify project, optional task, authenticated author, work date, integer duration, billable state, and description. A linked task must belong to the same project.
+- **OPS-3:** Expenses identify project, submitter, date, currency, description, and positive decimal-safe amount; new expenses enter a pending-approval state.
+- **OPS-4:** Only a project manager or administrator may approve/reject an expense. A non-admin submitter cannot approve their own expense; decisions retain actor, timestamp, and comment history and cannot be repeated after a terminal decision.
+- **OPS-5:** Project documents are accessible only through authenticated endpoints, use server-generated storage keys, enforce an allowlisted MIME type and file-size limit, and do not accept client paths as storage locations.
+- **OPS-6:** Project operations pages expose visible project selection, loading/empty/error states, and clarify that logged time, approved expenses, and local documents do not themselves create payroll, reimbursement, or accounting postings.
+- **OPS-7:** Local document storage requires backup, retention, access-control, and malware-scanning decisions before production use.
 
 ### Financial Operations
 

@@ -11,7 +11,11 @@ The Sales workspace currently supports a priced product catalog, quotes, quote-t
 
 The Finance workspace adds chart-of-account and fiscal-period setup, balanced manual journal posting, a single-currency trial balance, tax-code reference data, vendor bills and partial/full AP payments, and operational AR/AP balance reports. General-ledger postings are not automatically reconciled with invoice receipts, AP payments, sales, or configured tax codes. These are not statutory statements or tax filings.
 
+The Operations workspace adds optional project budgets, project/task time entries, expenses with project-manager/admin approval history, and authenticated project-document uploads/downloads. Expenses do not initiate reimbursement or accounting postings. Project files are stored locally under ignored Symfony `var/` storage, limited to 10 MB and an allowed MIME list, and are not virus-scanned or externally backed up.
+
 The Inventory workspace supports warehouses, suppliers, product-based purchase orders, partial goods receipts, movement-derived stock balances, count adjustments, explicit dispatch of sales shipments, and bounded customer/supplier returns. Stock movements are append-only and quantity-only; dispatches and receipts do not automatically post to the general ledger. Stock valuation, transfers, bins, lots, and serial tracking are not implemented yet.
+
+The Operations workspace adds optional project budgets, project/task time entries, project expenses with manager/admin approval history, and protected project-document uploads. Uploads are limited to 10 MB and an allowlist of common document/image formats; files are stored locally under ignored Symfony `var/` storage without virus scanning or external backup. Expense approval does not initiate reimbursement or ledger posting.
 
 Stage 1 is not complete: organization/tenant scoping, deals and pipelines, a dedicated client detail route, append-only/soft-delete/version recovery, and offline storage and synchronization remain roadmap requirements. See [NOTES.md](NOTES.md) for the staged roadmap and current implementation gaps.
 

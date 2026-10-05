@@ -10,6 +10,7 @@ use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\UserRepository;
 use App\Service\ClientActivityLogger;
+use App\Service\InvoiceMoney;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -29,6 +30,7 @@ class ProjectController extends AbstractController
 		private readonly UserRepository $userRepository,
 		private readonly EntityManagerInterface $entityManager,
 		private readonly ClientActivityLogger $activityLogger,
+		private readonly InvoiceMoney $money,
 		#[Autowire(service: 'monolog.logger.audit')]
 		private readonly LoggerInterface $auditLogger,
 	) {
@@ -77,6 +79,10 @@ class ProjectController extends AbstractController
 		if ($startDate !== null && $endDate !== null && $endDate < $startDate) {
 			return $this->json(['error' => 'Project end date must be on or after its start date.'], JsonResponse::HTTP_BAD_REQUEST);
 		}
+		$budget = $this->parseBudget($input->budget_amount, $input->budget_currency);
+		if (isset($budget['error'])) {
+			return $this->json(['error' => $budget['error']], JsonResponse::HTTP_BAD_REQUEST);
+		}
 
 		$now = new \DateTimeImmutable();
 		$item = (new Project())
@@ -86,6 +92,7 @@ class ProjectController extends AbstractController
 			->setManager($manager)
 			->setStatus(ProjectStatus::from($input->status ?? ProjectStatus::Planned->value))
 			->setPlannedDates($startDate, $endDate)
+			->setBudget($budget['amount_minor'], $budget['currency'])
 			->setCreatedAt($now)
 			->setUpdatedAt($now);
 
@@ -138,6 +145,14 @@ class ProjectController extends AbstractController
 		if ($startDate !== null && $endDate !== null && $endDate < $startDate) {
 			return $this->json(['error' => 'Project end date must be on or after its start date.'], JsonResponse::HTTP_BAD_REQUEST);
 		}
+		$payload = $request->toArray();
+		if (array_key_exists('budget_amount', $payload) || array_key_exists('budget_currency', $payload)) {
+			$budget = $this->parseBudget($input->budget_amount, $input->budget_currency);
+			if (isset($budget['error'])) {
+				return $this->json(['error' => $budget['error']], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			$item->setBudget($budget['amount_minor'], $budget['currency']);
+		}
 
 		if ($input->client_id !== null) {
 			$client = $this->clientRepository->find($input->client_id);
@@ -146,7 +161,6 @@ class ProjectController extends AbstractController
 			}
 			$item->setClient($client);
 		}
-		$payload = $request->toArray();
 		if (array_key_exists('manager_id', $payload)) {
 			$manager = $input->manager_id !== null ? $this->userRepository->find($input->manager_id) : null;
 			if ($input->manager_id !== null && $manager === null) {
@@ -212,6 +226,22 @@ class ProjectController extends AbstractController
 		return $user instanceof User ? $user->getUserIdentifier() : 'anonymous';
 	}
 
+	private function parseBudget(?string $amount, ?string $currency): array
+	{
+		if ($amount === null && $currency === null) {
+			return ['amount_minor' => null, 'currency' => null];
+		}
+		if ($amount === null || $currency === null) {
+			return ['error' => 'Budget amount and currency must be provided together.'];
+		}
+		$minor = $this->money->parseMinor($amount);
+		if ($minor === null) {
+			return ['error' => 'Budget amount must be non-negative and have at most two decimal places.'];
+		}
+
+		return ['amount_minor' => $minor, 'currency' => $currency];
+	}
+
 	/** @return array<string, int|string|null> */
 	private function serializeItem(Project $item): array
 	{
@@ -226,6 +256,8 @@ class ProjectController extends AbstractController
 			'status' => $item->getStatus()->value,
 			'start_date' => $item->getStartDate()?->format('Y-m-d'),
 			'end_date' => $item->getEndDate()?->format('Y-m-d'),
+			'budget_amount' => $item->getBudgetMinor() !== null ? $this->money->formatMinor($item->getBudgetMinor()) : null,
+			'budget_currency' => $item->getBudgetCurrency(),
 			'created_at' => $item->getCreatedAt()?->format(\DateTimeInterface::ATOM),
 			'updated_at' => $item->getUpdatedAt()?->format(\DateTimeInterface::ATOM),
 		];

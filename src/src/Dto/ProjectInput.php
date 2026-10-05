@@ -22,6 +22,9 @@ final class ProjectInput
         public readonly ?string $start_date = null,
         #[Assert\Date]
         public readonly ?string $end_date = null,
+        public readonly ?string $budget_amount = null,
+        #[Assert\Choice(choices: ['EUR', 'GBP', 'USD'])]
+        public readonly ?string $budget_currency = null,
     ) {
     }
 }
