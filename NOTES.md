@@ -6057,6 +6057,27 @@ I would start with a tenant-aware CRM core that solves the basics reliably:
 
 This delivers the minimum viable CRM: a single source of truth for customer data, sales activity, and operational history, without trying to solve finance or inventory yet.
 
+#### Current implementation status (2026-10-05)
+
+Implemented in the current Vue + Symfony application:
+
+- Client records with linked contacts, projects, notes, and an embedded client activity history.
+- Manual client activities for calls, meetings, emails, follow-ups, notes, project creation, and general updates.
+- Automatic client timeline entries when linked projects or tasks are created, updated, or deleted.
+- Automatic client timeline entries when notes attached to a client, project, or task are created, updated, or deleted. Note contents are not copied into the activity message.
+- Lifecycle entries are persisted in the same Doctrine flush as the triggering change. Project/task/note records without a resolvable client do not create a client timeline entry.
+- Existing audit logging for project, task, and note lifecycle requests remains separate from the user-facing activity timeline.
+
+Still required before Stage 1 can be considered complete:
+
+- Organization/tenant ownership and per-organization data authorization; the current application is not tenant-scoped.
+- A dedicated client detail route, richer client/contact search, and deal/pipeline workflows.
+- Task ownership, reminders, and notification delivery.
+- Append-only notes, soft deletion, and versioned recovery; note edits/deletes and hard deletion are currently supported by existing APIs.
+- Local IndexedDB storage, an offline mutation queue, cursor-based synchronization, and conflict handling.
+
+Keep `README.md` aligned with these delivered behaviors and limitations when the CRM feature set changes.
+
  ### Stage 2 — Sales
 
 ```

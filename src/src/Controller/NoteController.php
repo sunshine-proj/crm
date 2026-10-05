@@ -5,7 +5,11 @@ namespace App\Controller;
 use App\Dto\NoteInput;
 use App\Entity\Note;
 use App\Entity\User;
+use App\Repository\ClientRepository;
 use App\Repository\NoteRepository;
+use App\Repository\ProjectRepository;
+use App\Repository\TaskRepository;
+use App\Service\ClientActivityLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -20,7 +24,11 @@ final class NoteController extends AbstractController
 {
     public function __construct(
         private readonly NoteRepository $noteRepository,
+        private readonly ClientRepository $clientRepository,
+        private readonly ProjectRepository $projectRepository,
+        private readonly TaskRepository $taskRepository,
         private readonly EntityManagerInterface $entityManager,
+        private readonly ClientActivityLogger $activityLogger,
         #[Autowire(service: 'monolog.logger.audit')]
         private readonly LoggerInterface $auditLogger,
     ) {
@@ -54,6 +62,12 @@ final class NoteController extends AbstractController
             ->setUpdatedAt($now);
 
         $this->entityManager->persist($note);
+        $this->activityLogger->record(
+            $this->findClientForEntity($entityType, $entityId),
+            $author instanceof User ? $author : null,
+            'note_created',
+            sprintf('A note was added to this %s.', $entityType),
+        );
         $this->entityManager->flush();
 
         $this->auditLogger->info('CRM note created.', [
@@ -81,6 +95,13 @@ final class NoteController extends AbstractController
         }
 
         $note->setContent(trim($input->content))->setUpdatedAt(new \DateTimeImmutable());
+        $author = $this->getUser();
+        $this->activityLogger->record(
+            $this->findClientForEntity($entityType, $entityId),
+            $author instanceof User ? $author : null,
+            'note_updated',
+            sprintf('A note was updated on this %s.', $entityType),
+        );
         $this->entityManager->flush();
 
         $this->auditLogger->info('CRM note updated.', [
@@ -103,6 +124,13 @@ final class NoteController extends AbstractController
             return $this->json(['error' => 'Note not found.'], JsonResponse::HTTP_NOT_FOUND);
         }
 
+        $author = $this->getUser();
+        $this->activityLogger->record(
+            $this->findClientForEntity($entityType, $entityId),
+            $author instanceof User ? $author : null,
+            'note_deleted',
+            sprintf('A note was deleted from this %s.', $entityType),
+        );
         $this->entityManager->remove($note);
         $this->entityManager->flush();
 
@@ -122,6 +150,15 @@ final class NoteController extends AbstractController
         $user = $this->getUser();
 
         return $user instanceof User ? $user->getUserIdentifier() : 'anonymous';
+    }
+
+    private function findClientForEntity(string $entityType, int $entityId): ?\App\Entity\Client
+    {
+        return match ($entityType) {
+            'client' => $this->clientRepository->find($entityId),
+            'project' => $this->projectRepository->find($entityId)?->getClient(),
+            'task' => $this->taskRepository->find($entityId)?->getProject()?->getClient(),
+        };
     }
 
     /** @return array<string, int|string|null> */

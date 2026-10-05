@@ -9,6 +9,7 @@ use App\Entity\User;
 use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\UserRepository;
+use App\Service\ClientActivityLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -27,6 +28,7 @@ class ProjectController extends AbstractController
 		private readonly ClientRepository $clientRepository,
 		private readonly UserRepository $userRepository,
 		private readonly EntityManagerInterface $entityManager,
+		private readonly ClientActivityLogger $activityLogger,
 		#[Autowire(service: 'monolog.logger.audit')]
 		private readonly LoggerInterface $auditLogger,
 	) {
@@ -88,6 +90,12 @@ class ProjectController extends AbstractController
 			->setUpdatedAt($now);
 
 		$this->entityManager->persist($item);
+		$this->activityLogger->record(
+			$client,
+			$this->getUser() instanceof User ? $this->getUser() : null,
+			'project_created',
+			sprintf('Project "%s" was created.', $item->getTitle()),
+		);
 		$this->entityManager->flush();
 
 		$this->auditLogger->info('Project created.', [
@@ -153,6 +161,12 @@ class ProjectController extends AbstractController
 			->setStatus(ProjectStatus::from($input->status ?? $item->getStatus()->value))
 			->setPlannedDates($startDate, $endDate)
 			->setUpdatedAt(new \DateTimeImmutable());
+		$this->activityLogger->record(
+			$item->getClient(),
+			$this->getUser() instanceof User ? $this->getUser() : null,
+			'project_updated',
+			sprintf('Project "%s" was updated.', $item->getTitle()),
+		);
 		$this->entityManager->flush();
 
 		$this->auditLogger->info('Project updated.', [
@@ -173,6 +187,12 @@ class ProjectController extends AbstractController
 			return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
 		}
 
+		$this->activityLogger->record(
+			$item->getClient(),
+			$this->getUser() instanceof User ? $this->getUser() : null,
+			'project_deleted',
+			sprintf('Project "%s" was deleted.', $item->getTitle()),
+		);
 		$this->entityManager->remove($item);
 		$this->entityManager->flush();
 

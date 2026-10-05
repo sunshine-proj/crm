@@ -1,6 +1,14 @@
 # crm
 test crm
 
+## Current CRM Functionality
+
+The application is a Vue 3 frontend backed by a Symfony JSON API. The current client workspace brings together client records, contacts, notes, linked projects, and a client activity timeline.
+
+The activity timeline supports manual interaction entries and automatically records create, update, and delete events for client-linked projects and tasks. Notes attached to a client, project, or task also generate timeline entries; the note content itself is not duplicated in the timeline. These entries are written with the triggering record change, and records that cannot be associated with a client do not appear in a client timeline. Backend audit logs remain a separate operational record.
+
+Stage 1 is not complete: organization/tenant scoping, deals and pipelines, a dedicated client detail route, append-only/soft-delete/version recovery, and offline storage and synchronization remain roadmap requirements. See [NOTES.md](NOTES.md) for the staged roadmap and current implementation gaps.
+
 ## bundles
 composer require symfony/security-bundle
 composer require symfony/orm-pack

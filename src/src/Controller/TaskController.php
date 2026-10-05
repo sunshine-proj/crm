@@ -9,6 +9,7 @@ use App\Entity\TaskStatus;
 use App\Entity\User;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
+use App\Service\ClientActivityLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -25,6 +26,7 @@ class TaskController extends AbstractController
 		private readonly TaskRepository $taskRepository,
 		private readonly ProjectRepository $projectRepository,
 		private readonly EntityManagerInterface $entityManager,
+		private readonly ClientActivityLogger $activityLogger,
 		#[Autowire(service: 'monolog.logger.audit')]
 		private readonly LoggerInterface $auditLogger,
 	) {
@@ -68,6 +70,12 @@ class TaskController extends AbstractController
 			->setUpdatedAt($now);
 
 		$this->entityManager->persist($item);
+		$this->activityLogger->record(
+			$project->getClient(),
+			$this->getUser() instanceof User ? $this->getUser() : null,
+			'task_created',
+			sprintf('Task "%s" was created.', $item->getTitle()),
+		);
 		$this->entityManager->flush();
 
 		$this->auditLogger->info('Task created.', [
@@ -127,6 +135,12 @@ class TaskController extends AbstractController
 			->setSchedule($startDatetime, $endDatetime)
 			->setDueDate($input->due_date !== null ? new \DateTimeImmutable($input->due_date) : $item->getDueDate())
 			->setUpdatedAt(new \DateTimeImmutable());
+		$this->activityLogger->record(
+			$item->getProject()?->getClient(),
+			$this->getUser() instanceof User ? $this->getUser() : null,
+			'task_updated',
+			sprintf('Task "%s" was updated.', $item->getTitle()),
+		);
 		$this->entityManager->flush();
 
 		$this->auditLogger->info('Task updated.', [
@@ -147,6 +161,12 @@ class TaskController extends AbstractController
 			return $this->json(['error' => 'Task not found.'], JsonResponse::HTTP_NOT_FOUND);
 		}
 
+		$this->activityLogger->record(
+			$item->getProject()?->getClient(),
+			$this->getUser() instanceof User ? $this->getUser() : null,
+			'task_deleted',
+			sprintf('Task "%s" was deleted.', $item->getTitle()),
+		);
 		$this->entityManager->remove($item);
 		$this->entityManager->flush();
 

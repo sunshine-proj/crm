@@ -15,6 +15,7 @@ use App\Entity\User;
 use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
+use App\Service\ClientActivityLogger;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
@@ -212,6 +213,35 @@ final class BusinessRepositoryTest extends KernelTestCase
         self::assertSame('project_created', $storedActivity->getType());
         self::assertSame('Project onboarding plan created.', $storedActivity->getMessage());
         self::assertSame('sales@example.com', $storedActivity->getAuthor()?->getUserIdentifier());
+    }
+
+    public function test_client_activity_logger_queues_lifecycle_entries_with_author(): void
+    {
+        $now = new DateTimeImmutable();
+        $user = (new User())
+            ->setEmail('sales@example.com')
+            ->setPasswordHash('not-a-real-password-hash');
+        $client = (new Client())
+            ->setTitle('Cobalt Labs')
+            ->setNotes('Enterprise customer')
+            ->setCreatedAt($now)
+            ->setUpdatedAt($now);
+        $this->entityManager->persist($user);
+        $this->entityManager->persist($client);
+        $this->entityManager->flush();
+
+        $logger = new ClientActivityLogger($this->entityManager);
+        $logger->record($client, $user, 'project_created', 'Project "Onboarding" was created.');
+        $logger->record(null, $user, 'task_created', 'Task without a client should not be logged.');
+        $this->entityManager->flush();
+        $this->entityManager->clear();
+
+        $activities = self::getContainer()->get(\App\Repository\ActivityRepository::class)->findByClient($client->getId());
+
+        self::assertCount(1, $activities);
+        self::assertSame('project_created', $activities[0]->getType());
+        self::assertSame('Project "Onboarding" was created.', $activities[0]->getMessage());
+        self::assertSame('sales@example.com', $activities[0]->getAuthor()?->getUserIdentifier());
     }
 }
 
