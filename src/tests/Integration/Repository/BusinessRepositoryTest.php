@@ -9,6 +9,10 @@ use App\Entity\Invoice;
 use App\Entity\Note;
 use App\Entity\Project;
 use App\Entity\ProjectStatus;
+use App\Entity\Product;
+use App\Entity\SalesDocument;
+use App\Entity\Shipment;
+use App\Entity\Payment;
 use App\Entity\Task;
 use App\Entity\TaskStatus;
 use App\Entity\User;
@@ -242,6 +246,85 @@ final class BusinessRepositoryTest extends KernelTestCase
         self::assertSame('project_created', $activities[0]->getType());
         self::assertSame('Project "Onboarding" was created.', $activities[0]->getMessage());
         self::assertSame('sales@example.com', $activities[0]->getAuthor()?->getUserIdentifier());
+    }
+
+    public function test_sales_documents_snapshot_product_pricing_and_related_records(): void
+    {
+        $now = new DateTimeImmutable();
+        $client = (new Client())
+            ->setTitle('Cobalt Labs')
+            ->setNotes('Enterprise customer')
+            ->setCreatedAt($now)
+            ->setUpdatedAt($now);
+        $product = new Product('CONSULT-01', 'Consulting day', 'EUR', 125000);
+        $quote = new SalesDocument('quote', $client, 'EUR', [[
+            'product_id' => 1,
+            'sku' => 'CONSULT-01',
+            'description' => 'Consulting day',
+            'quantity' => 2,
+            'unit_price_minor' => 125000,
+            'line_total_minor' => 250000,
+        ]], 250000);
+        $order = new SalesDocument('sales_order', $client, 'EUR', $quote->getItems(), 250000, null, $quote);
+        $this->entityManager->persist($client);
+        $this->entityManager->persist($product);
+        $this->entityManager->persist($quote);
+        $this->entityManager->persist($order);
+        $this->entityManager->flush();
+        $this->entityManager->clear();
+
+        $storedOrder = $this->entityManager->getRepository(SalesDocument::class)->find($order->getId());
+
+        self::assertNotNull($storedOrder);
+        self::assertSame('sales_order', $storedOrder->getType());
+        self::assertSame('Consulting day', $storedOrder->getItems()[0]['description']);
+        self::assertSame(250000, $storedOrder->getTotalMinor());
+        self::assertSame($quote->getId(), $storedOrder->getSourceQuote()?->getId());
+    }
+
+    public function test_shipments_and_partial_payments_persist_as_separate_records(): void
+    {
+        $now = new DateTimeImmutable();
+        $client = (new Client())
+            ->setTitle('Northstar Services')
+            ->setNotes('Sales account')
+            ->setCreatedAt($now)
+            ->setUpdatedAt($now);
+        $order = new SalesDocument('sales_order', $client, 'EUR', [[
+            'product_id' => 42,
+            'sku' => 'SUPPORT-01',
+            'description' => 'Support package',
+            'quantity' => 3,
+            'unit_price_minor' => 10000,
+            'line_total_minor' => 30000,
+        ]], 30000);
+        $invoice = (new Invoice())->setDetails(
+            $client,
+            null,
+            null,
+            'Northstar Services',
+            'Sales order',
+            null,
+            $now,
+            null,
+            'EUR',
+            [['task_id' => null, 'description' => 'Support package', 'amount' => '300.00']],
+            30000,
+        )->setSalesOrder($order)->setStatus('partially_paid');
+        $shipment = new Shipment($order, [['product_id' => 42, 'description' => 'Support package', 'quantity' => 2]], $now, 'dispatch-001');
+        $firstPayment = new Payment($invoice, 12500, $now, 'bank-001');
+        $secondPayment = new Payment($invoice, 7500, $now, 'bank-002');
+        foreach ([$client, $order, $invoice, $shipment, $firstPayment, $secondPayment] as $entity) {
+            $this->entityManager->persist($entity);
+        }
+        $this->entityManager->flush();
+
+        $paymentRepository = self::getContainer()->get(\App\Repository\PaymentRepository::class);
+        $shipmentRepository = self::getContainer()->get(\App\Repository\ShipmentRepository::class);
+
+        self::assertSame(20000, $paymentRepository->sumMinorForInvoice((int) $invoice->getId()));
+        self::assertCount(2, $paymentRepository->findForInvoice((int) $invoice->getId()));
+        self::assertSame('dispatch-001', $shipmentRepository->findForOrder((int) $order->getId())[0]->getReference());
     }
 }
 

@@ -31,6 +31,10 @@ class Invoice
 	#[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
 	private ?User $manager = null;
 
+	#[ORM\ManyToOne(targetEntity: SalesDocument::class)]
+	#[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+	private ?SalesDocument $salesOrder = null;
+
 	#[ORM\Column(length: 255)]
 	private string $clientName;
 
@@ -97,6 +101,18 @@ class Invoice
 		return $this->manager;
 	}
 
+	public function getSalesOrder(): ?SalesDocument
+	{
+		return $this->salesOrder;
+	}
+
+	public function setSalesOrder(?SalesDocument $salesOrder): static
+	{
+		$this->salesOrder = $salesOrder;
+
+		return $this;
+	}
+
 	public function getClientName(): string
 	{
 		return $this->clientName;
@@ -141,6 +157,14 @@ class Invoice
 	public function getStatus(): string
 	{
 		return $this->status;
+	}
+
+	public function setStatus(string $status): static
+	{
+		$this->status = $status;
+		$this->updatedAt = new \DateTimeImmutable();
+
+		return $this;
 	}
 
 	public function getCreatedAt(): \DateTimeImmutable

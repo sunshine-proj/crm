@@ -113,6 +113,21 @@ The initial relational planning slice is implemented: clients can manage structu
 - Add payment records, partial-payment allocation, derived outstanding balances, immutable issuance, audit history, taxes/discounts, and jurisdiction-validated invoice numbering before invoices are used operationally.
 - Consider PDF branding and client billing address/contact snapshots, configurable payment instructions, and email delivery after legal and business requirements are confirmed.
 
+### Stage 2: Sales Workflow
+
+The current sales slice is an operational workflow built on the existing client and invoice model. It does not claim inventory control, tax compliance, accounting, or payment processing.
+
+- **Implemented MVP:** maintain products with unique SKUs, active state, fixed EUR/GBP/USD currency, and server-validated unit prices stored as integer minor units.
+- **Implemented MVP:** create client quotes from active catalog products; snapshot line descriptions, SKU, quantity, unit price, currency, and total; transition draft quotes to sent/accepted/rejected; reject acceptance after expiry.
+- **Implemented MVP:** convert an accepted quote to a linked sales order once, preserving the original quote and pricing snapshot.
+- **Implemented MVP:** record partial or complete shipments by product quantity, date, and reference; prevent shipping beyond ordered quantity and expose shipment history.
+- **Implemented MVP:** create one linked draft invoice from a fully shipped order. Use the existing invoice PDF generation and amount calculation boundary.
+- **Implemented MVP:** explicitly issue a draft invoice; lock issued invoices from editing/deletion; accept partial/full payment records; reject overpayment; derive invoice paid total, balance due, and paid state from payment records.
+- Keep payment entry manual and represent it only as an operational record. Do not imply card processing, bank reconciliation, or external payment confirmation.
+- Keep shipment records separate from inventory movements. Recording a shipment does not reserve or decrement stock.
+- Future requirements: tax rules, discounts, price lists, client-specific pricing, quote delivery/signature, order amendments/cancellations, returns/credit notes/refunds, inventory integration, payment-provider/bank integration, audit-grade issued document immutability, and jurisdiction-approved numbering and tax compliance.
+- Before production financial use, validate supported jurisdictions, invoice legal requirements, tax/rounding rules, document retention, permissions, and accounting integration. Tenant isolation is also a release blocker for a multi-organization service.
+
 ### Phase 4: Bookkeeping And Broader ERP Direction
 
 - Track business expenses with date, payee, category, amount, currency, tax details where applicable, attachments/references, and optional client/project allocation.

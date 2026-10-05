@@ -8,6 +8,7 @@ use App\Entity\Project;
 use App\Entity\Task;
 use App\Entity\User;
 use App\Repository\InvoiceRepository;
+use App\Repository\PaymentRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
 use App\Repository\UserRepository;
@@ -28,6 +29,7 @@ final class InvoiceController extends AbstractController
 {
 	public function __construct(
 		private readonly InvoiceRepository $invoiceRepository,
+		private readonly PaymentRepository $paymentRepository,
 		private readonly ProjectRepository $projectRepository,
 		private readonly TaskRepository $taskRepository,
 		private readonly UserRepository $userRepository,
@@ -85,11 +87,31 @@ final class InvoiceController extends AbstractController
 		if ($invoice === null) {
 			return $this->json(['error' => 'Invoice not found.'], JsonResponse::HTTP_NOT_FOUND);
 		}
+		if ($invoice->getStatus() !== 'draft' || $invoice->getSalesOrder() !== null) {
+			return $this->json(['error' => 'Only draft invoices can be edited.'], JsonResponse::HTTP_CONFLICT);
+		}
 		$error = $this->applyInput($invoice, $input);
 		if ($error !== null) {
 			return $this->json(['error' => $error], JsonResponse::HTTP_BAD_REQUEST);
 		}
 
+		$this->entityManager->flush();
+
+		return $this->json($this->serializeInvoice($invoice));
+	}
+
+	#[Route('/{id<\d+>}/issue', name: 'issue', methods: ['POST'])]
+	public function issue(int $id): JsonResponse
+	{
+		$invoice = $this->invoiceRepository->find($id);
+		if ($invoice === null) {
+			return $this->json(['error' => 'Invoice not found.'], JsonResponse::HTTP_NOT_FOUND);
+		}
+		if ($invoice->getStatus() !== 'draft') {
+			return $this->json(['error' => 'Only draft invoices can be issued.'], JsonResponse::HTTP_CONFLICT);
+		}
+
+		$invoice->setStatus('issued');
 		$this->entityManager->flush();
 
 		return $this->json($this->serializeInvoice($invoice));
@@ -102,7 +124,6 @@ final class InvoiceController extends AbstractController
 		if ($invoice === null) {
 			return $this->json(['error' => 'Invoice not found.'], JsonResponse::HTTP_NOT_FOUND);
 		}
-
 		return new Response($this->pdfService->render($invoice), Response::HTTP_OK, [
 			'Content-Type' => 'application/pdf',
 			'Content-Disposition' => 'attachment; filename="'.strtolower((string) $invoice->getInvoiceNumber()).'.pdf"',
@@ -115,6 +136,9 @@ final class InvoiceController extends AbstractController
 		$invoice = $this->invoiceRepository->find($id);
 		if ($invoice === null) {
 			return $this->json(['error' => 'Invoice not found.'], JsonResponse::HTTP_NOT_FOUND);
+		}
+		if ($invoice->getStatus() !== 'draft' || $invoice->getSalesOrder() !== null || $this->paymentRepository->count(['invoice' => $invoice]) > 0) {
+			return $this->json(['error' => 'Only unpaid, project-linked draft invoices can be deleted.'], JsonResponse::HTTP_CONFLICT);
 		}
 
 		$this->entityManager->remove($invoice);
@@ -249,12 +273,14 @@ final class InvoiceController extends AbstractController
 	/** @return array<string, mixed> */
 	private function serializeInvoice(Invoice $invoice): array
 	{
+		$paidMinor = $this->paymentRepository->sumMinorForInvoice((int) $invoice->getId());
 		return [
 			'id' => $invoice->getId(),
 			'invoice_number' => $invoice->getInvoiceNumber(),
 			'client_id' => $invoice->getClient()?->getId(),
 			'client_name' => $invoice->getClientName(),
 			'project_id' => $invoice->getProject()?->getId(),
+			'sales_order_id' => $invoice->getSalesOrder()?->getId(),
 			'project_name' => $invoice->getProjectName(),
 			'manager_id' => $invoice->getManager()?->getId(),
 			'manager_name' => $invoice->getManagerName(),
@@ -263,6 +289,8 @@ final class InvoiceController extends AbstractController
 			'currency' => $invoice->getCurrency(),
 			'items' => $invoice->getItems(),
 			'total' => $this->money->formatMinor($invoice->getTotalMinor()),
+			'paid_total' => $this->money->formatMinor($paidMinor),
+			'balance_due' => $this->money->formatMinor(max(0, $invoice->getTotalMinor() - $paidMinor)),
 			'status' => $invoice->getStatus(),
 			'created_at' => $invoice->getCreatedAt()->format(\DateTimeInterface::ATOM),
 			'updated_at' => $invoice->getUpdatedAt()->format(\DateTimeInterface::ATOM),

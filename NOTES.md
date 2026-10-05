@@ -6080,15 +6080,35 @@ Keep `README.md` aligned with these delivered behaviors and limitations when the
 
  ### Stage 2 — Sales
 
-```
-Products
-Pricing
-Quotes
-Sales Orders
-Shipments
-Invoices
-Payments
-```
+Deliver the sales lifecycle as connected, client-linked records:
+
+- Product catalog with unique SKU, active/inactive state, description, one explicit EUR/GBP/USD currency, and server-managed unit pricing using integer minor units.
+- Quotes snapshot product name, SKU, quantity, unit price, and line total. Draft quotes can be marked sent, accepted, or rejected; expired quotes cannot be accepted.
+- Accepted quotes convert idempotently to sales orders. Orders retain source quote and price snapshots.
+- Shipments record date, reference, and per-product quantities. Partial shipments are supported; shipments cannot exceed ordered quantities.
+- Fully shipped orders can create one linked draft invoice using the order snapshot. Existing invoice PDF export is retained.
+- Draft invoices have an explicit issue action. Issued invoices cannot be edited/deleted and can receive partial/full payment records. Overpayments are rejected; paid total and outstanding balance are derived from payment records.
+- Sales, invoice, and payment APIs are authenticated. Product prices, quote totals, invoice amounts, payment amounts, and balances are validated/calculated server-side without binary floating-point arithmetic.
+
+#### Current implementation status (2026-10-05)
+
+Implemented in the current Vue + Symfony application:
+
+- Product catalog and per-product fixed-currency pricing, with unique SKU and active/inactive controls.
+- Quote creation from active priced products, server-calculated totals, quote status actions, and acceptance expiry validation.
+- Accepted quote to sales order conversion with product/price snapshots and repeat-conversion idempotency.
+- Sales order list, partial and complete shipment recording, quantity limit validation, and shipment history.
+- Full-shipment to one linked draft invoice, reusing the existing project invoice list/PDF and integer-minor-unit money service.
+- Explicit invoice issue state, read-only issued invoices, payment records, partial/full payment status, and derived paid/balance figures.
+
+Not implemented or not intended to be claimed by this Stage 2 slice:
+
+- Tax, discounts, price lists, negotiated per-customer pricing, multiple units of measure, inventory reservation/decrement, carrier integrations, or shipment label/tracking services.
+- Quote email delivery/e-signature, sales order amendment/cancellation, returns/credit notes, refunds, payment-provider processing, bank reconciliation, or automatic payment matching.
+- Jurisdiction-approved invoice numbering, tax calculation, legally compliant invoice issuance, statutory accounting, and immutable audit-grade financial records.
+- Organization/tenant scoping remains a Stage 1 gap and must be addressed before a multi-tenant deployment.
+
+These records support an operational sales workflow only. Confirm market, tax, fulfillment, and accounting requirements before using it for regulated or production transactions.
 
  ### Stage 3 — Inventory + purchasing
 

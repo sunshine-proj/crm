@@ -7,6 +7,8 @@ The application is a Vue 3 frontend backed by a Symfony JSON API. The current cl
 
 The activity timeline supports manual interaction entries and automatically records create, update, and delete events for client-linked projects and tasks. Notes attached to a client, project, or task also generate timeline entries; the note content itself is not duplicated in the timeline. These entries are written with the triggering record change, and records that cannot be associated with a client do not appear in a client timeline. Backend audit logs remain a separate operational record.
 
+The Sales workspace currently supports a priced product catalog, quotes, quote-to-order conversion, shipment quantity tracking, order-generated draft invoices, explicit invoice issue state, and invoice payment records. Monetary amounts use fixed EUR/GBP/USD currency snapshots and integer minor-unit server calculations. This is an operational workflow, not a tax-compliant invoicing, inventory, payment-processing, or accounting system; see [PRD.md](PRD.md) and [NOTES.md](NOTES.md) for scope and remaining requirements.
+
 Stage 1 is not complete: organization/tenant scoping, deals and pipelines, a dedicated client detail route, append-only/soft-delete/version recovery, and offline storage and synchronization remain roadmap requirements. See [NOTES.md](NOTES.md) for the staged roadmap and current implementation gaps.
 
 ## bundles

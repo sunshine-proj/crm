@@ -28,7 +28,11 @@ type Invoice = {
   items: InvoiceLine[];
   total: string;
   status: string;
+  paid_total: string;
+  balance_due: string;
+  sales_order_id: number | null;
 };
+type Payment = { id: number; invoice_id: number; amount: string; currency: string; reference: string | null; paid_at: string };
 type InvoiceInput = {
   project_id: number;
   invoice_date: string;
@@ -68,6 +72,11 @@ const items = ref<InvoiceLine[]>([]);
 const taskToAddId = ref<number | null>(null);
 const savedInvoiceId = ref<number | null>(null);
 const savedFormSignature = ref("");
+const isReadOnly = ref(false);
+const paymentAmount = ref("");
+const paymentDate = ref("");
+const paymentReference = ref("");
+const payments = ref<Payment[]>([]);
 
 const availableTasks = computed(() =>
   tasks.value.filter(
@@ -185,6 +194,8 @@ function resetFilters() {
 
 function setNewInvoiceDefaults() {
   editingId.value = null;
+  isReadOnly.value = false;
+  payments.value = [];
   savedInvoiceId.value = null;
   savedFormSignature.value = "";
   projectId.value = projects.value.find((project) => project.client_id !== null)?.id ?? null;
@@ -199,6 +210,7 @@ function setNewInvoiceDefaults() {
 
 function editInvoice(invoice: Invoice) {
   editingId.value = invoice.id;
+  isReadOnly.value = invoice.status !== "draft" || invoice.sales_order_id !== null;
   savedInvoiceId.value = invoice.id;
   projectId.value = invoice.project_id;
   invoiceDate.value = invoice.invoice_date;
@@ -209,6 +221,58 @@ function editInvoice(invoice: Invoice) {
   savedFormSignature.value = formSignature.value;
   errorMessage.value = "";
   isFormVisible.value = true;
+  paymentAmount.value = "";
+  paymentDate.value = new Date().toISOString().slice(0, 10);
+  paymentReference.value = "";
+  void loadPayments(invoice.id);
+}
+
+async function loadPayments(invoiceId: number) {
+  try {
+    payments.value = await request<Payment[]>(`/invoices/${invoiceId}/payments`);
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Unable to load invoice payments.";
+  }
+}
+
+async function issueInvoice() {
+  if (editingId.value === null) return;
+  errorMessage.value = "";
+  isSaving.value = true;
+  try {
+    const issued = await request<Invoice>(`/invoices/${editingId.value}/issue`, { method: "POST" });
+    const index = invoices.value.findIndex((item) => item.id === issued.id);
+    if (index >= 0) invoices.value[index] = issued;
+    isReadOnly.value = true;
+    savedInvoiceId.value = issued.id;
+    savedFormSignature.value = formSignature.value;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Unable to issue the invoice.";
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+async function recordPayment() {
+  if (editingId.value === null || !paymentDate.value || parseMinor(paymentAmount.value) === null || parseMinor(paymentAmount.value)! < 1n) {
+    errorMessage.value = "Enter a positive payment amount and payment date.";
+    return;
+  }
+  errorMessage.value = "";
+  isSaving.value = true;
+  try {
+    await request<Payment>(`/invoices/${editingId.value}/payments`, {
+      method: "POST",
+      body: JSON.stringify({ amount: paymentAmount.value, paid_at: paymentDate.value, reference: paymentReference.value || null }),
+    });
+    await Promise.all([loadInvoices(), loadPayments(editingId.value)]);
+    paymentAmount.value = "";
+    paymentReference.value = "";
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Unable to record payment.";
+  } finally {
+    isSaving.value = false;
+  }
 }
 
 function closeForm() {
@@ -400,14 +464,14 @@ async function deleteInvoice() {
           <p class="card-kicker">{{ editingId === null ? "New invoice" : "Edit invoice" }}</p>
           <h2>{{ editingId === null ? "Set the terms and line items." : "Review invoice details." }}</h2>
           <p v-if="invoices.find((invoice) => invoice.id === savedInvoiceId)?.invoice_number" class="invoice-number">
-            {{ invoices.find((invoice) => invoice.id === savedInvoiceId)?.invoice_number }} · Draft
+            {{ invoices.find((invoice) => invoice.id === savedInvoiceId)?.invoice_number }} · {{ invoices.find((invoice) => invoice.id === savedInvoiceId)?.status }}
           </p>
         </div>
         <button class="close-button" type="button" aria-label="Close invoice form" @click="closeForm">&#10005;</button>
       </div>
 
       <label for="invoice-project">Project</label>
-      <select id="invoice-project" v-model="projectId" required @change="changeProject">
+      <select id="invoice-project" v-model="projectId" required :disabled="isReadOnly" @change="changeProject">
         <option :value="null" disabled>Select a project</option>
         <option v-for="project in projects.filter((item) => item.client_id !== null)" :key="project.id" :value="project.id">
           {{ project.title }} · {{ project.client_title }}
@@ -420,16 +484,16 @@ async function deleteInvoice() {
       <div class="task-datetime-grid">
         <div>
           <label for="invoice-date">Invoice date</label>
-          <input id="invoice-date" v-model="invoiceDate" type="date" required />
+          <input id="invoice-date" v-model="invoiceDate" type="date" required :disabled="isReadOnly" />
         </div>
         <div>
           <label for="invoice-due-date">Due date</label>
-          <input id="invoice-due-date" v-model="dueDate" type="date" />
+          <input id="invoice-due-date" v-model="dueDate" type="date" :disabled="isReadOnly" />
         </div>
       </div>
 
       <label for="invoice-currency">Currency</label>
-      <select id="invoice-currency" v-model="currency">
+      <select id="invoice-currency" v-model="currency" :disabled="isReadOnly">
         <option v-for="option in currencies" :key="option" :value="option">{{ option }}</option>
       </select>
 
@@ -437,30 +501,30 @@ async function deleteInvoice() {
         <div class="invoice-section-heading">
           <h3 id="invoice-task-lines-title">Project tasks</h3>
           <div class="invoice-add-task">
-            <select v-model="taskToAddId" aria-label="Select task to add">
+            <select v-model="taskToAddId" aria-label="Select task to add" :disabled="isReadOnly">
               <option :value="null">Select task</option>
               <option v-for="task in availableTasks" :key="task.id" :value="task.id">{{ task.title }}</option>
             </select>
-            <button class="edit-button" type="button" :disabled="taskToAddId === null" @click="addTaskLine">Add task</button>
+            <button class="edit-button" type="button" :disabled="isReadOnly || taskToAddId === null" @click="addTaskLine">Add task</button>
           </div>
         </div>
         <p v-if="items.every((item) => item.task_id === null)" class="muted invoice-hint">No project tasks added.</p>
         <div v-for="(item, index) in items.filter((line) => line.task_id !== null)" :key="item.task_id ?? index" class="invoice-line-row">
           <span>{{ item.description }}</span>
-          <input v-model="item.amount" type="text" inputmode="decimal" autocomplete="off" :aria-label="`Amount for ${item.description}`" placeholder="0.00" />
-          <button class="close-button" type="button" :aria-label="`Remove ${item.description}`" @click="removeLine(items.indexOf(item))">&#10005;</button>
+          <input v-model="item.amount" type="text" inputmode="decimal" autocomplete="off" :disabled="isReadOnly" :aria-label="`Amount for ${item.description}`" placeholder="0.00" />
+          <button v-if="!isReadOnly" class="close-button" type="button" :aria-label="`Remove ${item.description}`" @click="removeLine(items.indexOf(item))">&#10005;</button>
         </div>
       </section>
 
       <section class="invoice-lines" aria-labelledby="invoice-additional-costs-title">
         <div class="invoice-section-heading">
           <h3 id="invoice-additional-costs-title">Additional costs</h3>
-          <button class="edit-button" type="button" @click="addAdditionalCost">Add cost</button>
+          <button v-if="!isReadOnly" class="edit-button" type="button" @click="addAdditionalCost">Add cost</button>
         </div>
         <div v-for="(item, index) in items.filter((line) => line.task_id === null)" :key="`cost-${index}`" class="invoice-line-row invoice-cost-row">
-          <input v-model="item.description" type="text" maxlength="255" aria-label="Additional cost description" placeholder="Cost description" />
-          <input v-model="item.amount" type="text" inputmode="decimal" autocomplete="off" :aria-label="`Amount for ${item.description || 'additional cost'}`" placeholder="0.00" />
-          <button class="close-button" type="button" :aria-label="`Remove ${item.description || 'additional cost'}`" @click="removeLine(items.indexOf(item))">&#10005;</button>
+          <input v-model="item.description" type="text" maxlength="255" :disabled="isReadOnly" aria-label="Additional cost description" placeholder="Cost description" />
+          <input v-model="item.amount" type="text" inputmode="decimal" autocomplete="off" :disabled="isReadOnly" :aria-label="`Amount for ${item.description || 'additional cost'}`" placeholder="0.00" />
+          <button v-if="!isReadOnly" class="close-button" type="button" :aria-label="`Remove ${item.description || 'additional cost'}`" @click="removeLine(items.indexOf(item))">&#10005;</button>
         </div>
         <p v-if="items.every((item) => item.task_id !== null)" class="muted invoice-hint">No additional costs added.</p>
       </section>
@@ -468,17 +532,31 @@ async function deleteInvoice() {
       <div class="invoice-total"><span>Total</span><strong>{{ formattedTotal }} {{ currency }}</strong></div>
 
       <div class="task-form-actions invoice-form-actions">
-        <button class="button article-submit" type="submit" :disabled="isSaving || isDeleting || isExporting">
+        <button v-if="!isReadOnly" class="button article-submit" type="submit" :disabled="isSaving || isDeleting || isExporting">
           {{ isSaving ? "Saving..." : "Save invoice" }} <span aria-hidden="true">&#8594;</span>
         </button>
         <button v-if="savedInvoiceId !== null && savedFormSignature === formSignature" class="edit-button" type="button" :disabled="isExporting" @click="exportPdf">
           {{ isExporting ? "Preparing PDF..." : "Export PDF" }}
         </button>
+        <button v-if="editingId !== null && invoices.find((invoice) => invoice.id === editingId)?.status === 'draft'" class="edit-button" type="button" :disabled="isSaving" @click="issueInvoice">
+          {{ isSaving ? "Issuing..." : "Issue invoice" }}
+        </button>
+        <button v-if="isReadOnly && ['issued', 'partially_paid'].includes(invoices.find((invoice) => invoice.id === editingId)?.status ?? '')" class="edit-button" type="button" :disabled="isSaving" @click="recordPayment">{{ isSaving ? "Recording..." : "Record payment" }}</button>
         <button class="edit-button" type="button" :disabled="isSaving || isDeleting || isExporting" @click="closeForm">Cancel</button>
-        <button v-if="editingId !== null" class="edit-button danger-button" type="button" :disabled="isSaving || isDeleting || isExporting" @click="deleteInvoice">
+        <button v-if="editingId !== null && !isReadOnly" class="edit-button danger-button" type="button" :disabled="isSaving || isDeleting || isExporting" @click="deleteInvoice">
           {{ isDeleting ? "Deleting..." : "Delete" }}
         </button>
       </div>
+      <section v-if="isReadOnly && editingId !== null" class="invoice-payment-panel">
+        <div class="invoice-total"><span>Paid {{ invoices.find((invoice) => invoice.id === editingId)?.paid_total }} {{ currency }}</span><strong>Balance {{ invoices.find((invoice) => invoice.id === editingId)?.balance_due }} {{ currency }}</strong></div>
+        <div v-if="['issued', 'partially_paid'].includes(invoices.find((invoice) => invoice.id === editingId)?.status ?? '')" class="sales-form-grid">
+          <div><label for="payment-amount">Payment amount</label><input id="payment-amount" v-model="paymentAmount" inputmode="decimal" placeholder="0.00" /></div>
+          <div><label for="payment-date">Payment date</label><input id="payment-date" v-model="paymentDate" type="date" /></div>
+          <div><label for="payment-reference">Reference</label><input id="payment-reference" v-model="paymentReference" maxlength="120" /></div>
+        </div>
+        <ul v-if="payments.length" class="invoice-payment-list"><li v-for="payment in payments" :key="payment.id">{{ payment.paid_at }} · {{ payment.amount }} {{ payment.currency }}<span v-if="payment.reference"> · {{ payment.reference }}</span></li></ul>
+        <p v-else class="muted">No payments recorded.</p>
+      </section>
     </form>
 
     <div v-if="!isLoading && !isFormVisible && invoices.length === 0" class="empty-page invoice-empty">
@@ -497,7 +575,7 @@ async function deleteInvoice() {
         </div>
         <div class="invoice-item-actions">
           <strong class="invoice-item-total">{{ invoice.total }} {{ invoice.currency }}</strong>
-          <button class="edit-button" type="button" @click="editInvoice(invoice)">Edit</button>
+          <button class="edit-button" type="button" @click="editInvoice(invoice)">{{ invoice.status === "draft" ? "Edit" : "View" }}</button>
         </div>
       </article>
     </div>
