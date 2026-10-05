@@ -6020,19 +6020,42 @@ services/
 
  ### Stage 1 — CRM foundation
 
-```
-Organizations
-Users
-RBAC
-Companies
-Contacts
-Activities
-Tasks
-Deals
-Notes
-Offline sync
-Audit
-```
+This is the first real product slice I would build, because it defines the customer relationship model and the operational workflow for everyone else.
+
+I would start with a tenant-aware CRM core that solves the basics reliably:
+
+- Organizations and users
+  - organization/tenant model
+  - user profiles and invitations
+  - authentication and role-based access control
+  - per-organization scoping for all records
+
+- Companies and contacts
+  - company records with owner, status, and notes
+  - contact records with email, phone, role, and history
+  - basic search, filtering, and relationship linking
+
+- Activities and tasks
+  - calls, meetings, emails, follow-ups
+  - due dates, reminders, and task ownership
+  - activity history attached to customer records
+
+- Deals and pipeline tracking
+  - stages, expected close dates, values, and probability
+  - deal ownership and status changes
+  - sales workflow that matches how the team actually sells
+
+- Notes and audit trail
+  - append-only notes for context and customer history
+  - audit log for create/update/delete actions
+  - soft deletes and versioned records for safe recovery
+
+- Offline-first data reliability
+  - local client database for offline work
+  - sync queue for pending changes
+  - server-side cursor sync and conflict detection
+
+This delivers the minimum viable CRM: a single source of truth for customer data, sales activity, and operational history, without trying to solve finance or inventory yet.
 
  ### Stage 2 — Sales
 

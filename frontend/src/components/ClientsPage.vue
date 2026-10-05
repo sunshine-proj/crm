@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import ClientActivityPanel from "./ClientActivityPanel.vue";
 import ClientContactsPanel from "./ClientContactsPanel.vue";
+import EntityNotesPanel from "./EntityNotesPanel.vue";
 
 type Client = {
   id: number;
@@ -200,7 +202,16 @@ async function deleteClient(client: Client) {
             </ul>
           </div>
           <p v-else class="card-kicker">No projects linked yet</p>
+          <div class="client-detail-summary">
+            <span class="card-kicker">Client detail</span>
+            <div class="client-metrics">
+              <strong>{{ projectsByClient[client.id]?.length ?? 0 }}</strong>
+              <span>linked projects</span>
+            </div>
+          </div>
           <ClientContactsPanel :client-id="client.id" />
+          <EntityNotesPanel :entity-type="'client'" :entity-id="client.id" />
+          <ClientActivityPanel :client-id="client.id" :client-title="client.title" />
         </div>
 
         <div class="article-actions">

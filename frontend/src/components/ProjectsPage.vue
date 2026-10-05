@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import EntityNotesPanel from "./EntityNotesPanel.vue";
 import { isValidDateRange } from "../lib/planning";
 
 type Project = {
@@ -269,6 +270,7 @@ async function deleteProject() {
           <p v-if="project.start_date || project.end_date" class="card-kicker">
             {{ project.start_date || "Start not set" }} to {{ project.end_date || "End not set" }}
           </p>
+          <EntityNotesPanel :entity-type="'project'" :entity-id="project.id" />
         </div>
         <button class="edit-button" type="button" @click="editProject(project)">Edit</button>
       </article>

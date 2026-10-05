@@ -5,11 +5,14 @@ namespace App\Controller;
 use App\Dto\ProjectInput;
 use App\Entity\ProjectStatus;
 use App\Entity\Project;
+use App\Entity\User;
 use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\UserRepository;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
@@ -24,6 +27,8 @@ class ProjectController extends AbstractController
 		private readonly ClientRepository $clientRepository,
 		private readonly UserRepository $userRepository,
 		private readonly EntityManagerInterface $entityManager,
+		#[Autowire(service: 'monolog.logger.audit')]
+		private readonly LoggerInterface $auditLogger,
 	) {
 	}
 
@@ -85,6 +90,12 @@ class ProjectController extends AbstractController
 		$this->entityManager->persist($item);
 		$this->entityManager->flush();
 
+		$this->auditLogger->info('Project created.', [
+			'action' => 'project.create',
+			'actor' => $this->getAuditActor(),
+			'project_id' => $item->getId(),
+		]);
+
 		return $this->json($this->serializeItem($item), JsonResponse::HTTP_CREATED);
 	}
 
@@ -144,6 +155,12 @@ class ProjectController extends AbstractController
 			->setUpdatedAt(new \DateTimeImmutable());
 		$this->entityManager->flush();
 
+		$this->auditLogger->info('Project updated.', [
+			'action' => 'project.update',
+			'actor' => $this->getAuditActor(),
+			'project_id' => $item->getId(),
+		]);
+
 		return $this->json($this->serializeItem($item));
 	}
 
@@ -159,7 +176,20 @@ class ProjectController extends AbstractController
 		$this->entityManager->remove($item);
 		$this->entityManager->flush();
 
+		$this->auditLogger->info('Project deleted.', [
+			'action' => 'project.delete',
+			'actor' => $this->getAuditActor(),
+			'project_id' => $id,
+		]);
+
 		return new JsonResponse(null, JsonResponse::HTTP_NO_CONTENT);
+	}
+
+	private function getAuditActor(): string
+	{
+		$user = $this->getUser();
+
+		return $user instanceof User ? $user->getUserIdentifier() : 'anonymous';
 	}
 
 	/** @return array<string, int|string|null> */

@@ -6,10 +6,13 @@ use App\Dto\TaskInput;
 use App\Entity\Task;
 use App\Entity\TaskPriority;
 use App\Entity\TaskStatus;
+use App\Entity\User;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\Routing\Attribute\Route;
@@ -22,6 +25,8 @@ class TaskController extends AbstractController
 		private readonly TaskRepository $taskRepository,
 		private readonly ProjectRepository $projectRepository,
 		private readonly EntityManagerInterface $entityManager,
+		#[Autowire(service: 'monolog.logger.audit')]
+		private readonly LoggerInterface $auditLogger,
 	) {
 	}
 
@@ -64,6 +69,12 @@ class TaskController extends AbstractController
 
 		$this->entityManager->persist($item);
 		$this->entityManager->flush();
+
+		$this->auditLogger->info('Task created.', [
+			'action' => 'task.create',
+			'actor' => $this->getAuditActor(),
+			'task_id' => $item->getId(),
+		]);
 
 		return $this->json($this->serializeItem($item), JsonResponse::HTTP_CREATED);
 	}
@@ -118,6 +129,12 @@ class TaskController extends AbstractController
 			->setUpdatedAt(new \DateTimeImmutable());
 		$this->entityManager->flush();
 
+		$this->auditLogger->info('Task updated.', [
+			'action' => 'task.update',
+			'actor' => $this->getAuditActor(),
+			'task_id' => $item->getId(),
+		]);
+
 		return $this->json($this->serializeItem($item));
 	}
 
@@ -133,7 +150,20 @@ class TaskController extends AbstractController
 		$this->entityManager->remove($item);
 		$this->entityManager->flush();
 
+		$this->auditLogger->info('Task deleted.', [
+			'action' => 'task.delete',
+			'actor' => $this->getAuditActor(),
+			'task_id' => $id,
+		]);
+
 		return new JsonResponse(null, JsonResponse::HTTP_NO_CONTENT);
+	}
+
+	private function getAuditActor(): string
+	{
+		$user = $this->getUser();
+
+		return $user instanceof User ? $user->getUserIdentifier() : 'anonymous';
 	}
 
 	/** @return array<string, int|string|null> */
