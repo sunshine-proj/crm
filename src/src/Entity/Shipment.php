@@ -8,6 +8,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: ShipmentRepository::class)]
 #[ORM\Table(name: 'shipment')]
+#[ORM\Index(columns: ['sales_order_id'], name: 'idx_shipment_order')]
 class Shipment
 {
     #[ORM\Id]

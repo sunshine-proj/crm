@@ -887,6 +887,277 @@ input:focus {
   padding-bottom: 8px;
   border-bottom: 1px solid #dce0d8;
 }
+.finance-section {
+  padding: 24px 0 30px;
+  margin-top: 24px;
+  border-top: 1px solid #dce0d8;
+}
+.finance-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.finance-section-heading .card-kicker {
+  margin: 0 0 8px;
+  color: #b26a3e;
+}
+.finance-section-heading h2 {
+  font-size: 24px;
+}
+.finance-inline-form,
+.finance-report-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  background: #eeece4;
+}
+.finance-inline-form label,
+.finance-report-filters label {
+  display: block;
+  margin: 0 0 7px;
+}
+.finance-inline-form input,
+.finance-inline-form select,
+.finance-report-filters input,
+.finance-report-filters select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  margin: 0;
+  border: 1px solid #cbd4ca;
+  border-radius: 2px;
+  color: #1d2928;
+  background: #f8f7f1;
+  font: inherit;
+}
+.finance-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 16px;
+}
+.finance-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: #53645e;
+  font-size: 13px;
+  text-align: left;
+}
+.finance-table th,
+.finance-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid #dce0d8;
+  white-space: nowrap;
+}
+.finance-table th {
+  color: #176b63;
+  background: #eeece4;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.finance-table-total th {
+  border-top: 2px solid #176b63;
+  color: #1d2928;
+}
+.finance-period-list,
+.finance-balance-list,
+.finance-bill-list,
+.finance-currency-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.finance-period-list article,
+.finance-balance-list article,
+.finance-bill-list article,
+.finance-currency-list article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 16px;
+  border-left: 3px solid #176b63;
+  background: #eeece4;
+}
+.finance-period-list article > div,
+.finance-balance-list article > div,
+.finance-currency-list article {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.finance-period-list article span,
+.finance-balance-list article span,
+.finance-currency-list article span,
+.finance-bill-heading span {
+  color: #71807b;
+  font-size: 12px;
+}
+.finance-closed,
+.finance-balanced {
+  color: #176b63 !important;
+  font-size: 12px;
+  font-weight: 700;
+}
+.finance-unbalanced,
+.finance-balance-list em {
+  color: #954037 !important;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+.finance-journal-form {
+  padding: 16px;
+  background: #eeece4;
+}
+.finance-journal-form .finance-inline-form {
+  grid-template-columns: 1fr 2fr 150px;
+  padding: 0;
+}
+.finance-journal-lines {
+  margin-top: 22px;
+}
+.finance-journal-header,
+.finance-journal-line {
+  display: grid;
+  grid-template-columns: minmax(230px, 1fr) minmax(110px, 150px) minmax(110px, 150px) 30px;
+  align-items: center;
+  gap: 10px;
+}
+.finance-journal-header {
+  padding: 8px 0;
+  color: #71807b;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.finance-journal-line {
+  padding: 9px 0;
+  border-top: 1px solid #d4d9d1;
+}
+.finance-journal-account {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 0.8fr);
+  gap: 8px;
+}
+.finance-journal-account input,
+.finance-journal-account select,
+.finance-journal-line > input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px;
+  margin: 0;
+  border: 1px solid #cbd4ca;
+  border-radius: 2px;
+  background: #f8f7f1;
+  font: inherit;
+}
+.finance-journal-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  margin-top: 14px;
+  border-top: 1px solid #cbd4ca;
+  color: #53645e;
+  font-size: 13px;
+}
+.finance-journal-summary strong {
+  color: #176b63;
+}
+.finance-journal-summary .finance-balanced,
+.finance-journal-summary .finance-unbalanced {
+  margin-left: auto;
+}
+.finance-report-filters {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  margin-bottom: 16px;
+}
+.finance-report-result {
+  margin-top: 14px;
+}
+.finance-report-basis {
+  margin: 12px 0;
+  color: #71807b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.finance-report-basis strong {
+  margin-left: 8px;
+}
+.finance-arap-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 20px;
+}
+.finance-arap-grid > section {
+  min-width: 0;
+}
+.finance-arap-grid .finance-section-heading h2 {
+  color: #176b63;
+  font-size: 22px;
+}
+.finance-balance-list article {
+  align-items: flex-start;
+  padding: 12px;
+}
+.finance-balance-list article > div {
+  display: grid;
+  gap: 5px;
+}
+.finance-balance-list article > strong {
+  white-space: nowrap;
+  color: #176b63;
+  font-size: 13px;
+}
+.finance-balance-list em {
+  display: block;
+  margin-top: 3px;
+}
+.finance-bill-list > article {
+  display: block;
+  padding: 16px;
+  border-left: 3px solid #176b63;
+  background: #eeece4;
+}
+.finance-bill-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+.finance-bill-heading .card-kicker {
+  margin-bottom: 7px;
+  color: #b26a3e;
+}
+.finance-bill-heading h3 {
+  margin: 0 0 6px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 19px;
+}
+.finance-bill-heading > strong {
+  color: #176b63;
+  white-space: nowrap;
+}
+.finance-payment-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  padding: 12px 0 0;
+  margin-top: 14px;
+  border-top: 1px solid #d4d9d1;
+  background: transparent;
+}
+.finance-currency-list article {
+  justify-content: flex-start;
+  min-height: 52px;
+}
+.finance-currency-list article strong {
+  min-width: 52px;
+  color: #176b63;
+}
 @media (max-width: 760px) {
   .top-panel {
     min-height: 72px;
@@ -982,6 +1253,26 @@ input:focus {
   .sales-line-row {
     grid-template-columns: minmax(0, 1fr) auto 26px;
     gap: 7px;
+  }
+  .finance-inline-form,
+  .finance-report-filters,
+  .finance-payment-form,
+  .finance-journal-form .finance-inline-form {
+    grid-template-columns: 1fr 1fr;
+  }
+  .finance-journal-header {
+    display: none;
+  }
+  .finance-journal-line {
+    grid-template-columns: minmax(0, 1fr) minmax(85px, 110px) minmax(85px, 110px) 26px;
+    gap: 6px;
+  }
+  .finance-journal-account {
+    grid-template-columns: 1fr;
+  }
+  .finance-arap-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
   .invoice-form-actions .article-submit {
     width: 100%;

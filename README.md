@@ -9,6 +9,8 @@ The activity timeline supports manual interaction entries and automatically reco
 
 The Sales workspace currently supports a priced product catalog, quotes, quote-to-order conversion, shipment quantity tracking, order-generated draft invoices, explicit invoice issue state, and invoice payment records. Monetary amounts use fixed EUR/GBP/USD currency snapshots and integer minor-unit server calculations. This is an operational workflow, not a tax-compliant invoicing, inventory, payment-processing, or accounting system; see [PRD.md](PRD.md) and [NOTES.md](NOTES.md) for scope and remaining requirements.
 
+The Finance workspace adds chart-of-account and fiscal-period setup, balanced manual journal posting, a single-currency trial balance, tax-code reference data, vendor bills and partial/full AP payments, and operational AR/AP balance reports. General-ledger postings are not automatically reconciled with invoice receipts, AP payments, sales, or configured tax codes. These are not statutory statements or tax filings.
+
 Stage 1 is not complete: organization/tenant scoping, deals and pipelines, a dedicated client detail route, append-only/soft-delete/version recovery, and offline storage and synchronization remain roadmap requirements. See [NOTES.md](NOTES.md) for the staged roadmap and current implementation gaps.
 
 ## bundles

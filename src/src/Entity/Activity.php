@@ -8,6 +8,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: ActivityRepository::class)]
 #[ORM\Table(name: 'activity')]
+#[ORM\Index(columns: ['author_id'], name: 'idx_activity_author')]
 #[ORM\Index(columns: ['client_id', 'created_at'], name: 'idx_activity_client_timeline')]
 class Activity
 {

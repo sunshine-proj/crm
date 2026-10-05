@@ -6,7 +6,13 @@ use App\Entity\Activity;
 use App\Entity\Client;
 use App\Entity\ClientContact;
 use App\Entity\Invoice;
+use App\Entity\FiscalPeriod;
+use App\Entity\JournalEntry;
+use App\Entity\JournalEntryLine;
+use App\Entity\LedgerAccount;
 use App\Entity\Note;
+use App\Entity\PayableBill;
+use App\Entity\PayablePayment;
 use App\Entity\Project;
 use App\Entity\ProjectStatus;
 use App\Entity\Product;
@@ -15,6 +21,7 @@ use App\Entity\Shipment;
 use App\Entity\Payment;
 use App\Entity\Task;
 use App\Entity\TaskStatus;
+use App\Entity\TaxCode;
 use App\Entity\User;
 use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
@@ -325,6 +332,38 @@ final class BusinessRepositoryTest extends KernelTestCase
         self::assertSame(20000, $paymentRepository->sumMinorForInvoice((int) $invoice->getId()));
         self::assertCount(2, $paymentRepository->findForInvoice((int) $invoice->getId()));
         self::assertSame('dispatch-001', $shipmentRepository->findForOrder((int) $order->getId())[0]->getReference());
+    }
+
+    public function test_finance_accounts_periods_journal_and_payables_persist(): void
+    {
+        $startsOn = new DateTimeImmutable('2026-01-01');
+        $endsOn = new DateTimeImmutable('2026-12-31');
+        $period = new FiscalPeriod('FY2026', $startsOn, $endsOn);
+        $bank = new LedgerAccount('1000', 'Operating bank', 'asset');
+        $revenue = new LedgerAccount('4000', 'Service revenue', 'revenue');
+        $entry = new JournalEntry($period, new DateTimeImmutable('2026-10-05'), 'EUR', 'Opening test entry');
+        $entry->addLine(new JournalEntryLine($entry, $bank, 25000, 0, 'Cash received'));
+        $entry->addLine(new JournalEntryLine($entry, $revenue, 0, 25000, 'Service income'));
+        $taxCode = new TaxCode('VAT21', 'Standard VAT', 2100);
+        $bill = new PayableBill('Paper supplier', 'PS-100', 'EUR', 12500, new DateTimeImmutable('2026-10-01'), new DateTimeImmutable('2026-10-31'));
+        $billPayment = new PayablePayment($bill, 5000, new DateTimeImmutable('2026-10-03'), 'bank-ref-1');
+        foreach ([$period, $bank, $revenue, $entry, $taxCode, $bill, $billPayment] as $entity) {
+            $this->entityManager->persist($entity);
+        }
+        $this->entityManager->flush();
+        $this->entityManager->clear();
+
+        $storedEntry = $this->entityManager->getRepository(JournalEntry::class)->find($entry->getId());
+        $storedBill = $this->entityManager->getRepository(PayableBill::class)->find($bill->getId());
+        $accountRepository = self::getContainer()->get(\App\Repository\LedgerAccountRepository::class);
+
+        self::assertNotNull($storedEntry);
+        self::assertCount(2, $storedEntry->getLines());
+        self::assertSame('FY2026', $storedEntry->getPeriod()->getName());
+        self::assertTrue($accountRepository->hasJournalLines((int) $bank->getId()));
+        self::assertFalse($accountRepository->hasJournalLines(999999));
+        self::assertSame('VAT21', $this->entityManager->getRepository(TaxCode::class)->find($taxCode->getId())?->getCode());
+        self::assertSame(5000, self::getContainer()->get(\App\Repository\PayablePaymentRepository::class)->sumMinorForBill((int) $storedBill?->getId()));
     }
 }
 

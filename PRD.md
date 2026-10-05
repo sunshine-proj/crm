@@ -27,12 +27,13 @@ Implemented modules include:
 - **Projects:** create, list, edit, and delete records containing a title and description, linked to a client for new records, with lifecycle status and planned start/end dates.
 - **Projects:** can have an optional responsible manager selected from authenticated workspace users.
 - **Tasks:** create, list, edit, and delete records containing a title, description, start/end times, a project link, status, priority, and optional due date.
-- **Invoices:** authenticated users can create/edit/delete draft invoices linked to a project and its client, add priced project tasks and additional costs, select EUR/GBP/USD, filter by client/project/manager/date/currency/total range, and export a PDF draft. The API calculates totals using integer minor units; payments, tax, issuance, and accounting are not implemented.
+- **Invoices and customer payments:** authenticated users can manage project-linked draft invoices, generate invoices from shipped sales orders, issue invoices, record partial/full customer receipts, view outstanding balances, and export invoice PDFs. Amounts use integer minor units. This is an operational workflow, not legally compliant invoice issuance or payment processing.
+- **Finance foundation:** authenticated users can configure a chart of accounts and non-overlapping fiscal periods, post balanced manual journal entries, configure tax-code and supported-currency references, record vendor bills and AP payments, and review currency-scoped trial-balance and AR/AP reports. GL postings are not automatically reconciled with the operational subledgers.
 - **News:** news-item records with user ownership behavior in the API.
 - **Dashboard:** displays live client, active-project, and open-task counts from an authenticated API summary endpoint.
 - **Authentication:** sign-in through `POST /api/login` and bearer-token API requests.
 
-New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. The client record is not yet a full structured organization/account profile; project ownership beyond the responsible manager, milestones, dependencies, time tracking, invoice issuance, payment tracking, expense management, bookkeeping, and financial reporting are not implemented. Treat these as roadmap requirements, not existing features. PHPUnit backend tests and Vitest frontend unit tests are configured; coverage reporting is still outstanding.
+New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. The client record is not yet a full structured organization/account profile. Project ownership beyond the responsible manager, milestones, dependencies, time tracking, expense management, automatic subledger-to-GL posting/reconciliation, FX, statutory accounting, tax filing, and compliant financial statements remain unimplemented. Treat these as roadmap requirements, not existing features. PHPUnit backend tests and Vitest frontend unit tests are configured; coverage reporting is still outstanding.
 
 ## Product Principles
 
@@ -102,12 +103,12 @@ The initial relational planning slice is implemented: clients can manage structu
 
 ### Phase 3: Invoicing And Payments
 
-- **Implemented MVP:** create/edit/delete project-linked draft invoices with project-task line items and additional costs; snapshot client/project/manager labels; select EUR, GBP, or USD; assign ID-based invoice identifiers; filter by client, project, project manager, invoice date range, currency, and total range; export a draft PDF from the API.
-- **Implemented MVP:** calculate line and invoice totals on the server using integer minor units; frontend amount previews use integer-safe arithmetic. The PDF is clearly marked Draft and is not a compliant issued invoice.
+- **Implemented MVP:** create/edit/delete project-linked draft invoices with project-task line items and additional costs; snapshot client/project/manager labels; select EUR, GBP, or USD; assign ID-based invoice identifiers; filter by client, project, project manager, invoice date range, currency, and total range; export invoice PDFs from the API.
+- **Implemented MVP:** calculate invoice totals on the server using integer minor units; explicitly issue draft invoices, lock issued records from editing/deletion, record partial/full customer receipts, reject overpayments, and derive paid/balance state. Invoice numbering and PDF output are not claims of legal compliance.
 - Create draft invoices from a client and optionally from approved project work, time, or fixed-fee milestones.
 - Support invoice line items, currency, issue/due dates, tax configuration, totals, notes, and lifecycle status.
 - Allow invoice review before issue; issued invoices must not be silently rewritten. Corrections should use explicit void, credit, or replacement flows appropriate to validated business rules.
-- Record full or partial payments, payment dates, references, and allocation to invoices; calculate outstanding balances consistently.
+- Record full or partial payments, payment dates, references, and allocation to invoices; calculate outstanding balances consistently. Current payment capture is manual and operational, not payment-provider processing or bank reconciliation.
 - Provide printable/exportable invoice output and a clear client/project invoice history.
 - Confirm local invoice numbering, tax, retention, and document requirements before releasing invoices for real-world use.
 - Add payment records, partial-payment allocation, derived outstanding balances, immutable issuance, audit history, taxes/discounts, and jurisdiction-validated invoice numbering before invoices are used operationally.
@@ -128,12 +129,16 @@ The current sales slice is an operational workflow built on the existing client 
 - Future requirements: tax rules, discounts, price lists, client-specific pricing, quote delivery/signature, order amendments/cancellations, returns/credit notes/refunds, inventory integration, payment-provider/bank integration, audit-grade issued document immutability, and jurisdiction-approved numbering and tax compliance.
 - Before production financial use, validate supported jurisdictions, invoice legal requirements, tax/rounding rules, document retention, permissions, and accounting integration. Tenant isolation is also a release blocker for a multi-organization service.
 
-### Phase 4: Bookkeeping And Broader ERP Direction
+### Phase 4: Finance And Bookkeeping
 
-- Track business expenses with date, payee, category, amount, currency, tax details where applicable, attachments/references, and optional client/project allocation.
-- Reconcile invoice receipts and expenses into useful cash-flow and project profitability views.
-- Decide whether bookkeeping means operational cash tracking, integration with an external accounting system, or a compliant double-entry ledger before selecting a data model.
-- Add integrations or further ERP capabilities (for example purchasing, inventory, or payroll) only after user research, jurisdiction review, and a separate scoped PRD.
+- **Implemented foundation:** maintain chart-of-account codes/types and active state; create non-overlapping fiscal periods and close them; post manual journal entries only when the date is in an open period, each line is one-sided and uses integer minor units, and total debits equal total credits.
+- **Implemented foundation:** posted manual journal entries cannot be updated or deleted through the API. Reports return a currency-scoped trial balance with date range and basis.
+- **Implemented foundation:** show open AR based on issued invoices and customer receipts; capture vendor bills and partial/full AP payments; prevent duplicate vendor references and overpayment; report balances in one selected currency.
+- **Implemented foundation:** configure tax-code percentages stored as basis points and a finite EUR/GBP/USD currency list. Tax is not applied to invoices/bills; currencies are not converted.
+- **Not implemented:** automatic GL postings for invoices, receipts, vendor bills/payments, sales, or tax; subledger-to-GL reconciliation; opening balances; journal reversals; controlled fiscal-period reopening; expense management; P&L/balance-sheet statements; cash-flow reports; budgets; and financial dimensions.
+- **Not implemented:** FX rates/revaluation, payment-provider or bank integration, statement reconciliation, jurisdiction tax calculation/filing, compliant invoice numbering, finance-specific permissions, and audit-grade close/retention controls.
+- Validate accounting, tax, access, retention, audit, and document rules for the target jurisdictions before treating this operational foundation as a production ledger or statutory finance product.
+- Add integrations or broader ERP capabilities only after user research, jurisdiction review, and a separate scoped PRD.
 
 ## Functional Requirements
 
@@ -164,6 +169,12 @@ The current sales slice is an operational workflow built on the existing client 
 - **FN-6:** Bookkeeping scope and compliance claims require confirmation for the target jurisdictions; do not represent operational summaries as statutory accounts.
 - **FN-7:** Draft invoice PDF exports must be marked as drafts; ID-based identifiers are not a substitute for jurisdiction-approved invoice numbering.
 - **FN-8:** Invoice list amount filters must be currency-scoped; totals in different currencies must never be compared as if they shared a currency.
+- **FN-9:** A manual posted journal entry has at least two lines; each line references an active ledger account and contains either a positive debit or a positive credit, never both; debit and credit totals balance exactly in integer minor units.
+- **FN-10:** Journal entry date must be within exactly one open fiscal period; date ranges cannot overlap. A closed period cannot accept new postings.
+- **FN-11:** Posted entries are immutable through ordinary update/delete APIs; corrections require a reversal/replacement workflow.
+- **FN-12:** Trial balance and AR/AP reports must be limited to one explicit currency unless a validated FX conversion layer is implemented; report output must disclose date range and calculation basis.
+- **FN-13:** Tax-code configuration is not tax calculation. Do not apply configured rates to documents or claim tax compliance until jurisdiction rules and rounding tests are implemented.
+- **FN-14:** Operational AR/AP subledgers must not be presented as reconciled GL balances until source transactions generate atomic postings and reconciliation controls exist.
 
 ### Access, Privacy, And Audit
 

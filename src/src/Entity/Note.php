@@ -8,6 +8,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: NoteRepository::class)]
 #[ORM\Table(name: 'note')]
+#[ORM\Index(columns: ['author_id'], name: 'idx_note_author')]
 #[ORM\Index(columns: ['entity_type', 'entity_id'], name: 'idx_note_entity')]
 class Note
 {

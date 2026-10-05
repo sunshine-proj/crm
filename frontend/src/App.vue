@@ -7,6 +7,7 @@ import ProjectsPage from "./components/ProjectsPage.vue";
 import TasksPage from "./components/TasksPage.vue";
 import InvoicesPage from "./components/InvoicesPage.vue";
 import SalesPage from "./components/SalesPage.vue";
+import FinancePage from "./components/FinancePage.vue";
 
 type LoginResponse = {
   token: string;
@@ -20,7 +21,7 @@ const userEmail = ref(localStorage.getItem("crm_user_email"));
 const errorMessage = ref("");
 const isSubmitting = ref(false);
 const activeSection = ref("Dashboard");
-const sections = ["Dashboard", "News", "Clients", "Projects", "Tasks", "Sales", "Invoices"];
+const sections = ["Dashboard", "News", "Clients", "Projects", "Tasks", "Sales", "Invoices", "Finance"];
 const pageComponents = {
   Dashboard: DashboardPage,
   News: NewsPage,
@@ -29,6 +30,7 @@ const pageComponents = {
   Tasks: TasksPage,
   Sales: SalesPage,
   Invoices: InvoicesPage,
+  Finance: FinancePage,
 };
 
 function hasValidToken(value: string | null) {
@@ -118,7 +120,9 @@ function signOut() {
                       ? "&#10003;"
                       : section === "Sales"
                         ? "&#8644;"
-                        : "&#36;"
+                        : section === "Finance"
+                          ? "&#9636;"
+                          : "&#36;"
           }}</span>
           {{ section }}
         </button>

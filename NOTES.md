@@ -6124,17 +6124,38 @@ Returns
 
  ### Stage 4 — Finance
 
-```
-Chart of accounts
-GL
-AR
-AP
-Payments
-Tax
-Currencies
-Fiscal periods
-Financial reports
-```
+Stage 4 establishes a currency-explicit operational finance foundation:
+
+- Chart of accounts with account types and active/inactive state.
+- Double-entry general ledger: immutable posted journal entries, at least two one-sided lines, equal debit/credit totals, and account-level balances.
+- Non-overlapping fiscal periods; journal posting is permitted only when the entry date is within an open period.
+- Accounts receivable from issued invoice balances and invoice receipts; accounts payable from vendor bills and partial/full vendor payments.
+- Tax-code reference configuration with rates stored in integer basis points.
+- Explicit supported transaction currencies (EUR, GBP, USD); each journal entry and financial report uses one currency. No cross-currency aggregation without FX rules.
+- Trial-balance and outstanding AR/AP reports disclose their source data and calculation basis.
+
+#### Current implementation status (2026-10-05)
+
+Implemented in the current Vue + Symfony application:
+
+- Finance workspace for account/period setup, manual journal posting, trial balance, vendor bills/AP payments, tax-code references, and currency information.
+- Create/update chart-of-account records with asset, liability, equity, revenue, or expense type.
+- Create non-overlapping fiscal periods and close a period; the API does not provide a reopen action.
+- Post manual journal entries only when dated in an open period and composed of at least two one-sided integer-minor-unit lines whose debit and credit totals balance exactly. Posted journal entries have no edit/delete endpoint.
+- Run trial balance by a single currency and date range; run outstanding AR/AP summaries in one selected currency.
+- Record vendor bills and partial/full AP payments with duplicate-reference and overpayment checks.
+- Maintain configured tax rates in basis points; the rates are not automatically applied to sales or purchase documents.
+- Store supported currencies as an explicit EUR/GBP/USD list; no conversion or FX revaluation is performed.
+
+Not implemented and still required before Finance is complete:
+
+- Automatic GL postings or reconciliation for invoices, customer receipts, vendor bills/payments, sales, or tax. Operational AR/AP and the general ledger currently remain separate.
+- Opening balances, reversing/correcting entries, close review/approval and controlled reopen, audit-grade actor evidence, and finance-specific roles/tenant scoping.
+- Automatic tax calculation, jurisdiction rules, tax filings, compliant invoice handling, and tax audit reporting.
+- FX rates, gains/losses, revaluation, bank accounts/statements/reconciliation, payment integrations, cash-flow reporting, and multi-currency consolidation.
+- P&L and balance-sheet statements, retained-earnings rollover, budgets, dimensions, export formats, vendor master data, bill line items/attachments, purchase matching, credit notes, and refunds.
+
+This is an operational bookkeeping foundation, not a statutory accounting or tax product. Do not use its reports for filings, financial statements, or production ledger close until target jurisdictions, posting rules, audit requirements, access controls, and reconciliation workflows are implemented and reviewed.
 
  ### Stage 5 — Operations
 

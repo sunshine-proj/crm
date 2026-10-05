@@ -7,6 +7,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: PaymentRepository::class)]
 #[ORM\Table(name: 'payment')]
+#[ORM\Index(columns: ['invoice_id', 'paid_at'], name: 'idx_payment_invoice_paid_at')]
 class Payment
 {
     #[ORM\Id]

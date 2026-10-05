@@ -8,6 +8,8 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: SalesDocumentRepository::class)]
 #[ORM\Table(name: 'sales_document')]
+#[ORM\Index(columns: ['client_id', 'type'], name: 'idx_sales_document_client_type')]
+#[ORM\Index(columns: ['source_quote_id'], name: 'idx_sales_document_source_quote')]
 #[ORM\UniqueConstraint(name: 'UNIQ_SALES_DOCUMENT_NUMBER', columns: ['document_number'])]
 class SalesDocument
 {
