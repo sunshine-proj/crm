@@ -11,6 +11,8 @@ The Sales workspace currently supports a priced product catalog, quotes, quote-t
 
 The Finance workspace adds chart-of-account and fiscal-period setup, balanced manual journal posting, a single-currency trial balance, tax-code reference data, vendor bills and partial/full AP payments, and operational AR/AP balance reports. General-ledger postings are not automatically reconciled with invoice receipts, AP payments, sales, or configured tax codes. These are not statutory statements or tax filings.
 
+The Inventory workspace supports warehouses, suppliers, product-based purchase orders, partial goods receipts, movement-derived stock balances, count adjustments, explicit dispatch of sales shipments, and bounded customer/supplier returns. Stock movements are append-only and quantity-only; dispatches and receipts do not automatically post to the general ledger. Stock valuation, transfers, bins, lots, and serial tracking are not implemented yet.
+
 Stage 1 is not complete: organization/tenant scoping, deals and pipelines, a dedicated client detail route, append-only/soft-delete/version recovery, and offline storage and synchronization remain roadmap requirements. See [NOTES.md](NOTES.md) for the staged roadmap and current implementation gaps.
 
 ## bundles

@@ -6,7 +6,9 @@ use App\Entity\Activity;
 use App\Entity\Client;
 use App\Entity\ClientContact;
 use App\Entity\Invoice;
+use App\Entity\GoodsReceipt;
 use App\Entity\FiscalPeriod;
+use App\Entity\InventoryReturn;
 use App\Entity\JournalEntry;
 use App\Entity\JournalEntryLine;
 use App\Entity\LedgerAccount;
@@ -14,6 +16,7 @@ use App\Entity\Note;
 use App\Entity\PayableBill;
 use App\Entity\PayablePayment;
 use App\Entity\Project;
+use App\Entity\PurchaseOrder;
 use App\Entity\ProjectStatus;
 use App\Entity\Product;
 use App\Entity\SalesDocument;
@@ -22,11 +25,15 @@ use App\Entity\Payment;
 use App\Entity\Task;
 use App\Entity\TaskStatus;
 use App\Entity\TaxCode;
+use App\Entity\StockMovement;
+use App\Entity\Supplier;
 use App\Entity\User;
+use App\Entity\Warehouse;
 use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
 use App\Service\ClientActivityLogger;
+use App\Service\StockLedger;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
@@ -364,6 +371,53 @@ final class BusinessRepositoryTest extends KernelTestCase
         self::assertFalse($accountRepository->hasJournalLines(999999));
         self::assertSame('VAT21', $this->entityManager->getRepository(TaxCode::class)->find($taxCode->getId())?->getCode());
         self::assertSame(5000, self::getContainer()->get(\App\Repository\PayablePaymentRepository::class)->sumMinorForBill((int) $storedBill?->getId()));
+    }
+
+    public function test_purchase_receipt_and_supplier_return_drive_warehouse_stock_ledger(): void
+    {
+        $product = new Product('FILTER-01', 'Air filter', 'EUR', 2500);
+        $supplier = new Supplier('SUP-01', 'Parts supplier', null, null, null);
+        $warehouse = new Warehouse('WH-A', 'Main warehouse', null);
+        $order = new PurchaseOrder($supplier, 'EUR', [[
+            'product_id' => 1,
+            'sku' => 'FILTER-01',
+            'description' => 'Air filter',
+            'quantity' => 10,
+            'unit_cost_minor' => 1200,
+            'line_total_minor' => 12000,
+        ]], 12000, new DateTimeImmutable('2026-10-01'));
+        $receipt = new GoodsReceipt($order, $warehouse, [['product_id' => 1, 'description' => 'Air filter', 'quantity' => 5]], new DateTimeImmutable('2026-10-03'), 'GR-01');
+        $return = new InventoryReturn('supplier', $warehouse, 'purchase_order', 1, [['product_id' => 1, 'description' => 'Air filter', 'quantity' => 1]], new DateTimeImmutable('2026-10-04'), 'RTN-01');
+        $inbound = new StockMovement($product, $warehouse, 'goods_receipt', 5, 'goods_receipt', 1, new DateTimeImmutable('2026-10-03'), 'Goods received');
+        $outbound = new StockMovement($product, $warehouse, 'supplier_return', -1, 'inventory_return', 1, new DateTimeImmutable('2026-10-04'), 'Returned to supplier');
+        foreach ([$product, $supplier, $warehouse, $order, $receipt, $return, $inbound, $outbound] as $entity) {
+            $this->entityManager->persist($entity);
+        }
+        $this->entityManager->flush();
+
+        $movementRepository = self::getContainer()->get(\App\Repository\StockMovementRepository::class);
+        self::assertSame(4, $movementRepository->onHand((int) $product->getId(), (int) $warehouse->getId()));
+        self::assertTrue($movementRepository->hasSource('goods_receipt', (int) $receipt->getId()));
+        self::assertCount(1, self::getContainer()->get(\App\Repository\GoodsReceiptRepository::class)->findForPurchaseOrder((int) $order->getId()));
+    }
+
+    public function test_stock_ledger_rejects_movements_that_would_create_negative_stock(): void
+    {
+        $product = new Product('BOLT-01', 'Steel bolt', 'EUR', 10);
+        $warehouse = new Warehouse('WH-1', 'Main warehouse', null);
+        $this->entityManager->persist($product);
+        $this->entityManager->persist($warehouse);
+        $this->entityManager->flush();
+
+        $ledger = new StockLedger(self::getContainer()->get(\App\Repository\StockMovementRepository::class), $this->entityManager);
+        $ledger->record($product, $warehouse, 'adjustment_in', 6, 'adjustment', null, new DateTimeImmutable('2026-10-05'), 'Opening count');
+        $this->entityManager->flush();
+        $ledger->record($product, $warehouse, 'sales_shipment', -4, 'sales_shipment', 12, new DateTimeImmutable('2026-10-05'), 'Dispatch');
+        $this->entityManager->flush();
+
+        self::assertSame(2, $ledger->onHand($product, $warehouse));
+        $this->expectException(\DomainException::class);
+        $ledger->record($product, $warehouse, 'supplier_return', -3, 'inventory_return', 7, new DateTimeImmutable('2026-10-05'), 'Return');
     }
 }
 

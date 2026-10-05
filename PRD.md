@@ -28,6 +28,7 @@ Implemented modules include:
 - **Projects:** can have an optional responsible manager selected from authenticated workspace users.
 - **Tasks:** create, list, edit, and delete records containing a title, description, start/end times, a project link, status, priority, and optional due date.
 - **Invoices and customer payments:** authenticated users can manage project-linked draft invoices, generate invoices from shipped sales orders, issue invoices, record partial/full customer receipts, view outstanding balances, and export invoice PDFs. Amounts use integer minor units. This is an operational workflow, not legally compliant invoice issuance or payment processing.
+- **Inventory and purchasing:** authenticated users can configure warehouses and suppliers, create product-based purchase orders, receive partial/full quantities into a warehouse, derive on-hand quantities from signed stock movements, post adjustments, explicitly dispatch sales shipments against warehouse stock, and record bounded customer/supplier returns. The ledger tracks quantities only and is not valued inventory.
 - **Finance foundation:** authenticated users can configure a chart of accounts and non-overlapping fiscal periods, post balanced manual journal entries, configure tax-code and supported-currency references, record vendor bills and AP payments, and review currency-scoped trial-balance and AR/AP reports. GL postings are not automatically reconciled with the operational subledgers.
 - **News:** news-item records with user ownership behavior in the API.
 - **Dashboard:** displays live client, active-project, and open-task counts from an authenticated API summary endpoint.
@@ -125,11 +126,23 @@ The current sales slice is an operational workflow built on the existing client 
 - **Implemented MVP:** create one linked draft invoice from a fully shipped order. Use the existing invoice PDF generation and amount calculation boundary.
 - **Implemented MVP:** explicitly issue a draft invoice; lock issued invoices from editing/deletion; accept partial/full payment records; reject overpayment; derive invoice paid total, balance due, and paid state from payment records.
 - Keep payment entry manual and represent it only as an operational record. Do not imply card processing, bank reconciliation, or external payment confirmation.
-- Keep shipment records separate from inventory movements. Recording a shipment does not reserve or decrement stock.
+- A sales shipment remains distinct from stock until an explicit warehouse dispatch. Dispatch records stock movements and cannot permit negative stock.
 - Future requirements: tax rules, discounts, price lists, client-specific pricing, quote delivery/signature, order amendments/cancellations, returns/credit notes/refunds, inventory integration, payment-provider/bank integration, audit-grade issued document immutability, and jurisdiction-approved numbering and tax compliance.
 - Before production financial use, validate supported jurisdictions, invoice legal requirements, tax/rounding rules, document retention, permissions, and accounting integration. Tenant isolation is also a release blocker for a multi-organization service.
 
-### Phase 4: Finance And Bookkeeping
+### Phase 4: Inventory And Procurement
+
+- **Implemented MVP:** configure warehouses and suppliers with unique codes and active state; retain supplier contact details.
+- **Implemented MVP:** create purchase orders from active products, snapshot supplier/product identifiers, quantities, currency, unit costs, and totals, and track open/partially-received/received state.
+- **Implemented MVP:** post partial/full goods receipts into a selected warehouse; cumulative receipt quantities cannot exceed order quantities; receipt and inbound stock movements persist atomically.
+- **Implemented MVP:** calculate warehouse/product on-hand from append-only signed stock movements; expose recent movement history; support reasoned positive/negative adjustments while preventing negative stock.
+- **Implemented MVP:** explicitly dispatch existing sales shipments from a selected warehouse once; verify stock and create outbound movements.
+- **Implemented MVP:** record customer returns only against dispatched shipments and supplier returns only against received purchase-order quantities; cap returns to original quantities and record corresponding stock movements.
+- Keep sales shipment recording and warehouse dispatch as separate steps: a sales shipment alone does not reduce inventory.
+- **Not implemented:** inter-warehouse transfers, stock reservation, bin locations, lots/serials/expiry dates, stock valuation, cost layers, landed costs, purchasing approvals, PO editing/cancellation, three-way matching, carrier integrations, or automated replenishment.
+- **Not implemented:** GL postings or valuation consequences for receipts, returns, or dispatch. Quantity stock is not an accounting asset balance.
+
+### Phase 5: Finance And Bookkeeping
 
 - **Implemented foundation:** maintain chart-of-account codes/types and active state; create non-overlapping fiscal periods and close them; post manual journal entries only when the date is in an open period, each line is one-sided and uses integer minor units, and total debits equal total credits.
 - **Implemented foundation:** posted manual journal entries cannot be updated or deleted through the API. Reports return a currency-scoped trial balance with date range and basis.
@@ -175,6 +188,11 @@ The current sales slice is an operational workflow built on the existing client 
 - **FN-12:** Trial balance and AR/AP reports must be limited to one explicit currency unless a validated FX conversion layer is implemented; report output must disclose date range and calculation basis.
 - **FN-13:** Tax-code configuration is not tax calculation. Do not apply configured rates to documents or claim tax compliance until jurisdiction rules and rounding tests are implemented.
 - **FN-14:** Operational AR/AP subledgers must not be presented as reconciled GL balances until source transactions generate atomic postings and reconciliation controls exist.
+- **INV-1:** On-hand is derived from immutable movements per product and warehouse; corrections use offsetting movements, not edits or deletes.
+- **INV-2:** Goods receipts reference a purchase order and warehouse; cumulative received quantities cannot exceed ordered quantities.
+- **INV-3:** Warehouse dispatch references a sales shipment, is idempotent, and requires sufficient on-hand stock.
+- **INV-4:** Customer/supplier returns reference the originating shipment/order and cannot exceed original shipped/received quantity less previous returns.
+- **INV-5:** Quantity stock and inventory valuation are separate capabilities; do not report stock value until a costing method and accounting integration exist.
 
 ### Access, Privacy, And Audit
 

@@ -6112,15 +6112,39 @@ These records support an operational sales workflow only. Confirm market, tax, f
 
  ### Stage 3 — Inventory + purchasing
 
-```
-Warehouses
-Stock
-Stock movements
-Suppliers
-Purchase orders
-Goods receipts
-Returns
-```
+Build stock as an auditable ledger rather than a mutable product quantity:
+
+- Warehouses have unique codes, names, optional addresses, and active state. Products can be stocked in multiple warehouses.
+- Stock on hand is derived by summing immutable signed movements for product and warehouse. Negative on-hand stock is rejected.
+- Movement types include goods receipt, sales dispatch, customer return, supplier return, and positive/negative count adjustment. Each movement retains date, memo, and source reference.
+- Suppliers have unique codes, contact details, and active state.
+- Purchase orders snapshot supplier, product SKU/name, quantity, unit cost, currency, and totals. Partial receipts are supported and cannot exceed ordered quantities.
+- Posting a goods receipt atomically creates the receipt and inbound stock movements; purchase order state reflects open, partially received, or received quantities.
+- Existing sales shipments remain separately recorded until explicitly dispatched from an active warehouse. Dispatch can happen once per shipment, requires enough on-hand stock, and creates stock-out movements.
+- Customer returns must refer to a dispatched sales shipment and cannot exceed dispatched quantities less prior returns; they add stock to the selected warehouse. Supplier returns must refer to a purchase order and cannot exceed received quantities less prior returns; they reduce stock.
+
+#### Current implementation status (2026-10-05)
+
+Implemented in the current Vue + Symfony application:
+
+- Warehouse and supplier create/list/update APIs with active/inactive controls and Inventory workspace screens.
+- Purchase order creation from catalog products with immutable quantity and integer-minor-unit cost snapshots.
+- Partial/full goods receipts into a selected warehouse, with matching stock movements and purchase-order receipt state.
+- Warehouse/product stock-on-hand and recent stock-movement views derived from the movement ledger.
+- Reasoned positive/negative manual inventory adjustments.
+- One-time dispatch of previously recorded sales shipments from an explicitly selected warehouse, with stock sufficiency enforcement.
+- Customer returns against dispatched shipments and supplier returns against purchase orders, with quantity bounds and corresponding signed movements.
+- Integration tests for receipt/return persistence and ledger-derived stock; service coverage verifies outbound movements cannot make stock negative.
+
+Not implemented and still required for broader inventory/procurement:
+
+- Inter-warehouse transfers, reservations/allocations, bins/locations, lot/serial/expiry tracking, cycle-count sessions/approval, and backorders.
+- Stock valuation (FIFO/weighted average/standard cost), landed costs, purchase price variance, and accounting postings from receipts/returns/dispatch.
+- Purchase-order approval, editing/cancellation, supplier invoices/three-way matching, supplier credit notes, and payment initiation.
+- Purchase/sales tax application, replenishment rules, demand planning, carrier labels/tracking, and multi-currency purchasing cost conversion.
+- Concurrency/authorization policies beyond the current authenticated workspace role and single-tenant database.
+
+Operational rules: use purchase receipts or explicit adjustments to establish stock; do not edit/delete stock movements to correct history; add an offsetting movement instead. Dispatching a sales shipment is a separate explicit inventory action. Inventory is quantity-tracked only and is not yet a financially valued stock asset.
 
  ### Stage 4 — Finance
 
