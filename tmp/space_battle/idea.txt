@@ -1,0 +1,3 @@
+there is game where 2 satellites are circling around planet. with trusts player can adjust trajectory of his satellite, after each trust usage fuel level drops a bit, but after some time regenerates. The aim of a game is to shoot at enemies satellite and to eleminate it after several hits to destroy it. Enemy satellite also shoot at you.
+Visually it looks nice, dark space background with stars, stellites are realistic with solar panels, satellite gun is at opposite side of main trust engine. User can turn satellite with arrow buttons, and shoot with space button. turning is done by satellite little trusts by it sides.
+Create AGENTS.md, PRD.md, and SKILL.md files for each skill.
