@@ -1,0 +1,13 @@
+{
+  "id": "/",
+  "name": "Worms Arena",
+  "short_name": "Worms Arena",
+  "description": "A turn-based artillery game with destructible terrain.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0f172a",
+  "theme_color": "#172554",
+  "categories": ["games", "entertainment"]
+}

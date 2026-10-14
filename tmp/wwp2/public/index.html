@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  >
+
+  <meta name="theme-color" content="#172554">
+
+  <meta
+    name="description"
+    content="A turn-based artillery game featuring cartoon worms and destructible terrain."
+  >
+
+  <title>Worms Arena</title>
+
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/style.css">
+
+  <script src="/game.js" defer></script>
+</head>
+
+<body>
+  <main class="game-container">
+
+    <header class="top-bar">
+      <div>
+        <h1>Worms Arena</h1>
+        <p class="subtitle">Turn-based artillery battle</p>
+      </div>
+
+      <button id="restartButton" class="secondary-button">
+        New Game
+      </button>
+    </header>
+
+    <section class="scoreboard">
+      <article class="player-card" id="player1Card">
+        <div class="player-name">
+          <span class="player-dot red"></span>
+          <strong>Red Worm</strong>
+        </div>
+
+        <div class="health-track">
+          <div id="health1" class="health-fill red-fill"></div>
+        </div>
+
+        <span id="healthText1">100 HP</span>
+      </article>
+
+      <article class="player-card" id="player2Card">
+        <div class="player-name">
+          <span class="player-dot blue"></span>
+          <strong>Blue Worm</strong>
+        </div>
+
+        <div class="health-track">
+          <div id="health2" class="health-fill blue-fill"></div>
+        </div>
+
+        <span id="healthText2">100 HP</span>
+      </article>
+    </section>
+
+    <section class="game-panel">
+      <div class="game-status">
+        <span id="turnLabel">Red Worm's turn</span>
+        <span id="statusMessage">Ready to fire!</span>
+      </div>
+
+      <div class="canvas-wrapper">
+        <canvas
+          id="gameCanvas"
+          width="960"
+          height="540"
+          aria-label="Worms Arena game battlefield"
+        ></canvas>
+      </div>
+
+      <div class="controls">
+
+        <div class="control-group">
+          <label for="angleSlider">
+            Aim angle:
+            <strong id="angleValue">45°</strong>
+          </label>
+
+          <input
+            id="angleSlider"
+            type="range"
+            min="5"
+            max="175"
+            value="45"
+          >
+        </div>
+
+        <div class="control-group">
+          <label for="powerSlider">
+            Power:
+            <strong id="powerValue">65%</strong>
+          </label>
+
+          <input
+            id="powerSlider"
+            type="range"
+            min="20"
+            max="100"
+            value="65"
+          >
+        </div>
+
+        <button id="fireButton" class="fire-button">
+          FIRE!
+        </button>
+      </div>
+
+      <p class="help-text">
+        Keyboard: A/D to aim · W/S to adjust power · Space to fire
+      </p>
+    </section>
+
+    <footer>
+      An original browser game inspired by classic artillery games.
+    </footer>
+
+  </main>
+</body>
+</html>

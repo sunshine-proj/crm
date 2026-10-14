@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scientific Calculator</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1b2430">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root { --bg:#1b2430; --key:#2a3644; --fn:#364a5e; --op:#e0a458; --eq:#5fa8a0; --ink:#eef1f4; --dim:#8ea0b3; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; margin:0; background:var(--bg); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  body { display:flex; justify-content:center; align-items:flex-end;
+    padding:env(safe-area-inset-top) 12px calc(12px + env(safe-area-inset-bottom)); }
+  .calc { width:100%; max-width:420px; display:flex; flex-direction:column; gap:12px; }
+  .screen { padding:16px 8px 8px; text-align:right; min-height:120px; display:flex; flex-direction:column; justify-content:flex-end; }
+  #out { font-size:1.5rem; color:var(--dim); word-break:break-all; min-height:2rem; }
+  #res { font-size:3rem; font-weight:300; font-variant-numeric:tabular-nums; overflow-x:auto; white-space:nowrap; }
+  .keys { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+  button { font:inherit; font-size:1.15rem; color:var(--ink); background:var(--key); border:0; border-radius:12px;
+    height:56px; cursor:pointer; }
+  button:active { filter:brightness(1.25); }
+  button:focus-visible { outline:2px solid var(--eq); outline-offset:2px; }
+  .fn { background:var(--fn); font-size:1rem; }
+  .op { background:var(--op); color:#1b2430; font-weight:600; }
+  .eq { background:var(--eq); color:#10201f; font-weight:700; }
+  .wide { grid-column:span 2; }
+  #deg { font-size:.95rem; }
+</style>
+</head>
+<body>
+<main class="calc">
+  <div class="screen"><div id="out"></div><div id="res">0</div></div>
+  <div class="keys" id="keys">
+    <button class="fn" id="deg" data-a="deg">DEG</button>
+    <button class="fn" data-v="sin(">sin</button>
+    <button class="fn" data-v="cos(">cos</button>
+    <button class="fn" data-v="tan(">tan</button>
+    <button class="op" data-a="ac">AC</button>
+
+    <button class="fn" data-v="π">π</button>
+    <button class="fn" data-v="ln(">ln</button>
+    <button class="fn" data-v="log(">log</button>
+    <button class="fn" data-v="√(">√</button>
+    <button class="op" data-a="del">⌫</button>
+
+    <button class="fn" data-v="(">(</button>
+    <button class="fn" data-v=")">)</button>
+    <button class="fn" data-v="^">xʸ</button>
+    <button class="fn" data-v="e">e</button>
+    <button class="op" data-v="÷">÷</button>
+
+    <button data-v="7">7</button><button data-v="8">8</button><button data-v="9">9</button>
+    <button class="fn" data-v="Ans">Ans</button>
+    <button class="op" data-v="×">×</button>
+
+    <button data-v="4">4</button><button data-v="5">5</button><button data-v="6">6</button>
+    <button class="fn" data-v="^2">x²</button>
+    <button class="op" data-v="−">−</button>
+
+    <button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button>
+    <button class="fn" data-v="1/(">1/x</button>
+    <button class="op" data-v="+">+</button>
+
+    <button class="wide" data-v="0">0</button>
+    <button data-v=".">.</button>
+    <button class="eq wide" data-a="eq">=</button>
+  </div>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

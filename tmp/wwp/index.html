@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Grubfire</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1d2b3a">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+html,body{margin:0;height:100%;background:#1d2b3a;color:#fff;font-family:system-ui,sans-serif;touch-action:none;user-select:none}
+body{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+canvas{width:min(100vw,calc((100vh - 150px) * 16 / 9));aspect-ratio:16/9;display:block;background:#5aa9e6}
+#pad{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;padding:8px}
+#pad button{font:inherit;font-size:1rem;min-width:56px;height:44px;border:0;border-radius:10px;background:#34495e;color:#fff}
+#pad button:active{background:#f2b84b;color:#111}
+#pad .fire{background:#e5484d;min-width:90px;font-weight:700}
+#install[hidden]{display:none}
+#wl{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;padding:6px 8px 0}
+#wl button{font:inherit;font-size:.85rem;padding:6px 10px;border:2px solid transparent;border-radius:10px;background:#2c3e50;color:#fff}
+#wl button.sel{border-color:#ffd23f;background:#3b5368}
+#wl button:disabled{opacity:.4}
+#map{font:inherit;height:44px;border-radius:10px;background:#34495e;color:#fff;border:0;padding:0 8px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="wl"></div>
+<div id="pad">
+  <button data-k="ArrowLeft">◀</button><button data-k="ArrowRight">▶</button>
+  <button data-k="Enter">Jump</button>
+  <button data-k="ArrowUp">Aim ▲</button><button data-k="ArrowDown">Aim ▼</button>
+  <select id="map" aria-label="Map"></select>
+  <button data-k=" " class="fire">FIRE</button>
+  <button id="install" hidden>Install</button>
+</div>
+
+<script>
+'use strict';
+// Grubfire - an original turn-based artillery game (two teams, destructible terrain, wind).
+const W = 800, H = 450, WATER = H - 22, G = .25, PG = .2, TURN = 30 * 60;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+cv.width = W; cv.height = H;
+const tc = document.createElement('canvas'); tc.width = W; tc.height = H;   // terrain picture
+const tx = tc.getContext('2d');
+const map = new Uint8Array(W * H);                                          // terrain collision (1 = solid)
+const TEAMS = [{ name: 'Red', color: '#e5484d' }, { name: 'Blue', color: '#3e7bfa' }];
+const WEAPONS = [
+  { n: 'Bazooka', i: '🚀', kind: 'rocket', r: 30 },                       // hold FIRE to charge, wind affects it
+  { n: 'Hand grenade', i: '💣', kind: 'grenade', r: 38 },                 // hold FIRE to charge, 3 s fuse, bounces
+  { n: 'Handgun', i: '🔫', kind: 'gun', shots: 3, gap: 20, dmg: 10, spread: .02, cut: 5 },
+  { n: 'Auto rifle', i: '🎯', kind: 'gun', shots: 12, gap: 4, dmg: 5, spread: .07, cut: 4 },
+  { n: 'Holy bomb', i: '✨', kind: 'holy', ammo: 1 }                      // placed at your feet, 6 s fuse, one per team
+];
+// Ground height profiles. island() leaves water between the islands.
+const island = list => x => {
+  let b = 0;
+  for (const [cx, hw, ph] of list) { const u = (x - cx) / hw; if (Math.abs(u) < 1) b = Math.max(b, ph * Math.pow(1 - u * u, .6)); }
+  return b > 0 ? WATER + 8 - b + 3 * Math.sin(x / 9) : H;
+};
+const MAPS = [
+  { name: 'Rolling Hills', make() { const A = [R(50, 90), R(25, 50), R(8, 20)], P = [R(0, 6), R(0, 6), R(0, 6)]; return x => H * .56 + A[0] * Math.sin(x / 120 + P[0]) + A[1] * Math.sin(x / 48 + P[1]) + A[2] * Math.sin(x / 17 + P[2]); } },
+  { name: 'Twin Islands', make() { return island([[210, 190, 230], [595, 190, 250]]); } },
+  { name: 'Archipelago', make() { const l = []; for (let i = 0; i < 5; i++) l.push([70 + i * 165 + R(-25, 25), R(70, 95), R(110, 200)]); return island(l); } },
+  { name: 'Central Island', make() { return island([[400, 260, 270], [60, 55, 120], [740, 55, 120]]); } },
+  { name: 'Canyon', make() { const c = R(360, 440); return x => H * .42 + 150 * Math.exp(-(((x - c) / 90) ** 2)) + 12 * Math.sin(x / 25); } },
+  { name: 'Mountain', make() { const o = R(-60, 60); return x => H * .78 - 250 * Math.exp(-(((x - W / 2 + o) / 170) ** 2)) + 10 * Math.sin(x / 31); } }
+];
+const KEYMAP = { a: 'ArrowLeft', d: 'ArrowRight', w: 'ArrowUp', s: 'ArrowDown' };
+const keys = new Set();
+let worms, shots, parts, texts, turn, cur, active, state, timer, wind, aim, power, charging, weapon, winner, boom = 0, wait = 0, t = 0, burst = null, used = false, stock, mapIdx = 0;
+
+const R = (a, b) => a + Math.random() * (b - a);
+const solid = (x, y) => { x = Math.floor(x); y = Math.floor(y); return x >= 0 && x < W && y >= 0 && y < H && map[y * W + x] === 1; };
+const onGround = w => solid(w.x, w.y + 1) || solid(w.x - 3, w.y + 1) || solid(w.x + 3, w.y + 1);
+const blocked = (x, y) => x < 4 || x > W - 4 || solid(x, y - 3) || solid(x, y - 8) || solid(x, y - 12);
+const settled = () => worms.every(w => w.gone || (w.vy === 0 && w.vx === 0));
+
+// ---------- setup ----------
+function makeTerrain(f) {
+  tx.clearRect(0, 0, W, H); map.fill(0);
+  for (let x = 0; x < W; x++) {
+    const top = Math.max(0, Math.min(H, Math.floor(f(x))));
+    for (let y = top; y < H; y++) map[y * W + x] = 1;
+    tx.fillStyle = '#7a5230'; tx.fillRect(x, top, 1, H - top);
+    tx.fillStyle = top > WATER - 14 ? '#e8d28a' : '#4caf50'; tx.fillRect(x, top, 1, 5);   // sand at the shore
+  }
+  tx.fillStyle = 'rgba(0,0,0,.14)';
+  for (let i = 0; i < 900; i++) { const x = R(0, W) | 0, y = R(0, H) | 0; if (map[y * W + x]) tx.fillRect(x, y, 3, 2); }
+}
+
+function spawn() {
+  const land = [];                                  // dry columns worms may start on
+  for (let x = 30; x < W - 30; x++) { let y = 0; while (y < H && !map[y * W + x]) y++; if (y < WATER - 25) land.push([x, y - 1]); }
+  worms = [];
+  for (let k = 0; k < 6; k++) {
+    let p, tries = 0;
+    do { p = land[Math.floor(Math.random() * land.length)]; tries++; } while (tries < 200 && worms.some(w => Math.abs(w.x - p[0]) < 45));
+    worms.push({ x: p[0], y: p[1], vx: 0, vy: 0, hp: 100, t: k % 2, dir: k % 2 ? -1 : 1, dead: false, gone: false });
+  }
+}
+
+function newGame() {
+  const sel = document.getElementById('map').value;
+  mapIdx = sel === 'r' ? Math.floor(R(0, MAPS.length)) : +sel;
+  makeTerrain(MAPS[mapIdx].make()); spawn();
+  shots = []; parts = []; texts = []; burst = null; cur = [-1, -1]; turn = 1; winner = null; weapon = 0; aim = 45;
+  stock = TEAMS.map(() => WEAPONS.map(w => w.ammo === undefined ? Infinity : w.ammo));
+  nextTurn();
+}
+
+function nextTurn() {
+  turn = 1 - turn;
+  const mine = worms.filter(w => w.t === turn);
+  for (let k = 1; k <= mine.length; k++) {
+    const i = (cur[turn] + k) % mine.length;
+    if (!mine[i].dead) { cur[turn] = i; active = mine[i]; break; }
+  }
+  wind = Math.round(R(-10, 10)); timer = TURN; power = 0; charging = false; state = 'aim';
+  used = false; if (!stock[turn][weapon]) weapon = 0;
+}
+
+function checkWin() {
+  const alive = TEAMS.map((_, i) => worms.some(w => w.t === i && !w.dead));
+  if (alive[0] && alive[1]) return false;
+  state = 'over'; winner = alive[0] ? 0 : alive[1] ? 1 : -1; return true;
+}
+function afterShot() { if (!checkWin()) nextTurn(); }
+
+// ---------- worms ----------
+function hurt(w, dmg) {
+  if (w.dead || dmg <= 0) return;
+  w.hp = Math.max(0, w.hp - dmg);
+  texts.push({ x: w.x, y: w.y - 24, s: '-' + dmg, l: 60 });
+  if (!w.hp) w.dead = true;
+}
+
+function physics(w) {
+  if (w.gone) return;
+  if (w.y > WATER + 4) { w.gone = w.dead = true; w.vx = w.vy = 0; return; }   // drowned
+  const g = onGround(w);
+  if (g && w.vy === 0) w.vx = 0;
+  if (!g || w.vy < 0) w.vy += G;
+  if (w.vx) { const nx = w.x + w.vx; if (blocked(nx, w.y)) w.vx = 0; else w.x = nx; }
+  const dir = Math.sign(w.vy); let rem = Math.abs(w.vy);
+  while (rem > 0) {
+    const d = Math.min(1, rem); rem -= d;
+    if (dir > 0) {
+      if (solid(w.x, w.y + 1)) { if (w.vy > 6) hurt(w, Math.round((w.vy - 6) * 8)); w.vy = w.vx = 0; break; }
+      w.y += d;
+    } else {
+      if (blocked(w.x, w.y - d)) { w.vy = 0; break; }
+      w.y -= d;
+    }
+  }
+}
+
+function walk(w, d) {
+  w.dir = d;
+  if (!onGround(w)) return;
+  const nx = w.x + d * 1.2;
+  for (let up = 0; up <= 5; up++) if (!blocked(nx, w.y - up)) { w.x = nx; w.y -= up; return; }   // climb small slopes
+}
+
+function jump() { if (state === 'aim' && onGround(active)) { active.vy = -4; active.vx = active.dir * 1.6; } }
+
+// ---------- weapons ----------
+function fire() {
+  charging = false;
+  const w = active, wp = WEAPONS[weapon], a = aim * Math.PI / 180;
+  stock[turn][weapon]--;
+  if (wp.kind === 'holy') {                         // plant it, then run: the turn goes on
+    shots.push({ kind: 'holy', x: w.x + w.dir * 6, y: w.y - 4, vx: 0, vy: 0, fuse: 360, r: 85, pow: 2.2, bn: .15, age: 0, done: false });
+    used = true; timer = Math.min(timer, 400);
+    return;
+  }
+  if (wp.shots) burst = { left: wp.shots, gap: wp.gap, cd: 0, wp };
+  else {
+    const v = Math.max(power, 8) * .12;
+    shots.push({ kind: wp.kind, x: w.x + w.dir * Math.cos(a) * 10, y: w.y - 8 - Math.sin(a) * 10,
+      vx: w.dir * Math.cos(a) * v, vy: -Math.sin(a) * v, fuse: 180, r: wp.r, pow: 1, bn: .5, age: 0, done: false });
+  }
+  power = 0; state = 'fly';
+}
+
+function spark(x, y) { for (let j = 0; j < 6; j++) parts.push({ x, y, vx: R(-2, 2), vy: R(-2, 1), l: 15, c: '#ffb020' }); }
+
+function bullet(w, wp) {                            // instant hit, no wind
+  const a = aim * Math.PI / 180 + R(-wp.spread, wp.spread), dx = w.dir * Math.cos(a), dy = -Math.sin(a);
+  let x = w.x + dx * 8, y = w.y - 8 + dy * 8;
+  for (let i = 0; i < 450; i++) {
+    x += dx * 2; y += dy * 2;
+    if (x < 0 || x > W || y > WATER) return;
+    if (i % 6 === 0) parts.push({ x, y, vx: 0, vy: 0, l: 5, c: '#ffe27a' });
+    const hit = worms.find(o => !o.dead && Math.hypot(o.x - x, o.y - 6 - y) < 7);
+    if (hit) { hurt(hit, wp.dmg); hit.vx = dx * 1.5; hit.vy = -1.5; spark(x, y); return; }
+    if (solid(x, y)) { carve(x, y, wp.cut); spark(x, y); return; }
+  }
+}
+
+function detonate(s) { explode(s.x, s.y, s.r, s.pow); s.done = true; }
+
+function moveShot(s) {
+  s.age++;
+  const rocket = s.kind === 'rocket';
+  if (rocket) s.vx += wind * .004;                  // only the rocket feels the wind
+  s.vy += PG;
+  const n = Math.ceil(Math.hypot(s.vx, s.vy));
+  for (let i = 0; i < n; i++) {
+    const nx = s.x + s.vx / n, ny = s.y + s.vy / n;
+    if (rocket) {
+      s.x = nx; s.y = ny;
+      const hitWorm = worms.some(w => !w.dead && (s.age > 20 || w !== active) && Math.hypot(w.x - s.x, w.y - 6 - s.y) < 8);
+      if (solid(s.x, s.y) || hitWorm) return detonate(s);
+    } else {                                        // grenade / holy bomb: bounce
+      if (!solid(nx, s.y)) s.x = nx; else { s.vx *= -s.bn; s.vy *= .8; }
+      if (!solid(s.x, ny)) s.y = ny; else { s.vy *= -s.bn; s.vx *= .8; if (Math.abs(s.vy) < .6) s.vy = 0; }
+    }
+    if (s.x < -60 || s.x > W + 60 || s.y > WATER) { s.done = true; return; }
+  }
+  if (!rocket && --s.fuse <= 0) detonate(s);
+}
+
+function carve(x, y, r) {
+  tx.globalCompositeOperation = 'destination-out';
+  tx.beginPath(); tx.arc(x, y, r, 0, 7); tx.fill();
+  tx.globalCompositeOperation = 'source-over';
+  for (let yy = Math.max(0, Math.floor(y - r)); yy < Math.min(H, y + r); yy++)
+    for (let xx = Math.max(0, Math.floor(x - r)); xx < Math.min(W, x + r); xx++)
+      if ((xx - x) ** 2 + (yy - y) ** 2 <= r * r) map[yy * W + xx] = 0;
+}
+
+function explode(x, y, r, pow = 1) {
+  carve(x, y, r);
+  for (const w of worms) {
+    if (w.gone) continue;
+    const dx = w.x - x, dy = w.y - 6 - y, d = Math.hypot(dx, dy) || 1, range = r * 1.7;
+    if (d < range) {
+      const k = 1 - d / range, kb = 6 * Math.sqrt(pow);
+      hurt(w, Math.round(k * 55 * pow));
+      w.vx = dx / d * k * kb; w.vy = dy / d * k * kb - 3 * k;
+    }
+  }
+  for (let i = 0; i < r; i++) {
+    const a = R(0, 6.3), v = R(1, 5);
+    parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1, l: R(20, 45), c: i % 3 ? '#ffb020' : '#fff' });
+  }
+  boom = pow > 1 ? 20 : 8;
+}
+
+// ---------- game loop ----------
+function control() {
+  const w = active;
+  if (keys.has('ArrowLeft')) walk(w, -1);
+  if (keys.has('ArrowRight')) walk(w, 1);
+  if (keys.has('ArrowUp')) aim = Math.min(90, aim + 1);
+  if (keys.has('ArrowDown')) aim = Math.max(0, aim - 1);
+  if (charging) { power = Math.min(100, power + 1.2); if (power >= 100) fire(); }
+}
+
+function step() {
+  if (state === 'over') return;
+  worms.forEach(physics);
+  shots.forEach(moveShot); shots = shots.filter(s => !s.done);
+  if (burst && --burst.cd <= 0) { bullet(active, burst.wp); burst.cd = burst.gap; if (--burst.left <= 0) burst = null; }
+  parts = parts.filter(p => { p.x += p.vx; p.y += p.vy; p.vy += .1; return --p.l > 0; });
+  texts = texts.filter(x => { x.y -= .4; return --x.l > 0; });
+  if (state === 'aim') {
+    if (checkWin()) return;
+    if (active.dead && settled()) return nextTurn();   // e.g. caught by your own Holy bomb
+    control();
+    if (--timer <= 0) { charging = false; power = 0; nextTurn(); }
+  } else if (state === 'fly') {
+    if (!shots.length && !burst) { state = 'settle'; wait = 45; }
+  } else if (state === 'settle') {
+    if (!settled() || shots.length) wait = 45; else if (--wait <= 0) afterShot();
+  }
+}
+
+// ---------- drawing ----------
+function drawWorm(w) {
+  if (w.gone) return;
+  if (w.dead) {                                   // gravestone
+    ctx.fillStyle = '#ddd'; ctx.fillRect(w.x - 4, w.y - 12, 8, 12);
+    ctx.beginPath(); ctx.arc(w.x, w.y - 12, 4, Math.PI, 0); ctx.fill(); return;
+  }
+  ctx.fillStyle = '#f4a6b8'; ctx.beginPath(); ctx.ellipse(w.x, w.y - 6, 6, 7, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = TEAMS[w.t].color; ctx.fillRect(w.x - 6, w.y - 11, 12, 3);
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(w.x + w.dir * 2.5, w.y - 6, 2.6, 0, 7); ctx.fill();
+  ctx.fillStyle = '#000'; ctx.fillRect(w.x + w.dir * 3.2 - .6, w.y - 6.8, 1.6, 1.8);
+  ctx.fillStyle = TEAMS[w.t].color; ctx.font = 'bold 10px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText(w.hp, w.x, w.y - 18);
+}
+
+function drawShot(s) {
+  if (s.kind === 'rocket') {
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(Math.atan2(s.vy, s.vx));
+    ctx.fillStyle = '#333'; ctx.fillRect(-5, -2, 10, 4); ctx.fillStyle = '#e5484d'; ctx.fillRect(3, -2, 3, 4);
+    ctx.restore();
+  } else {
+    const holy = s.kind === 'holy';
+    ctx.fillStyle = holy ? '#ffd23f' : '#2e7d32'; ctx.beginPath(); ctx.arc(s.x, s.y, holy ? 6 : 4, 0, 7); ctx.fill();
+    if (holy) { ctx.fillStyle = '#fff'; ctx.fillRect(s.x - 1, s.y - 5, 2, 10); ctx.fillRect(s.x - 3, s.y - 3, 6, 2); }
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 10px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(Math.ceil(s.fuse / 60), s.x, s.y - 10);
+  }
+}
+
+function drawAim() {
+  const w = active, a = aim * Math.PI / 180;
+  const x = w.x + w.dir * Math.cos(a) * 38, y = w.y - 8 - Math.sin(a) * 38;
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.arc(x, y, 5, 0, 7); ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y); ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9); ctx.stroke();
+  const y0 = w.y - 44 + Math.sin(t / 150) * 3;     // bouncing marker over the active worm
+  ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.moveTo(w.x, y0 + 7); ctx.lineTo(w.x - 6, y0); ctx.lineTo(w.x + 6, y0); ctx.fill();
+}
+
+function drawHud() {
+  ctx.font = 'bold 14px system-ui,sans-serif'; ctx.shadowColor = '#000a'; ctx.shadowBlur = 4;
+  ctx.textAlign = 'left'; ctx.fillStyle = TEAMS[turn].color; ctx.fillText(`${TEAMS[turn].name} team · ${Math.ceil(timer / 60)}s`, 10, 20);
+  ctx.fillStyle = '#fff'; ctx.fillText(MAPS[mapIdx].name, 10, H - 8);
+  ctx.textAlign = 'right'; ctx.fillText(`Wind ${wind < 0 ? '◀' : '▶'} ${Math.abs(wind)}`, W - 10, 20);
+  ctx.shadowBlur = 0;
+  if (charging) {
+    ctx.fillStyle = '#0006'; ctx.fillRect(W / 2 - 60, H - 22, 120, 10);
+    ctx.fillStyle = `hsl(${120 - power * 1.2},90%,50%)`; ctx.fillRect(W / 2 - 60, H - 22, power * 1.2, 10);
+  }
+  if (state === 'over') {
+    ctx.fillStyle = '#000a'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = 'bold 36px system-ui';
+    ctx.fillText(winner < 0 ? 'Draw!' : `${TEAMS[winner].name} team wins!`, W / 2, H / 2);
+    ctx.font = '16px system-ui'; ctx.fillText('Tap or press R to play again', W / 2, H / 2 + 30);
+  }
+}
+
+function draw() {
+  refreshBar();
+  const sh = boom > 0 ? (boom--, R(-3, 3)) : 0;
+  ctx.save(); ctx.translate(sh, sh);
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#5aa9e6'); g.addColorStop(1, '#f4e3b5');
+  ctx.fillStyle = g; ctx.fillRect(-5, -5, W + 10, H + 10);
+  ctx.drawImage(tc, 0, 0);
+  worms.forEach(drawWorm); shots.forEach(drawShot);
+  for (const p of parts) { ctx.globalAlpha = Math.min(1, p.l / 20); ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, 3, 3); }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center';
+  texts.forEach(x => ctx.fillText(x.s, x.x, x.y));
+  if (state === 'aim') drawAim();
+  ctx.fillStyle = 'rgba(30,90,170,.8)'; ctx.beginPath(); ctx.moveTo(0, H);
+  for (let x = 0; x <= W; x += 20) ctx.lineTo(x, WATER + Math.sin(x / 30 + t / 300) * 3);
+  ctx.lineTo(W, H); ctx.fill();
+  ctx.restore();
+  drawHud();
+}
+
+// ---------- input ----------
+function down(k) {
+  k = KEYMAP[k] || k;
+  if (k === ' ') {
+    if (state !== 'aim' || used) return;
+    const kind = WEAPONS[weapon].kind;
+    if (kind === 'rocket' || kind === 'grenade') { if (!charging) { charging = true; power = 0; } }
+    else fire();                                    // guns and the Holy bomb act at once
+    return;
+  }
+  if (k === 'Enter' || k === 'j') return jump();
+  if (k === 'x' || k === 'Tab') {                  // next weapon that is still available
+    for (let i = 1; i <= WEAPONS.length; i++) { const n = (weapon + i) % WEAPONS.length; if (stock[turn][n] > 0) { pick(n); break; } }
+    return;
+  }
+  if (/^[1-9]$/.test(k) && +k <= WEAPONS.length) return pick(+k - 1);
+  if (k === 'r' && state === 'over') return newGame();
+  keys.add(k);
+}
+function up(k) {
+  k = KEYMAP[k] || k; keys.delete(k);
+  if (k === ' ' && charging && state === 'aim') fire();
+}
+addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Tab'].includes(e.key)) e.preventDefault();
+  down(e.key.length === 1 ? e.key.toLowerCase() : e.key);
+});
+addEventListener('keyup', e => up(e.key.length === 1 ? e.key.toLowerCase() : e.key));
+addEventListener('blur', () => keys.clear());
+document.querySelectorAll('#pad [data-k]').forEach(b => {
+  b.addEventListener('pointerdown', e => { e.preventDefault(); down(b.dataset.k); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => b.addEventListener(ev, () => up(b.dataset.k)));
+});
+cv.addEventListener('pointerdown', () => { if (state === 'over') newGame(); });
+
+// ---------- weapon list (bottom bar) and map list ----------
+const wl = document.getElementById('wl');
+WEAPONS.forEach((wp, i) => {
+  const b = document.createElement('button');
+  b.addEventListener('pointerdown', e => { e.preventDefault(); pick(i); });
+  wl.appendChild(b);
+});
+function pick(i) { if (state === 'aim' && !used && !charging && stock[turn][i] > 0) weapon = i; }
+let barKey = '';
+function refreshBar() {
+  const key = [state, weapon, turn, used, stock.map(s => s.join()).join('|')].join();
+  if (key === barKey) return; barKey = key;
+  [...wl.children].forEach((b, i) => {
+    const n = stock[turn][i];
+    b.textContent = `${WEAPONS[i].i} ${i + 1} ${WEAPONS[i].n}${n === Infinity ? '' : ' ×' + n}`;
+    b.className = i === weapon ? 'sel' : '';
+    b.disabled = state !== 'aim' || used || n <= 0;
+  });
+}
+const mapSel = document.getElementById('map');
+mapSel.innerHTML = '<option value="r">Random map</option>' + MAPS.map((m, i) => `<option value="${i}">${m.name}</option>`).join('');
+mapSel.addEventListener('change', () => { mapSel.blur(); newGame(); });
+
+// ---------- start (fixed 60 Hz physics, any display rate) ----------
+let last = 0, acc = 0;
+function loop(ts) {
+  acc += Math.min(ts - last, 100); last = ts; t = ts;
+  while (acc >= 1000 / 60) { step(); acc -= 1000 / 60; }
+  draw(); requestAnimationFrame(loop);
+}
+newGame(); requestAnimationFrame(loop);
+
+// ---------- PWA ----------
+if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(console.error));
+let deferred; const installBtn = document.getElementById('install');
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; installBtn.hidden = false; });
+installBtn.addEventListener('click', async () => { if (!deferred) return; deferred.prompt(); await deferred.userChoice; deferred = null; installBtn.hidden = true; });
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "scicalc-pwa",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.sw.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "serve": "npx http-server . -p 8000"
+  },
+  "devDependencies": { "typescript": "^5.6.0" }
+}
