@@ -1,0 +1,17 @@
+I plan to build application for real estate architectures. In this app they will create house drawings, plans, including technical drawings, so that builder will be able to build property using these drawings. In the result there will be schematic drawings and 3d representation of house / flat. There will be some default plans for houses and flats, and user can copy it into new project and using drawing tools update/change/add items into it.
+In the complete property plan user can do furniture planning and interior design.
+App can export drawings to most popular CAD software formats.
+
+====================================================================
+
+My recommendation for your next steps:
+
+    Set up the project using Node.js, TypeScript, React, and Three.js.
+    Create the design system first, so every screen has a consistent, premium appearance.
+    Build the architectural model that will serve as the single source of truth for 2D drawings and 3D representations.
+    Implement the first complete workflow: draw a floor plan, generate a 3D house, save the project, reopen it, and export a drawing.
+    Expand gradually into interior design, CAD/BIM integration, realistic rendering, and walkthroughs.
+
+The key is to build something that looks impressive from the beginning without sacrificing the precision required for professional architectural work.
+
+
