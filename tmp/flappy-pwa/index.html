@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Flappy PWA</title>
+    <meta name="description" content="Offline-capable Flappy Bird-style game" />
+    <meta name="theme-color" content="#70c5ce" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+  </head>
+  <body data-phase="ready">
+    <main id="stage">
+      <canvas id="game" tabindex="0" role="application"
+        aria-label="Flappy game. Press Space, Up Arrow, or tap to flap."></canvas>
+    </main>
+    <div id="live" class="sr-only" aria-live="polite"></div>
+    <button id="install" hidden>Install app</button>
+    <div id="update" hidden>
+      <span>Update available</span>
+      <button id="reload">Reload</button>
+      <button id="later">Later</button>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

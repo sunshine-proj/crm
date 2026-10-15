@@ -1,0 +1,19 @@
+{
+  "name": "flappy-pwa",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^5.4.8",
+    "vite-plugin-pwa": "^0.21.0",
+    "vitest": "^2.1.2"
+  }
+}
