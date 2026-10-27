@@ -1,0 +1,11 @@
+{
+  "name": "Classic Brick Game",
+  "short_name": "Brick Game",
+  "description": "A retro handheld game simulator.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#20211e",
+  "theme_color": "#292a26",
+  "icons": []
+}
