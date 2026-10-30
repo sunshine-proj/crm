@@ -3,6 +3,9 @@
 namespace App\Controller;
 
 use App\Dto\FiscalPeriodInput;
+use App\Dto\AccountMappingsInput;
+use App\Dto\FiscalPeriodControlInput;
+use App\Dto\JournalReversalInput;
 use App\Dto\JournalEntryInput;
 use App\Dto\LedgerAccountInput;
 use App\Dto\PayableBillInput;
@@ -15,6 +18,8 @@ use App\Entity\LedgerAccount;
 use App\Entity\PayableBill;
 use App\Entity\PayablePayment;
 use App\Entity\TaxCode;
+use App\Entity\Expense;
+use App\Entity\ExpenseReimbursement;
 use App\Repository\FiscalPeriodRepository;
 use App\Repository\InvoiceRepository;
 use App\Repository\JournalEntryRepository;
@@ -23,7 +28,10 @@ use App\Repository\PayableBillRepository;
 use App\Repository\PayablePaymentRepository;
 use App\Repository\PaymentRepository;
 use App\Repository\TaxCodeRepository;
+use App\Repository\ExpenseRepository;
+use App\Repository\ExpenseReimbursementRepository;
 use App\Service\FinanceCatalog;
+use App\Service\FinancePostingService;
 use App\Service\InvoiceMoney;
 use App\Service\JournalEntryBalance;
 use Doctrine\ORM\EntityManagerInterface;
@@ -47,10 +55,13 @@ final class FinanceController extends AbstractController
         private readonly PayablePaymentRepository $billPaymentRepository,
         private readonly InvoiceRepository $invoiceRepository,
         private readonly PaymentRepository $invoicePaymentRepository,
+        private readonly ExpenseRepository $expenseRepository,
+        private readonly ExpenseReimbursementRepository $expenseReimbursementRepository,
         private readonly EntityManagerInterface $entityManager,
         private readonly InvoiceMoney $money,
         private readonly FinanceCatalog $catalog,
         private readonly JournalEntryBalance $balance,
+        private readonly FinancePostingService $postingService,
     ) {
     }
 
@@ -58,6 +69,29 @@ final class FinanceController extends AbstractController
     public function currencies(): JsonResponse
     {
         return $this->json($this->catalog->currencies());
+    }
+
+    #[Route('/account-mappings', name: 'account_mappings', methods: ['GET'])]
+    public function accountMappings(): JsonResponse
+    {
+        return $this->json([
+            'mappings' => $this->postingService->accountMappings(),
+            'accounts' => array_map(
+                fn (LedgerAccount $account): array => $this->serializeAccount($account),
+                $this->accountRepository->findBy(['active' => true], ['code' => 'ASC']),
+            ),
+        ]);
+    }
+
+    #[Route('/account-mappings', name: 'account_mappings_update', methods: ['PUT'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function updateAccountMappings(#[MapRequestPayload] AccountMappingsInput $input): JsonResponse
+    {
+        try {
+            return $this->json(['mappings' => $this->postingService->updateAccountMappings($input->accountIds())]);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_BAD_REQUEST);
+        }
     }
 
     #[Route('/accounts', name: 'accounts_list', methods: ['GET'])]
@@ -136,13 +170,43 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/periods/{id<\d+>}/close', name: 'periods_close', methods: ['POST'])]
-    public function closePeriod(int $id): JsonResponse
+    #[IsGranted('ROLE_ADMIN')]
+    public function closePeriod(int $id, #[MapRequestPayload] FiscalPeriodControlInput $input): JsonResponse
     {
         $period = $this->periodRepository->find($id);
         if ($period === null) {
             return $this->json(['error' => 'Fiscal period not found.'], JsonResponse::HTTP_NOT_FOUND);
         }
-        $period->close();
+        $reason = trim((string) $input->reason);
+        if ($reason === '') {
+            return $this->json(['error' => 'A close reason is required.'], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        try {
+            $period->close($this->getUser()?->getUserIdentifier() ?? 'unknown', $reason, new \DateTimeImmutable());
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
+        $this->entityManager->flush();
+        return $this->json($this->serializePeriod($period));
+    }
+
+    #[Route('/periods/{id<\d+>}/reopen', name: 'periods_reopen', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function reopenPeriod(int $id, #[MapRequestPayload] FiscalPeriodControlInput $input): JsonResponse
+    {
+        $period = $this->periodRepository->find($id);
+        if ($period === null) {
+            return $this->json(['error' => 'Fiscal period not found.'], JsonResponse::HTTP_NOT_FOUND);
+        }
+        $reason = trim((string) $input->reason);
+        if ($reason === '') {
+            return $this->json(['error' => 'A reopen reason is required.'], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        try {
+            $period->reopen($this->getUser()?->getUserIdentifier() ?? 'unknown', $reason, new \DateTimeImmutable());
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
         $this->entityManager->flush();
         return $this->json($this->serializePeriod($period));
     }
@@ -160,6 +224,59 @@ final class FinanceController extends AbstractController
 
     #[Route('/journal-entries', name: 'journal_create', methods: ['POST'])]
     public function createJournalEntry(#[MapRequestPayload] JournalEntryInput $input): JsonResponse
+    {
+        return $this->saveJournalEntry($input);
+    }
+
+    #[Route('/opening-balances', name: 'opening_balance', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function createOpeningBalance(#[MapRequestPayload] JournalEntryInput $input): JsonResponse
+    {
+        return $this->saveJournalEntry($input, 'opening_balance');
+    }
+
+    #[Route('/journal-entries/{id<\d+>}/reverse', name: 'journal_reverse', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function reverseJournalEntry(int $id, #[MapRequestPayload] JournalReversalInput $input): JsonResponse
+    {
+        $original = $this->journalRepository->find($id);
+        if (!$original instanceof JournalEntry) {
+            return $this->json(['error' => 'Journal entry not found.'], JsonResponse::HTTP_NOT_FOUND);
+        }
+        if ($this->journalRepository->findOneBy(['sourceType' => 'reversal', 'sourceId' => $id]) !== null) {
+            return $this->json(['error' => 'This journal entry has already been reversed.'], JsonResponse::HTTP_CONFLICT);
+        }
+        try {
+            $date = $input->entry_date !== null ? $this->parseDate($input->entry_date) : null;
+        } catch (\InvalidArgumentException) {
+            return $this->json(['error' => 'Reversal date must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        $reason = trim((string) $input->reason);
+        if ($date === null || $reason === '') {
+            return $this->json(['error' => 'A reversal date and reason are required.'], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        $period = $this->periodRepository->findContaining($date);
+        if ($period === null || $period->isClosed()) {
+            return $this->json(['error' => 'Reversal date must belong to an open fiscal period.'], JsonResponse::HTTP_CONFLICT);
+        }
+        $reversal = new JournalEntry($period, $date, $original->getCurrency(), 'Reversal: '.$reason, 'reversal', $id);
+        foreach ($original->getLines() as $line) {
+            $reversal->addLine(new JournalEntryLine(
+                $reversal,
+                $line->getAccount(),
+                $line->getCreditMinor(),
+                $line->getDebitMinor(),
+                'Reversal of '.$original->getEntryNumber().': '.$reason,
+            ));
+        }
+        $this->entityManager->persist($reversal);
+        $this->entityManager->flush();
+        $reversal->setEntryNumber(sprintf('JE-%s-%06d', $date->format('Y'), $reversal->getId()));
+        $this->entityManager->flush();
+        return $this->json($this->serializeJournalEntry($reversal), JsonResponse::HTTP_CREATED);
+    }
+
+    private function saveJournalEntry(JournalEntryInput $input, string $sourceType = 'manual'): JsonResponse
     {
         try {
             $entryDate = $input->entry_date !== null ? $this->parseDate($input->entry_date) : null;
@@ -200,7 +317,7 @@ final class FinanceController extends AbstractController
             return $this->json(['error' => 'Journal lines must have positive, one-sided amounts and equal debit/credit totals.'], JsonResponse::HTTP_BAD_REQUEST);
         }
 
-        $entry = new JournalEntry($period, $entryDate, $input->currency, $description);
+        $entry = new JournalEntry($period, $entryDate, $input->currency, $description, $sourceType);
         foreach ($lines as [$account, $debit, $credit, $memo]) {
             $entry->addLine(new JournalEntryLine($entry, $account, $debit, $credit, $memo));
         }
@@ -260,9 +377,20 @@ final class FinanceController extends AbstractController
         if ($this->billRepository->findOneBy(['vendorName' => $vendor, 'vendorReference' => $reference]) !== null) {
             return $this->json(['error' => 'This vendor bill reference already exists.'], JsonResponse::HTTP_CONFLICT);
         }
+        try {
+            $this->postingService->assertCanPost($billDate, ['project_expense', 'accounts_payable']);
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
         $bill = new PayableBill($vendor, $reference, $input->currency, $amount, $billDate, $dueDate);
-        $this->entityManager->persist($bill);
-        $this->entityManager->flush();
+        $this->postingService->runAtomically(function () use ($bill, $billDate, $amount): void {
+            $this->entityManager->persist($bill);
+            $this->entityManager->flush();
+            $this->postingService->post('vendor_bill', (int) $bill->getId(), $billDate, $bill->getCurrency(), 'Vendor bill '.$bill->getVendorReference(), [
+                ['role' => 'project_expense', 'debit_minor' => $amount, 'credit_minor' => 0, 'memo' => 'Vendor bill expense'],
+                ['role' => 'accounts_payable', 'debit_minor' => 0, 'credit_minor' => $amount, 'memo' => 'Vendor bill payable'],
+            ]);
+        });
         return $this->json($this->serializePayable($bill), JsonResponse::HTTP_CREATED);
     }
 
@@ -286,9 +414,20 @@ final class FinanceController extends AbstractController
         if ($amount > $bill->getTotalMinor() - $paid) {
             return $this->json(['error' => 'Payment exceeds the payable balance.'], JsonResponse::HTTP_CONFLICT);
         }
+        try {
+            $this->postingService->assertCanPost($paidAt, ['accounts_payable', 'cash']);
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
         $payment = new PayablePayment($bill, $amount, $paidAt, $input->reference !== null ? trim($input->reference) : null);
-        $this->entityManager->persist($payment);
-        $this->entityManager->flush();
+        $this->postingService->runAtomically(function () use ($payment, $paidAt, $bill, $amount): void {
+            $this->entityManager->persist($payment);
+            $this->entityManager->flush();
+            $this->postingService->post('vendor_payment', (int) $payment->getId(), $paidAt, $bill->getCurrency(), 'Vendor payment '.$bill->getVendorReference(), [
+                ['role' => 'accounts_payable', 'debit_minor' => $amount, 'credit_minor' => 0, 'memo' => 'Vendor payable settlement'],
+                ['role' => 'cash', 'debit_minor' => 0, 'credit_minor' => $amount, 'memo' => 'Vendor payment'],
+            ]);
+        });
         return $this->json([
             'id' => $payment->getId(),
             'bill_id' => $id,
@@ -343,6 +482,193 @@ final class FinanceController extends AbstractController
             'balanced' => $debits === $credits,
             'basis' => 'Posted journal entries only; single-currency totals; no FX translation.',
         ]);
+    }
+
+    #[Route('/reports/financial-statements', name: 'financial_statements', methods: ['GET'])]
+    public function financialStatements(Request $request): JsonResponse
+    {
+        $filters = $this->parseReportFilters($request);
+        if (isset($filters['error'])) {
+            return $this->json(['error' => $filters['error']], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        if ($filters['currency'] === null) {
+            return $this->json(['error' => 'Choose one currency for financial statements.'], JsonResponse::HTTP_BAD_REQUEST);
+        }
+
+        $periodEntries = $this->journalRepository->findPosted($filters['from'], $filters['to'], $filters['currency']);
+        $throughDateEntries = $this->journalRepository->findPosted(null, $filters['to'], $filters['currency']);
+        $income = $this->statementTotals($periodEntries, ['revenue', 'expense']);
+        $cumulativeIncome = $this->statementTotals($throughDateEntries, ['revenue', 'expense']);
+        $balance = $this->statementTotals($throughDateEntries, ['asset', 'liability', 'equity']);
+        $revenue = 0;
+        $expenses = 0;
+        foreach ($income as $row) {
+            if ($row['type'] === 'revenue') {
+                $revenue -= $row['balance_minor'];
+            } else {
+                $expenses += $row['balance_minor'];
+            }
+        }
+        $netIncome = $revenue - $expenses;
+        $retainedEarnings = 0;
+        foreach ($cumulativeIncome as $row) {
+            $retainedEarnings -= $row['balance_minor'];
+        }
+        $assetTotal = 0;
+        $liabilityAndEquity = 0;
+        $balanceAccounts = [];
+        foreach ($balance as $row) {
+            $amount = $row['type'] === 'asset' ? $row['balance_minor'] : -$row['balance_minor'];
+            if ($row['type'] === 'asset') {
+                $assetTotal += $amount;
+            } else {
+                $liabilityAndEquity += $amount;
+            }
+            $balanceAccounts[] = $this->formatStatementAccount($row, $amount);
+        }
+        $liabilityAndEquity += $retainedEarnings;
+
+        $cashAccountId = $this->postingService->accountMappings()['cash'];
+        $cashInflows = 0;
+        $cashOutflows = 0;
+        if ($cashAccountId !== null) {
+            foreach ($periodEntries as $entry) {
+                foreach ($entry->getLines() as $line) {
+                    if ($line->getAccount()->getId() !== $cashAccountId) {
+                        continue;
+                    }
+                    $net = $line->getDebitMinor() - $line->getCreditMinor();
+                    if ($net > 0) {
+                        $cashInflows += $net;
+                    } elseif ($net < 0) {
+                        $cashOutflows += -$net;
+                    }
+                }
+            }
+        }
+
+        return $this->json([
+            'from' => $filters['from']?->format('Y-m-d'),
+            'to' => $filters['to']?->format('Y-m-d'),
+            'currency' => $filters['currency'],
+            'profit_and_loss' => [
+                'revenue' => $this->money->formatMinor($revenue),
+                'expenses' => $this->money->formatMinor($expenses),
+                'net_income' => $this->money->formatMinor($netIncome),
+                'accounts' => array_map(
+                    fn (array $row): array => $this->formatStatementAccount(
+                        $row,
+                        $row['type'] === 'revenue' ? -$row['balance_minor'] : $row['balance_minor'],
+                    ),
+                    $income,
+                ),
+            ],
+            'balance_sheet' => [
+                'assets' => $this->money->formatMinor($assetTotal),
+                'liabilities_and_equity' => $this->money->formatMinor($liabilityAndEquity),
+                'retained_earnings_and_current_results' => $this->money->formatMinor($retainedEarnings),
+                'balanced' => $assetTotal === $liabilityAndEquity,
+                'accounts' => $balanceAccounts,
+            ],
+            'cash_flow' => [
+                'cash_inflows' => $this->money->formatMinor($cashInflows),
+                'cash_outflows' => $this->money->formatMinor($cashOutflows),
+                'net_cash_change' => $this->money->formatMinor($cashInflows - $cashOutflows),
+                'basis' => 'Operational cash-account movements from posted journal entries; not a statutory cash-flow statement.',
+            ],
+            'basis' => 'Operational single-currency summaries from posted journal entries. Balance sheet includes current-period earnings; not statutory financial statements.',
+        ]);
+    }
+
+    #[Route('/reports/reconciliation', name: 'reconciliation', methods: ['GET'])]
+    public function reconciliation(): JsonResponse
+    {
+        $missing = [];
+        foreach ($this->invoiceRepository->findAll() as $invoice) {
+            if (in_array($invoice->getStatus(), ['issued', 'partially_paid', 'paid'], true)) {
+                $this->appendMissingPosting($missing, 'invoice_issue', (int) $invoice->getId(), 'invoice', (string) $invoice->getInvoiceNumber(), $invoice->getCurrency(), $invoice->getTotalMinor());
+            }
+        }
+        foreach ($this->invoicePaymentRepository->findAll() as $payment) {
+            $this->appendMissingPosting($missing, 'customer_receipt', (int) $payment->getId(), 'customer_receipt', (string) $payment->getId(), $payment->getInvoice()->getCurrency(), $payment->getAmountMinor());
+        }
+        foreach ($this->billRepository->findAll() as $bill) {
+            $this->appendMissingPosting($missing, 'vendor_bill', (int) $bill->getId(), 'vendor_bill', $bill->getVendorReference(), $bill->getCurrency(), $bill->getTotalMinor());
+        }
+        foreach ($this->billPaymentRepository->findAll() as $payment) {
+            $this->appendMissingPosting($missing, 'vendor_payment', (int) $payment->getId(), 'vendor_payment', (string) $payment->getId(), $payment->getBill()->getCurrency(), $payment->getAmountMinor());
+        }
+        foreach ($this->expenseRepository->findFiltered(null, 'approved') as $expense) {
+            $this->appendMissingPosting($missing, 'expense_approval', (int) $expense->getId(), 'approved_expense', (string) $expense->getId(), $expense->getCurrency(), $expense->getAmountMinor());
+        }
+        foreach ($this->expenseReimbursementRepository->findAll() as $reimbursement) {
+            $this->appendMissingPosting($missing, 'expense_reimbursement', (int) $reimbursement->getId(), 'expense_reimbursement', (string) $reimbursement->getId(), $reimbursement->getExpense()->getCurrency(), $reimbursement->getAmountMinor());
+        }
+
+        return $this->json([
+            'reconciled' => $missing === [],
+            'missing_postings' => $missing,
+            'missing_count' => count($missing),
+            'basis' => 'Operational source-record presence check against idempotent journal source references; does not validate jurisdictional treatment or reconcile external bank statements.',
+        ]);
+    }
+
+    /** @param list<JournalEntry> $entries
+     *  @param list<string> $types
+     *  @return list<array{account: LedgerAccount, type: string, balance_minor: int}>
+     */
+    private function statementTotals(array $entries, array $types): array
+    {
+        $totals = [];
+        foreach ($entries as $entry) {
+            foreach ($entry->getLines() as $line) {
+                $account = $line->getAccount();
+                if (!in_array($account->getType(), $types, true)) {
+                    continue;
+                }
+                $id = (int) $account->getId();
+                $totals[$id] ??= ['account' => $account, 'type' => $account->getType(), 'balance_minor' => 0];
+                $totals[$id]['balance_minor'] += $line->getDebitMinor() - $line->getCreditMinor();
+            }
+        }
+
+        return array_values($totals);
+    }
+
+    /** @param array{account: LedgerAccount, type: string, balance_minor: int} $row
+     *  @return array{account_id: int|null, code: string, name: string, type: string, balance: string}
+     */
+    private function formatStatementAccount(array $row, ?int $balance = null): array
+    {
+        return [
+            'account_id' => $row['account']->getId(),
+            'code' => $row['account']->getCode(),
+            'name' => $row['account']->getName(),
+            'type' => $row['type'],
+            'balance' => $this->money->formatMinor($balance ?? $row['balance_minor']),
+        ];
+    }
+
+    /** @param list<array<string, int|string>> $missing */
+    private function appendMissingPosting(
+        array &$missing,
+        string $sourceType,
+        int $sourceId,
+        string $recordType,
+        string $reference,
+        string $currency,
+        int $amountMinor,
+    ): void {
+        if ($this->journalRepository->findOneBy(['sourceType' => $sourceType, 'sourceId' => $sourceId]) !== null) {
+            return;
+        }
+        $missing[] = [
+            'source_type' => $recordType,
+            'source_id' => $sourceId,
+            'reference' => $reference,
+            'currency' => $currency,
+            'amount' => $this->money->formatMinor($amountMinor),
+        ];
     }
 
     #[Route('/reports/receivables-payables', name: 'ar_ap', methods: ['GET'])]

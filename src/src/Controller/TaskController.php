@@ -3,18 +3,22 @@
 namespace App\Controller;
 
 use App\Dto\TaskInput;
+use App\Dto\TaskDependenciesInput;
 use App\Entity\Task;
 use App\Entity\TaskPriority;
 use App\Entity\TaskStatus;
 use App\Entity\User;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
+use App\Repository\TaskDependencyRepository;
+use App\Repository\UserRepository;
 use App\Service\ClientActivityLogger;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
@@ -24,7 +28,9 @@ class TaskController extends AbstractController
 {
 	public function __construct(
 		private readonly TaskRepository $taskRepository,
+		private readonly TaskDependencyRepository $dependencyRepository,
 		private readonly ProjectRepository $projectRepository,
+		private readonly UserRepository $userRepository,
 		private readonly EntityManagerInterface $entityManager,
 		private readonly ClientActivityLogger $activityLogger,
 		#[Autowire(service: 'monolog.logger.audit')]
@@ -56,12 +62,17 @@ class TaskController extends AbstractController
 		if ($project === null) {
 			return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
 		}
+		$assignee = $input->assignee_id !== null ? $this->userRepository->find($input->assignee_id) : null;
+		if ($input->assignee_id !== null && $assignee === null) {
+			return $this->json(['error' => 'Task assignee not found.'], JsonResponse::HTTP_NOT_FOUND);
+		}
 
 		$now = new \DateTimeImmutable();
 		$item = (new Task())
 			->setTitle(trim($input->title))
 			->setDescription(trim($input->description))
 			->setProject($project)
+			->setAssignee($assignee)
 			->setStatus(TaskStatus::from($input->status ?? TaskStatus::Todo->value))
 			->setPriority(TaskPriority::from($input->priority ?? TaskPriority::Normal->value))
 			->setSchedule($input->start_datetime, $input->end_datetime)
@@ -99,9 +110,80 @@ class TaskController extends AbstractController
 		return $this->json($this->serializeItem($item));
 	}
 
+		#[Route('/{id<\d+>}/dependencies', name: 'dependencies_list', methods: ['GET'])]
+		#[IsGranted('ROLE_USER')]
+		public function dependencies(int $id): JsonResponse
+		{
+			$task = $this->taskRepository->find($id);
+			if (!$task instanceof Task) {
+				return $this->json(['error' => 'Task not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+
+			return $this->json(array_map(
+				static fn ($dependency): array => [
+					'id' => $dependency->getPredecessor()->getId(),
+					'title' => $dependency->getPredecessor()->getTitle(),
+				],
+				$this->dependencyRepository->findForSuccessor($id),
+			));
+		}
+
+		#[Route('/{id<\d+>}/dependencies', name: 'dependencies_update', methods: ['PUT'])]
+		#[IsGranted('ROLE_USER')]
+		public function updateDependencies(int $id, #[MapRequestPayload] TaskDependenciesInput $input): JsonResponse
+		{
+			$task = $this->taskRepository->find($id);
+			if (!$task instanceof Task) {
+				return $this->json(['error' => 'Task not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+			$ids = [];
+			foreach ($input->depends_on_ids as $predecessorId) {
+				if (!is_int($predecessorId) || $predecessorId < 1 || isset($ids[$predecessorId])) {
+					return $this->json(['error' => 'Dependency ids must be distinct positive integers.'], JsonResponse::HTTP_BAD_REQUEST);
+				}
+				$ids[$predecessorId] = true;
+			}
+			$predecessors = [];
+			foreach (array_keys($ids) as $predecessorId) {
+				$predecessor = $this->taskRepository->find($predecessorId);
+				if (!$predecessor instanceof Task || $predecessor->getProject()?->getId() !== $task->getProject()?->getId()) {
+					return $this->json(['error' => 'Dependencies must reference tasks in the same project.'], JsonResponse::HTTP_BAD_REQUEST);
+				}
+				$predecessors[] = $predecessor;
+			}
+			$adjacency = [];
+			foreach ($this->dependencyRepository->findAll() as $dependency) {
+				$adjacency[(int) $dependency->getPredecessor()->getId()][] = (int) $dependency->getSuccessor()->getId();
+			}
+			foreach ($predecessors as $predecessor) {
+				$pending = [(int) $task->getId()];
+				$visited = [];
+				while ($pending !== []) {
+					$current = array_pop($pending);
+					if ($current === (int) $predecessor->getId()) {
+						return $this->json(['error' => 'Task dependencies cannot form a cycle.'], JsonResponse::HTTP_CONFLICT);
+					}
+					if (isset($visited[$current])) {
+						continue;
+					}
+					$visited[$current] = true;
+					array_push($pending, ...($adjacency[$current] ?? []));
+				}
+			}
+			foreach ($this->dependencyRepository->findForSuccessor($id) as $dependency) {
+				$this->entityManager->remove($dependency);
+			}
+			foreach ($predecessors as $predecessor) {
+				$this->entityManager->persist(new \App\Entity\TaskDependency($predecessor, $task));
+			}
+			$this->entityManager->flush();
+
+			return $this->dependencies($id);
+		}
+
 	#[Route('/{id<\d+>}', name: 'update', methods: ['PUT', 'PATCH'])]
 	#[IsGranted('ROLE_USER')]
-	public function update(int $id, #[MapRequestPayload] TaskInput $input): JsonResponse
+	public function update(int $id, #[MapRequestPayload] TaskInput $input, Request $request): JsonResponse
 	{
 		$item = $this->taskRepository->find($id);
 		if ($item === null) {
@@ -124,7 +206,26 @@ class TaskController extends AbstractController
 			if ($project === null) {
 				return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
 			}
+			if ($item->getProject()?->getId() !== $project->getId()) {
+				foreach ($this->dependencyRepository->findAll() as $dependency) {
+					$relatedTask = $dependency->getPredecessor()->getId() === $item->getId()
+						? $dependency->getSuccessor()
+						: ($dependency->getSuccessor()->getId() === $item->getId() ? $dependency->getPredecessor() : null);
+					if ($relatedTask !== null && $relatedTask->getProject()?->getId() !== $project->getId()) {
+						return $this->json(['error' => 'Move or remove task dependencies before moving this task to another project.'], JsonResponse::HTTP_CONFLICT);
+					}
+				}
+			}
 			$item->setProject($project);
+		}
+		if ($input->assignee_id !== null) {
+			$assignee = $this->userRepository->find($input->assignee_id);
+			if ($assignee === null) {
+				return $this->json(['error' => 'Task assignee not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+			$item->setAssignee($assignee);
+		} elseif (array_key_exists('assignee_id', $request->toArray())) {
+			$item->setAssignee(null);
 		}
 
 		$item
@@ -195,9 +296,12 @@ class TaskController extends AbstractController
 			'description' => $item->getDescription(),
 			'project_id' => $item->getProject()?->getId(),
 			'project_title' => $item->getProject()?->getTitle(),
+			'assignee_id' => $item->getAssignee()?->getId(),
+			'assignee_email' => $item->getAssignee()?->getUserIdentifier(),
 			'status' => $item->getStatus()->value,
 			'priority' => $item->getPriority()->value,
 			'due_date' => $item->getDueDate()?->format('Y-m-d'),
+			'due_status' => $item->getDueDate() === null ? null : ($item->getStatus() === TaskStatus::Done ? 'done' : ($item->getDueDate() < new \DateTimeImmutable('today') ? 'overdue' : 'upcoming')),
 			'start_datetime' => $item->getStartDatetime()?->format(\DateTimeInterface::ATOM),
 			'end_datetime' => $item->getEndDatetime()?->format(\DateTimeInterface::ATOM),
 			'created_at' => $item->getCreatedAt()?->format(\DateTimeInterface::ATOM),

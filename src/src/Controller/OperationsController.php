@@ -4,9 +4,13 @@ namespace App\Controller;
 
 use App\Dto\ExpenseDecisionInput;
 use App\Dto\ExpenseInput;
+use App\Dto\ExpenseReimbursementInput;
+use App\Dto\HourlyCostRateInput;
+use App\Dto\TimeEntryDecisionInput;
 use App\Dto\TimeEntryInput;
 use App\Entity\Expense;
 use App\Entity\ExpenseApproval;
+use App\Entity\ExpenseReimbursement;
 use App\Entity\Project;
 use App\Entity\ProjectDocument;
 use App\Entity\Task;
@@ -14,13 +18,16 @@ use App\Entity\TimeEntry;
 use App\Entity\User;
 use App\Repository\ExpenseApprovalRepository;
 use App\Repository\ExpenseRepository;
+use App\Repository\ExpenseReimbursementRepository;
 use App\Repository\ProjectDocumentRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
 use App\Repository\TimeEntryRepository;
+use App\Repository\UserRepository;
 use App\Service\FinanceCatalog;
 use App\Service\InvoiceMoney;
 use App\Service\ProjectDocumentStorage;
+use App\Service\FinancePostingService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -40,13 +47,16 @@ final class OperationsController extends AbstractController
         private readonly ProjectRepository $projectRepository,
         private readonly TaskRepository $taskRepository,
         private readonly TimeEntryRepository $timeEntryRepository,
+        private readonly UserRepository $userRepository,
         private readonly ExpenseRepository $expenseRepository,
+        private readonly ExpenseReimbursementRepository $reimbursementRepository,
         private readonly ExpenseApprovalRepository $approvalRepository,
         private readonly ProjectDocumentRepository $documentRepository,
         private readonly EntityManagerInterface $entityManager,
         private readonly InvoiceMoney $money,
         private readonly FinanceCatalog $financeCatalog,
         private readonly ProjectDocumentStorage $documentStorage,
+        private readonly FinancePostingService $postingService,
     ) {
     }
 
@@ -78,10 +88,130 @@ final class OperationsController extends AbstractController
         $user = $this->getUser();
         if (!$user instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
         if ($input->duration_minutes < 1 || $input->duration_minutes > 1440 || mb_strlen(trim($input->description)) > 255) return $this->json(['error' => 'Duration must be 1-1440 minutes and description at most 255 characters.'], JsonResponse::HTTP_BAD_REQUEST);
-        $entry = new TimeEntry($project, $task, $user, $workDate, $input->duration_minutes, $input->billable, trim($input->description));
+        $billingAmount = null;
+        $billingCurrency = null;
+        if ($input->billable) {
+            if ($project->getHourlyRateMinor() === null || $project->getBillingCurrency() === null) {
+                return $this->json(['error' => 'Configure a project billing rate before recording billable time.'], JsonResponse::HTTP_CONFLICT);
+            }
+            $billingAmount = $this->rateForDuration($project->getHourlyRateMinor(), $input->duration_minutes);
+            $billingCurrency = $project->getBillingCurrency();
+        }
+        $costAmount = null;
+        $costCurrency = null;
+        if ($user->getHourlyCostRateMinor() !== null && $user->getHourlyCostCurrency() !== null) {
+            $costAmount = $this->rateForDuration($user->getHourlyCostRateMinor(), $input->duration_minutes);
+            $costCurrency = $user->getHourlyCostCurrency();
+        }
+        $entry = new TimeEntry($project, $task, $user, $workDate, $input->duration_minutes, $input->billable, trim($input->description), $costAmount, $costCurrency, $billingAmount, $billingCurrency);
         $this->entityManager->persist($entry);
         $this->entityManager->flush();
         return $this->json($this->serializeTimeEntry($entry), JsonResponse::HTTP_CREATED);
+    }
+
+    #[Route('/time-entries/{id<\d+>}/decision', name: 'time_entry_decision', methods: ['POST'])]
+    public function decideTimeEntry(int $id, #[MapRequestPayload] TimeEntryDecisionInput $input): JsonResponse
+    {
+        $entry = $this->timeEntryRepository->find($id);
+        if (!$entry instanceof TimeEntry) return $this->json(['error' => 'Time entry not found.'], JsonResponse::HTTP_NOT_FOUND);
+        $actor = $this->getUser();
+        if (!$actor instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
+        $isAdmin = in_array('ROLE_ADMIN', $actor->getRoles(), true);
+        $isManager = $entry->getProject()->getManager()?->getId() === $actor->getId();
+        if (!$isAdmin && !$isManager) return $this->json(['error' => 'Only an administrator or the project manager may decide this time entry.'], JsonResponse::HTTP_FORBIDDEN);
+        if ($input->decision === null || !in_array($input->decision, ['approved', 'rejected'], true)) return $this->json(['error' => 'Decision must be approved or rejected.'], JsonResponse::HTTP_BAD_REQUEST);
+        if ($entry->getUser()->getId() === $actor->getId() && !$isAdmin) return $this->json(['error' => 'Time-entry submitters cannot approve their own entries.'], JsonResponse::HTTP_FORBIDDEN);
+        try {
+            $entry->decide($input->decision, $actor, $input->comment !== null ? trim($input->comment) : null);
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
+        $this->entityManager->flush();
+
+        return $this->json($this->serializeTimeEntry($entry));
+    }
+
+    #[Route('/users/{id<\d+>}/cost-rate', name: 'user_cost_rate', methods: ['PUT'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function updateUserCostRate(int $id, #[MapRequestPayload] HourlyCostRateInput $input): JsonResponse
+    {
+        $user = $this->userRepository->find($id);
+        if (!$user instanceof User) return $this->json(['error' => 'User not found.'], JsonResponse::HTTP_NOT_FOUND);
+        if ($input->hourly_rate === null && $input->currency === null) {
+            $user->setHourlyCostRate(null, null);
+        } elseif ($input->hourly_rate === null || $input->currency === null || !$this->financeCatalog->supportsCurrency($input->currency)) {
+            return $this->json(['error' => 'Provide a non-negative hourly rate and supported currency together.'], JsonResponse::HTTP_BAD_REQUEST);
+        } else {
+            $rate = $this->money->parseMinor($input->hourly_rate);
+            if ($rate === null) return $this->json(['error' => 'Hourly cost rate must be non-negative with at most two decimal places.'], JsonResponse::HTTP_BAD_REQUEST);
+            $user->setHourlyCostRate($rate, $input->currency);
+        }
+        $this->entityManager->flush();
+
+        return $this->json([
+            'user_id' => $user->getId(),
+            'email' => $user->getUserIdentifier(),
+            'hourly_cost_rate' => $user->getHourlyCostRateMinor() !== null ? $this->money->formatMinor($user->getHourlyCostRateMinor()) : null,
+            'currency' => $user->getHourlyCostCurrency(),
+        ]);
+    }
+
+    #[Route('/projects/{id<\d+>}/profitability', name: 'project_profitability', methods: ['GET'])]
+    public function projectProfitability(int $id, Request $request): JsonResponse
+    {
+        $project = $this->projectRepository->find($id);
+        if (!$project instanceof Project) return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
+        $currency = $request->query->get('currency');
+        if (!is_string($currency) || !$this->financeCatalog->supportsCurrency($currency)) {
+            return $this->json(['error' => 'Choose a supported currency: EUR, GBP, or USD.'], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        $revenue = 0;
+        $laborCost = 0;
+        $billableUnpriced = 0;
+        $uncostedApprovedTime = 0;
+        foreach ($this->timeEntryRepository->findForProject($id) as $entry) {
+            if ($entry->getApprovalStatus() !== 'approved') continue;
+            if ($entry->isBillable()) {
+                if ($entry->getBillingCurrency() === $currency && $entry->getBillingAmountMinor() !== null) {
+                    $revenue += $entry->getBillingAmountMinor();
+                } else {
+                    ++$billableUnpriced;
+                }
+            }
+            if ($entry->getCostCurrency() === $currency && $entry->getCostMinor() !== null) {
+                $laborCost += $entry->getCostMinor();
+            } elseif ($entry->getCostCurrency() === null || $entry->getCostMinor() === null) {
+                ++$uncostedApprovedTime;
+            }
+        }
+        $expenseCost = 0;
+        $excludedExpenses = 0;
+        foreach ($this->expenseRepository->findFiltered($id, 'approved') as $expense) {
+            if ($expense->getCurrency() === $currency) {
+                $expenseCost += $expense->getAmountMinor();
+            } else {
+                ++$excludedExpenses;
+            }
+        }
+        $cost = $laborCost + $expenseCost;
+        $margin = $revenue - $cost;
+        $budget = $project->getBudgetCurrency() === $currency ? $project->getBudgetMinor() : null;
+
+        return $this->json([
+            'project_id' => $id,
+            'currency' => $currency,
+            'approved_billable_revenue' => $this->money->formatMinor($revenue),
+            'approved_labor_cost' => $this->money->formatMinor($laborCost),
+            'approved_expense_cost' => $this->money->formatMinor($expenseCost),
+            'total_cost' => $this->money->formatMinor($cost),
+            'gross_margin' => $this->money->formatMinor($margin),
+            'budget' => $budget !== null ? $this->money->formatMinor($budget) : null,
+            'budget_variance' => $budget !== null ? $this->money->formatMinor($budget - $cost) : null,
+            'unpriced_billable_entries' => $billableUnpriced,
+            'uncosted_approved_time_entries' => $uncostedApprovedTime,
+            'excluded_expenses_other_currency' => $excludedExpenses,
+            'basis' => 'Operational totals from approved time-entry rate snapshots and approved expenses. Cross-currency conversion, payroll, tax, and statutory accounting are excluded.',
+        ]);
     }
 
     #[Route('/expenses', name: 'expenses_list', methods: ['GET'])]
@@ -114,7 +244,9 @@ final class OperationsController extends AbstractController
         catch (\InvalidArgumentException) { return $this->json(['error' => 'Expense date must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST); }
         $user = $this->getUser();
         if (!$user instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
-        $expense = new Expense($project, $user, trim($input->description), $amount, $input->currency, $expenseDate);
+        $category = $input->category ?? 'other';
+        if (!in_array($category, ['travel', 'accommodation', 'meals', 'software', 'supplies', 'other'], true)) return $this->json(['error' => 'Choose a supported expense category.'], JsonResponse::HTTP_BAD_REQUEST);
+        $expense = new Expense($project, $user, trim($input->description), $amount, $input->currency, $expenseDate, $category);
         $this->entityManager->persist($expense);
         $this->entityManager->flush();
         return $this->json($this->serializeExpense($expense, true), JsonResponse::HTTP_CREATED);
@@ -143,12 +275,76 @@ final class OperationsController extends AbstractController
         if (!$isAdmin && !$isManager) return $this->json(['error' => 'Only an administrator or the project manager may decide this expense.'], JsonResponse::HTTP_FORBIDDEN);
         if ($input->decision === null || !in_array($input->decision, ['approved', 'rejected'], true)) return $this->json(['error' => 'Decision must be approved or rejected.'], JsonResponse::HTTP_BAD_REQUEST);
         if ($expense->getSubmitter()->getId() === $actor->getId() && !$isAdmin) return $this->json(['error' => 'Expense submitters cannot approve their own expenses.'], JsonResponse::HTTP_FORBIDDEN);
-        try { $expense->decide($input->decision); }
-        catch (\DomainException $exception) { return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT); }
-        $approval = new ExpenseApproval($expense, $actor, $input->decision, $input->comment !== null ? trim($input->comment) : null);
-        $this->entityManager->persist($approval);
-        $this->entityManager->flush();
+        if ($input->decision === 'approved') {
+            try {
+                $this->postingService->assertCanPost($expense->getExpenseDate(), ['project_expense', 'expense_payable']);
+            } catch (\DomainException $exception) {
+                return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+            }
+        }
+        try {
+            if ($input->decision === 'approved') {
+                $this->postingService->runAtomically(function () use ($expense, $actor, $input): void {
+                    $expense->decide($input->decision);
+                    $approval = new ExpenseApproval($expense, $actor, $input->decision, $input->comment !== null ? trim($input->comment) : null);
+                    $this->entityManager->persist($approval);
+                    $this->postingService->post('expense_approval', (int) $expense->getId(), $expense->getExpenseDate(), $expense->getCurrency(), 'Approved expense '.$expense->getId(), [
+                        ['role' => 'project_expense', 'debit_minor' => $expense->getAmountMinor(), 'credit_minor' => 0, 'memo' => $expense->getCategory().' expense'],
+                        ['role' => 'expense_payable', 'debit_minor' => 0, 'credit_minor' => $expense->getAmountMinor(), 'memo' => 'Expense reimbursement payable'],
+                    ]);
+                });
+            } else {
+                $expense->decide($input->decision);
+                $approval = new ExpenseApproval($expense, $actor, $input->decision, $input->comment !== null ? trim($input->comment) : null);
+                $this->entityManager->persist($approval);
+                $this->entityManager->flush();
+            }
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
         return $this->json($this->serializeExpense($expense, true));
+    }
+
+    #[Route('/expenses/{id<\d+>}/reimbursements', name: 'expense_reimbursements_list', methods: ['GET'])]
+    public function expenseReimbursements(int $id): JsonResponse
+    {
+        $expense = $this->expenseRepository->find($id);
+        if ($expense === null) return $this->json(['error' => 'Expense not found.'], JsonResponse::HTTP_NOT_FOUND);
+        return $this->json(array_map(fn (ExpenseReimbursement $item): array => $this->serializeReimbursement($item), $this->reimbursementRepository->findForExpense($id)));
+    }
+
+    #[Route('/expenses/{id<\d+>}/reimbursements', name: 'expense_reimbursements_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
+    public function reimburseExpense(int $id, #[MapRequestPayload] ExpenseReimbursementInput $input): JsonResponse
+    {
+        $expense = $this->expenseRepository->find($id);
+        if ($expense === null) return $this->json(['error' => 'Expense not found.'], JsonResponse::HTTP_NOT_FOUND);
+        if ($expense->getStatus() !== 'approved' || $input->amount === null || $input->paid_at === null) {
+            return $this->json(['error' => 'An approved expense, payment amount, and payment date are required.'], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        $amount = $this->money->parseMinor($input->amount);
+        if ($amount === null || $amount < 1) return $this->json(['error' => 'Reimbursement amount must be positive with at most two decimal places.'], JsonResponse::HTTP_BAD_REQUEST);
+        try { $paidAt = $this->parseDate($input->paid_at); }
+        catch (\InvalidArgumentException) { return $this->json(['error' => 'Payment date must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST); }
+        $paid = $this->reimbursementRepository->sumMinorForExpense($id);
+        if ($amount > $expense->getAmountMinor() - $paid) return $this->json(['error' => 'Reimbursement exceeds the outstanding expense balance.'], JsonResponse::HTTP_CONFLICT);
+        try {
+            $this->postingService->assertCanPost($paidAt, ['expense_payable', 'cash']);
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
+        $actor = $this->getUser();
+        if (!$actor instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
+        $reimbursement = new ExpenseReimbursement($expense, $actor, $amount, $paidAt, $input->reference !== null ? trim($input->reference) : null);
+        $this->postingService->runAtomically(function () use ($reimbursement, $paidAt, $expense, $amount): void {
+            $this->entityManager->persist($reimbursement);
+            $this->entityManager->flush();
+            $this->postingService->post('expense_reimbursement', (int) $reimbursement->getId(), $paidAt, $expense->getCurrency(), 'Expense reimbursement '.$expense->getId(), [
+                ['role' => 'expense_payable', 'debit_minor' => $amount, 'credit_minor' => 0, 'memo' => 'Expense payable settlement'],
+                ['role' => 'cash', 'debit_minor' => 0, 'credit_minor' => $amount, 'memo' => 'Expense reimbursement'],
+            ]);
+        });
+        return $this->json($this->serializeReimbursement($reimbursement), JsonResponse::HTTP_CREATED);
     }
 
     #[Route('/projects/{projectId<\d+>}/documents', name: 'documents_list', methods: ['GET'])]
@@ -221,14 +417,30 @@ final class OperationsController extends AbstractController
         return ['id' => (int) $value];
     }
 
+    private function rateForDuration(int $hourlyRateMinor, int $durationMinutes): int
+    {
+        $quotient = intdiv($hourlyRateMinor, 60);
+        $remainder = $hourlyRateMinor % 60;
+        if ($quotient > 0 && $durationMinutes > intdiv(PHP_INT_MAX, $quotient)) {
+            throw new \OverflowException('Time-entry rate calculation exceeds the supported amount range.');
+        }
+        $wholeAmount = $quotient * $durationMinutes;
+        $fractionAmount = intdiv($remainder * $durationMinutes + 30, 60);
+        if ($fractionAmount > PHP_INT_MAX - $wholeAmount) {
+            throw new \OverflowException('Time-entry rate calculation exceeds the supported amount range.');
+        }
+        return $wholeAmount + $fractionAmount;
+    }
+
     private function serializeTimeEntry(TimeEntry $entry): array
     {
-        return ['id' => $entry->getId(), 'project_id' => $entry->getProject()->getId(), 'project_title' => $entry->getProject()->getTitle(), 'task_id' => $entry->getTask()?->getId(), 'task_title' => $entry->getTask()?->getTitle(), 'user_id' => $entry->getUser()->getId(), 'user_email' => $entry->getUser()->getUserIdentifier(), 'work_date' => $entry->getWorkDate()->format('Y-m-d'), 'duration_minutes' => $entry->getDurationMinutes(), 'billable' => $entry->isBillable(), 'description' => $entry->getDescription()];
+        return ['id' => $entry->getId(), 'project_id' => $entry->getProject()->getId(), 'project_title' => $entry->getProject()->getTitle(), 'task_id' => $entry->getTask()?->getId(), 'task_title' => $entry->getTask()?->getTitle(), 'user_id' => $entry->getUser()->getId(), 'user_email' => $entry->getUser()->getUserIdentifier(), 'work_date' => $entry->getWorkDate()->format('Y-m-d'), 'duration_minutes' => $entry->getDurationMinutes(), 'billable' => $entry->isBillable(), 'approval_status' => $entry->getApprovalStatus(), 'decided_by' => $entry->getDecidedBy()?->getUserIdentifier(), 'decided_at' => $entry->getDecidedAt()?->format(\DateTimeInterface::ATOM), 'decision_comment' => $entry->getDecisionComment(), 'cost_amount' => $entry->getCostMinor() !== null ? $this->money->formatMinor($entry->getCostMinor()) : null, 'cost_currency' => $entry->getCostCurrency(), 'billing_amount' => $entry->getBillingAmountMinor() !== null ? $this->money->formatMinor($entry->getBillingAmountMinor()) : null, 'billing_currency' => $entry->getBillingCurrency(), 'invoice_id' => $entry->getInvoice()?->getId(), 'description' => $entry->getDescription()];
     }
 
     private function serializeExpense(Expense $expense, bool $withApprovals): array
     {
-        $serialized = ['id' => $expense->getId(), 'project_id' => $expense->getProject()->getId(), 'project_title' => $expense->getProject()->getTitle(), 'submitter_id' => $expense->getSubmitter()->getId(), 'submitter_email' => $expense->getSubmitter()->getUserIdentifier(), 'description' => $expense->getDescription(), 'amount' => $this->money->formatMinor($expense->getAmountMinor()), 'currency' => $expense->getCurrency(), 'expense_date' => $expense->getExpenseDate()->format('Y-m-d'), 'status' => $expense->getStatus()];
+        $reimbursed = $this->reimbursementRepository->sumMinorForExpense((int) $expense->getId());
+        $serialized = ['id' => $expense->getId(), 'project_id' => $expense->getProject()->getId(), 'project_title' => $expense->getProject()->getTitle(), 'submitter_id' => $expense->getSubmitter()->getId(), 'submitter_email' => $expense->getSubmitter()->getUserIdentifier(), 'description' => $expense->getDescription(), 'category' => $expense->getCategory(), 'amount' => $this->money->formatMinor($expense->getAmountMinor()), 'reimbursed' => $this->money->formatMinor($reimbursed), 'balance_to_reimburse' => $this->money->formatMinor(max(0, $expense->getAmountMinor() - $reimbursed)), 'currency' => $expense->getCurrency(), 'expense_date' => $expense->getExpenseDate()->format('Y-m-d'), 'status' => $expense->getStatus()];
         if ($withApprovals) $serialized['approvals'] = array_map(fn (ExpenseApproval $approval): array => ['id' => $approval->getId(), 'decision' => $approval->getDecision(), 'actor_email' => $approval->getActor()->getUserIdentifier(), 'comment' => $approval->getComment(), 'created_at' => $approval->getCreatedAt()->format(\DateTimeInterface::ATOM)], $this->approvalRepository->findForExpense((int) $expense->getId()));
         return $serialized;
     }
@@ -236,5 +448,10 @@ final class OperationsController extends AbstractController
     private function serializeDocument(ProjectDocument $document): array
     {
         return ['id' => $document->getId(), 'project_id' => $document->getProject()->getId(), 'original_name' => $document->getOriginalName(), 'mime_type' => $document->getMimeType(), 'size_bytes' => $document->getSizeBytes(), 'uploaded_by' => $document->getUploadedBy()?->getUserIdentifier(), 'created_at' => $document->getCreatedAt()->format(\DateTimeInterface::ATOM), 'download_url' => '/api/operations/documents/'.$document->getId().'/download'];
+    }
+
+    private function serializeReimbursement(ExpenseReimbursement $item): array
+    {
+        return ['id' => $item->getId(), 'expense_id' => $item->getExpense()->getId(), 'amount' => $this->money->formatMinor($item->getAmountMinor()), 'currency' => $item->getExpense()->getCurrency(), 'paid_at' => $item->getPaidAt()->format('Y-m-d'), 'reference' => $item->getReference(), 'recorded_by' => $item->getRecordedBy()->getUserIdentifier()];
     }
 }

@@ -29,6 +29,9 @@ class Expense
     #[ORM\Column(length: 255)]
     private string $description;
 
+    #[ORM\Column(length: 32, options: ['default' => 'other'])]
+    private string $category;
+
     #[ORM\Column(type: Types::BIGINT)]
     private int $amountMinor;
 
@@ -47,7 +50,15 @@ class Expense
     #[ORM\Column]
     private \DateTimeImmutable $updatedAt;
 
-    public function __construct(Project $project, User $submitter, string $description, int $amountMinor, string $currency, \DateTimeImmutable $expenseDate)
+    public function __construct(
+        Project $project,
+        User $submitter,
+        string $description,
+        int $amountMinor,
+        string $currency,
+        \DateTimeImmutable $expenseDate,
+        string $category = 'other',
+    )
     {
         if (trim($description) === '' || $amountMinor < 1) {
             throw new \InvalidArgumentException('Expense requires a description and positive amount.');
@@ -55,6 +66,7 @@ class Expense
         $this->project = $project;
         $this->submitter = $submitter;
         $this->description = trim($description);
+        $this->category = $category;
         $this->amountMinor = $amountMinor;
         $this->currency = $currency;
         $this->expenseDate = $expenseDate;
@@ -66,6 +78,7 @@ class Expense
     public function getProject(): Project { return $this->project; }
     public function getSubmitter(): User { return $this->submitter; }
     public function getDescription(): string { return $this->description; }
+    public function getCategory(): string { return $this->category; }
     public function getAmountMinor(): int { return $this->amountMinor; }
     public function getCurrency(): string { return $this->currency; }
     public function getExpenseDate(): \DateTimeImmutable { return $this->expenseDate; }

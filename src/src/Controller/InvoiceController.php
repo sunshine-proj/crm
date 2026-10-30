@@ -3,17 +3,24 @@
 namespace App\Controller;
 
 use App\Dto\InvoiceInput;
+use App\Dto\ApprovedTimeInvoiceInput;
+use App\Dto\InvoiceFromMilestoneInput;
 use App\Entity\Invoice;
 use App\Entity\Project;
 use App\Entity\Task;
 use App\Entity\User;
+use App\Entity\TimeEntry;
+use App\Entity\ProjectMilestone;
 use App\Repository\InvoiceRepository;
 use App\Repository\PaymentRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
 use App\Repository\UserRepository;
+use App\Repository\TimeEntryRepository;
+use App\Repository\ProjectMilestoneRepository;
 use App\Service\InvoiceMoney;
 use App\Service\InvoicePdfService;
+use App\Service\FinancePostingService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -29,6 +36,8 @@ final class InvoiceController extends AbstractController
 {
 	public function __construct(
 		private readonly InvoiceRepository $invoiceRepository,
+		private readonly TimeEntryRepository $timeEntryRepository,
+		private readonly ProjectMilestoneRepository $milestoneRepository,
 		private readonly PaymentRepository $paymentRepository,
 		private readonly ProjectRepository $projectRepository,
 		private readonly TaskRepository $taskRepository,
@@ -36,6 +45,7 @@ final class InvoiceController extends AbstractController
 		private readonly EntityManagerInterface $entityManager,
 		private readonly InvoiceMoney $money,
 		private readonly InvoicePdfService $pdfService,
+		private readonly FinancePostingService $postingService,
 	) {
 	}
 
@@ -68,6 +78,139 @@ final class InvoiceController extends AbstractController
 
 		return $this->json($this->serializeInvoice($invoice), JsonResponse::HTTP_CREATED);
 	}
+
+		#[Route('/from-approved-time', name: 'from_approved_time', methods: ['POST'])]
+		public function createFromApprovedTime(#[MapRequestPayload] ApprovedTimeInvoiceInput $input): JsonResponse
+		{
+			try {
+				$invoiceDate = $input->invoice_date !== null ? $this->parseDate($input->invoice_date) : null;
+				$dueDate = $input->due_date !== null ? $this->parseDate($input->due_date) : null;
+			} catch (\InvalidArgumentException) {
+				return $this->json(['error' => 'Invoice dates must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			if ($invoiceDate === null || ($dueDate !== null && $dueDate < $invoiceDate)) {
+				return $this->json(['error' => 'A valid invoice date and a due date on or after it are required.'], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			foreach ($input->entry_ids as $entryId) {
+				if (!is_int($entryId) || $entryId < 1) {
+					return $this->json(['error' => 'Time-entry ids must be positive integers.'], JsonResponse::HTTP_BAD_REQUEST);
+				}
+			}
+			$entryIds = array_values(array_unique($input->entry_ids));
+			if ($entryIds === [] || count($entryIds) !== count($input->entry_ids)) {
+				return $this->json(['error' => 'Choose one or more distinct approved time entries.'], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			$entries = [];
+			$project = null;
+			$total = 0;
+			$items = [];
+			foreach ($entryIds as $entryId) {
+				$entry = $this->timeEntryRepository->find($entryId);
+				if (!$entry instanceof TimeEntry || $entry->getApprovalStatus() !== 'approved' || !$entry->isBillable() || $entry->getInvoice() !== null || $entry->getBillingAmountMinor() === null || $entry->getBillingCurrency() === null) {
+					return $this->json(['error' => sprintf('Time entry %d must be approved, billable, priced, and not already invoiced.', $entryId)], JsonResponse::HTTP_CONFLICT);
+				}
+				if ($project === null) {
+					$project = $entry->getProject();
+				} elseif ($project->getId() !== $entry->getProject()->getId()) {
+					return $this->json(['error' => 'All selected time entries must belong to one project.'], JsonResponse::HTTP_BAD_REQUEST);
+				}
+				if ($total > PHP_INT_MAX - $entry->getBillingAmountMinor()) {
+					return $this->json(['error' => 'Invoice total exceeds the supported amount range.'], JsonResponse::HTTP_BAD_REQUEST);
+				}
+				$total += $entry->getBillingAmountMinor();
+				$description = $entry->getTask() !== null ? (string) $entry->getTask()->getTitle() : $entry->getDescription();
+				$items[] = [
+					'task_id' => null,
+					'description' => mb_substr('Approved time: '.$description, 0, 255),
+					'amount' => $this->money->formatMinor($entry->getBillingAmountMinor()),
+				];
+				$entries[] = $entry;
+			}
+			if (!$project instanceof Project || $project->getClient() === null || $total < 1) {
+				return $this->json(['error' => 'The selected project must have a client and positive billable time total.'], JsonResponse::HTTP_CONFLICT);
+			}
+			$currency = $entries[0]->getBillingCurrency();
+			foreach ($entries as $entry) {
+				if ($entry->getBillingCurrency() !== $currency) {
+					return $this->json(['error' => 'All selected time entries must have the same billing currency.'], JsonResponse::HTTP_BAD_REQUEST);
+				}
+			}
+
+			$invoice = new Invoice();
+			$invoice->setDetails(
+				$project->getClient(),
+				$project,
+				$project->getManager(),
+				(string) $project->getClient()->getTitle(),
+				(string) $project->getTitle(),
+				$project->getManager()?->getUserIdentifier(),
+				$invoiceDate,
+				$dueDate,
+				$currency,
+				$items,
+				$total,
+			);
+			$this->postingService->runAtomically(function () use ($invoice, $invoiceDate, $entries): void {
+				$this->entityManager->persist($invoice);
+				$this->entityManager->flush();
+				$invoice->setInvoiceNumber(sprintf('INV-%s-%06d', $invoiceDate->format('Y'), $invoice->getId()));
+				foreach ($entries as $entry) {
+					$entry->setInvoice($invoice);
+				}
+				$this->entityManager->flush();
+			});
+
+			return $this->json($this->serializeInvoice($invoice), JsonResponse::HTTP_CREATED);
+		}
+
+		#[Route('/from-milestone/{id<\d+>}', name: 'from_milestone', methods: ['POST'])]
+		public function createFromMilestone(int $id, #[MapRequestPayload] InvoiceFromMilestoneInput $input): JsonResponse
+		{
+			$milestone = $this->milestoneRepository->find($id);
+			if (!$milestone instanceof ProjectMilestone) {
+				return $this->json(['error' => 'Milestone not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+			try {
+				$invoiceDate = $input->invoice_date !== null ? $this->parseDate($input->invoice_date) : null;
+				$dueDate = $input->due_date !== null ? $this->parseDate($input->due_date) : null;
+			} catch (\InvalidArgumentException) {
+				return $this->json(['error' => 'Invoice dates must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			if ($invoiceDate === null || ($dueDate !== null && $dueDate < $invoiceDate)) {
+				return $this->json(['error' => 'A valid invoice date and a due date on or after it are required.'], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			if ($milestone->getStatus() !== 'completed' || $milestone->getInvoice() !== null || $milestone->getAmountMinor() === null || $milestone->getCurrency() === null) {
+				return $this->json(['error' => 'Only completed, priced milestones without an invoice may be invoiced.'], JsonResponse::HTTP_CONFLICT);
+			}
+			$project = $milestone->getProject();
+			$client = $project->getClient();
+			if ($client === null) {
+				return $this->json(['error' => 'The milestone project must be linked to a client.'], JsonResponse::HTTP_CONFLICT);
+			}
+			$invoice = new Invoice();
+			$invoice->setDetails(
+				$client,
+				$project,
+				$project->getManager(),
+				(string) $client->getTitle(),
+				(string) $project->getTitle(),
+				$project->getManager()?->getUserIdentifier(),
+				$invoiceDate,
+				$dueDate,
+				$milestone->getCurrency(),
+				[['task_id' => null, 'description' => mb_substr('Milestone: '.$milestone->getTitle(), 0, 255), 'amount' => $this->money->formatMinor($milestone->getAmountMinor())]],
+				$milestone->getAmountMinor(),
+			);
+			$this->postingService->runAtomically(function () use ($invoice, $invoiceDate, $milestone): void {
+				$this->entityManager->persist($invoice);
+				$this->entityManager->flush();
+				$invoice->setInvoiceNumber(sprintf('INV-%s-%06d', $invoiceDate->format('Y'), $invoice->getId()));
+				$milestone->markInvoiced($invoice);
+				$this->entityManager->flush();
+			});
+
+			return $this->json($this->serializeInvoice($invoice), JsonResponse::HTTP_CREATED);
+		}
 
 	#[Route('/{id<\d+>}', name: 'show', methods: ['GET'])]
 	public function show(int $id): JsonResponse
@@ -111,8 +254,18 @@ final class InvoiceController extends AbstractController
 			return $this->json(['error' => 'Only draft invoices can be issued.'], JsonResponse::HTTP_CONFLICT);
 		}
 
-		$invoice->setStatus('issued');
-		$this->entityManager->flush();
+		try {
+			$this->postingService->assertCanPost($invoice->getInvoiceDate(), ['accounts_receivable', 'revenue']);
+		} catch (\DomainException $exception) {
+			return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+		}
+		$this->postingService->runAtomically(function () use ($invoice): void {
+			$invoice->setStatus('issued');
+			$this->postingService->post('invoice_issue', (int) $invoice->getId(), $invoice->getInvoiceDate(), $invoice->getCurrency(), 'Invoice '.$invoice->getInvoiceNumber(), [
+				['role' => 'accounts_receivable', 'debit_minor' => $invoice->getTotalMinor(), 'credit_minor' => 0, 'memo' => 'Invoice receivable'],
+				['role' => 'revenue', 'debit_minor' => 0, 'credit_minor' => $invoice->getTotalMinor(), 'memo' => 'Invoice revenue'],
+			]);
+		});
 
 		return $this->json($this->serializeInvoice($invoice));
 	}
@@ -152,6 +305,7 @@ final class InvoiceController extends AbstractController
 		if ($input->project_id === null || $input->invoice_date === null || $input->currency === null || $input->items === []) {
 			return 'Project, invoice_date, currency and at least one line item are required.';
 		}
+
 		$project = $this->projectRepository->find($input->project_id);
 		if (!$project instanceof Project || $project->getClient() === null) {
 			return 'A valid project linked to a client is required.';
@@ -295,6 +449,16 @@ final class InvoiceController extends AbstractController
 			'created_at' => $invoice->getCreatedAt()->format(\DateTimeInterface::ATOM),
 			'updated_at' => $invoice->getUpdatedAt()->format(\DateTimeInterface::ATOM),
 		];
+	}
+
+	private function parseDate(string $value): \DateTimeImmutable
+	{
+		$date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+		if ($date === false || $date->format('Y-m-d') !== $value) {
+			throw new \InvalidArgumentException('Invalid calendar date.');
+		}
+
+		return $date;
 	}
 
 }

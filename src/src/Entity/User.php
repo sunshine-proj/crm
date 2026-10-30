@@ -3,6 +3,7 @@
 namespace App\Entity;
 
 use App\Repository\UserRepository;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
@@ -28,6 +29,12 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     #[ORM\Column(options: ['default' => '[]'])]
     private array $roles = [];
+
+    #[ORM\Column(type: Types::BIGINT, nullable: true)]
+    private ?int $hourlyCostRateMinor = null;
+
+    #[ORM\Column(length: 3, nullable: true)]
+    private ?string $hourlyCostCurrency = null;
 
     public function getId(): ?int
     {
@@ -92,6 +99,27 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function setRoles(array $roles): static
     {
         $this->roles = $roles;
+
+        return $this;
+    }
+
+    public function getHourlyCostRateMinor(): ?int
+    {
+        return $this->hourlyCostRateMinor;
+    }
+
+    public function getHourlyCostCurrency(): ?string
+    {
+        return $this->hourlyCostCurrency;
+    }
+
+    public function setHourlyCostRate(?int $rateMinor, ?string $currency): static
+    {
+        if (($rateMinor === null) !== ($currency === null) || ($rateMinor !== null && $rateMinor < 0)) {
+            throw new \InvalidArgumentException('Hourly cost rate requires a non-negative amount and currency together.');
+        }
+        $this->hourlyCostRateMinor = $rateMinor;
+        $this->hourlyCostCurrency = $currency;
 
         return $this;
     }

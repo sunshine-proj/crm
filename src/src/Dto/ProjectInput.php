@@ -25,6 +25,9 @@ final class ProjectInput
         public readonly ?string $budget_amount = null,
         #[Assert\Choice(choices: ['EUR', 'GBP', 'USD'])]
         public readonly ?string $budget_currency = null,
+        public readonly ?string $hourly_rate = null,
+        #[Assert\Choice(choices: ['EUR', 'GBP', 'USD'])]
+        public readonly ?string $billing_currency = null,
     ) {
     }
 }

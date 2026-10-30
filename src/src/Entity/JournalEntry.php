@@ -13,6 +13,7 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(columns: ['period_id', 'entry_date'], name: 'idx_journal_entry_period_date')]
 #[ORM\Index(columns: ['source_type', 'source_id'], name: 'idx_journal_entry_source')]
 #[ORM\UniqueConstraint(name: 'UNIQ_JOURNAL_ENTRY_NUMBER', columns: ['entry_number'])]
+#[ORM\UniqueConstraint(name: 'uniq_journal_entry_source', columns: ['source_type', 'source_id'])]
 class JournalEntry
 {
     #[ORM\Id]

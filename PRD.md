@@ -24,21 +24,21 @@ The repository currently contains a Vue 3 and TypeScript single-page frontend an
 Implemented modules include:
 
 - **Clients:** create, list, edit, and delete records containing a title and notes, with expandable structured contacts (name, role, email, and phone). Client and contact writes are restricted to administrators.
-- **Projects:** create, list, edit, and delete records containing a title and description, linked to a client for new records, with lifecycle status and planned start/end dates.
+- **Projects:** create, list, edit, and delete records containing a title and description, linked to a client for new records, with lifecycle status, planned dates, optional budget, and optional billable hourly rate/currency.
 - **Projects:** can have an optional responsible manager selected from authenticated workspace users.
-- **Tasks:** create, list, edit, and delete records containing a title, description, start/end times, a project link, status, priority, and optional due date.
+- **Tasks:** create, list, edit, and delete records containing a title, description, start/end times, a project link, status, priority, optional due date, optional assignee, and same-project predecessor dependencies. Lists support search/status filtering and due/overdue indicators; notifications are not sent.
 - **Inventory and procurement:** authenticated users can configure warehouses and suppliers, create purchase orders, post partial receipts, inspect movement-derived stock, adjust counts, dispatch sales shipments from stock, and record bounded inventory returns. This is quantity tracking only; inventory valuation and GL integration are not implemented.
-- **Project operations:** projects can have an optional currency-scoped budget, users can log project/task time, expenses can be submitted and approved/rejected by project managers or administrators, and project files can be stored/downloaded through authenticated endpoints.
-- **Invoices and customer payments:** authenticated users can manage project-linked draft invoices, generate invoices from shipped sales orders, issue invoices, record partial/full customer receipts, view outstanding balances, and export invoice PDFs. Amounts use integer minor units. This is an operational workflow, not legally compliant invoice issuance or payment processing.
+- **Project operations:** users record project/task time, project managers/admins approve or reject it, and per-user cost rates/project billing rates are snapshotted for new time entries. Expenses have categories and manager/admin decisions; administrators can record partial reimbursements. Single-currency profitability summaries and draft invoice creation from approved billable time or completed priced milestones are available.
+- **Invoices and customer payments:** authenticated users can manage project-linked draft invoices, generate invoices from shipped sales orders, approved time, and completed priced milestones; issue invoices; record partial/full customer receipts; view outstanding balances; and export invoice PDFs. Amounts use integer minor units. This is an operational workflow, not legally compliant invoice issuance or payment processing.
 - **Inventory and purchasing:** authenticated users can configure warehouses and suppliers, create product-based purchase orders, receive partial/full quantities into a warehouse, derive on-hand quantities from signed stock movements, post adjustments, explicitly dispatch sales shipments against warehouse stock, and record bounded customer/supplier returns. The ledger tracks quantities only and is not valued inventory.
-- **Finance foundation:** authenticated users can configure a chart of accounts and non-overlapping fiscal periods, post balanced manual journal entries, configure tax-code and supported-currency references, record vendor bills and AP payments, and review currency-scoped trial-balance and AR/AP reports. GL postings are not automatically reconciled with the operational subledgers.
-- **Project operations:** projects can carry an optional budget/currency; users can record project/task time; expenses can be submitted and decided by a project manager or administrator; project documents can be uploaded and downloaded through authenticated endpoints with a 10 MB file-size limit and MIME allowlist.
+- **Finance foundation:** authenticated users can configure accounts, fiscal periods, and administrator-managed posting mappings; post manual/opening-balance journals; reverse entries; and close/reopen periods with administrator reasons. Invoice issues/receipts, vendor bills/payments, approved expenses, and expense reimbursements generate mapped accrual postings. Currency-scoped trial balance, operational P&L/balance-sheet/cash-movement summaries, AR/AP, and source-record posting checks are available. These are not statutory reports or external-bank reconciliations.
+- **Project documents:** authenticated upload/download endpoints enforce a 10 MB file-size limit and MIME allowlist. Files are local, without virus scanning or external backup.
 - **News:** news-item records with user ownership behavior in the API.
 - **Dashboard:** displays live client, active-project, and open-task counts from an authenticated API summary endpoint.
 - **Authentication:** sign-in through `POST /api/login` and bearer-token API requests.
 - **Organization Settings:** administrators can set the operating country, default currency, and a ten-year reference retention period for the single organization in an installation. Changes are audited and can be restored. Country-specific tax/accounting profiles remain unverified and no retention deletion is automated.
 
-New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. The client record is not yet a full structured organization/account profile. Project ownership beyond the responsible manager, milestones, dependencies, time tracking, expense management, automatic subledger-to-GL posting/reconciliation, FX, statutory accounting, tax filing, and compliant financial statements remain unimplemented. Treat these as roadmap requirements, not existing features. PHPUnit backend tests and Vitest frontend unit tests are configured; coverage reporting is still outstanding.
+New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. Client/project search, inline context, milestones, task assignments/dependencies, due indicators, approval workflows, and basic cost-to-billing flows are implemented. The client record is not yet a full structured organization/account profile, and dedicated detail routes and project schedule views remain open. Finance postings and reports are operational foundations only: mappings must be configured, cross-currency accounting and external bank reconciliation are absent, and no jurisdiction-specific compliance is claimed. Migrations and backend integration tests for the latest finance/project changes still require execution and verification.
 
 ## Product Principles
 
@@ -150,21 +150,27 @@ The sales workflow is operational and links to a separate quantity-only inventor
 ### Phase 5: Project Operations
 
 - **Implemented MVP:** optional project budget stored in integer minor units with an explicit EUR/GBP/USD currency.
-- **Implemented MVP:** time entries with project, optional same-project task, authenticated author, date, duration in minutes, billable flag, and description.
-- **Implemented MVP:** project expense submission with explicit currency and decimal-safe amount; each new expense enters `pending_approval`.
+- **Implemented MVP:** time entries with project, optional same-project task, authenticated author, date, duration in minutes, billable flag, description, approval state, and immutable cost/billing rate snapshots.
+- **Implemented MVP:** administrator-configured per-user cost rates and project billing rates for new time entries; rates use integer minor-unit arithmetic and an explicit currency.
+- **Implemented MVP:** project expense submission with explicit currency, category, and decimal-safe amount; each new expense enters `pending_approval`.
 - **Implemented MVP:** manager/admin approval or rejection with append-only actor/date/comment history. A non-admin submitter cannot approve their own expense.
+- **Implemented MVP:** administrators record partial expense reimbursements, which post against mapped expense-payable and cash accounts.
+- **Implemented MVP:** single-currency operational budget/cost/profitability summaries and draft invoice creation from approved billable time or completed priced milestones.
+- **Implemented MVP:** project milestones, same-project task dependencies with cycle prevention, task assignment, and due/overdue indicators. No outbound reminders or schedule/Gantt view exists.
 - **Implemented MVP:** project document upload/list/download/delete, generated storage keys, server MIME validation, a 10 MB limit, and authenticated access. Stored files are in local Symfony `var/` storage and are not virus-scanned or externally backed up.
-- **Not implemented:** timesheet approval, payroll, employee cost rates, reimbursement, expense categories/tax, configurable workflow definitions or multi-step approvals, escalation/notifications, milestones/dependencies, actual-vs-budget/profitability reports, document versioning/virus scanning, or object-storage backup.
-- Distinguish expense approval from reimbursement/accounting; distinguish project time capture from payroll; do not treat local document storage as a managed records-retention system.
+- **Not implemented:** payroll, expense tax handling, configurable multi-step approvals, reminders/escalations, period-filtered project financial analysis, document versioning/virus scanning, or object-storage backup.
+- Distinguish project cost estimates from payroll; do not treat local document storage as a managed records-retention system.
 
 ### Phase 6: Finance And Bookkeeping
 
-- **Implemented foundation:** maintain chart-of-account codes/types and active state; create non-overlapping fiscal periods and close them; post manual journal entries only when the date is in an open period, each line is one-sided and uses integer minor units, and total debits equal total credits.
+- **Implemented foundation:** maintain chart-of-account codes/types and active state; create non-overlapping fiscal periods; post manual and opening-balance journal entries only when the date is in an open period, each line is one-sided and uses integer minor units, and total debits equal total credits.
 - **Implemented foundation:** posted manual journal entries cannot be updated or deleted through the API. Reports return a currency-scoped trial balance with date range and basis.
 - **Implemented foundation:** show open AR based on issued invoices and customer receipts; capture vendor bills and partial/full AP payments; prevent duplicate vendor references and overpayment; report balances in one selected currency.
+- **Implemented foundation:** configure account mappings and automatically post invoice issues/receipts, vendor bills/payments, approved expenses, and expense reimbursements. Source-record posting checks identify records without a journal reference.
+- **Implemented foundation:** reasoned administrator close/reopen and journal reversals, plus single-currency operational P&L, balance-sheet, and cash-movement summaries.
 - **Implemented foundation:** configure tax-code percentages stored as basis points and a finite EUR/GBP/USD currency list. Tax is not applied to invoices/bills; currencies are not converted.
-- **Not implemented:** automatic GL postings for invoices, receipts, vendor bills/payments, sales, or tax; subledger-to-GL reconciliation; opening balances; journal reversals; controlled fiscal-period reopening; expense management; P&L/balance-sheet statements; cash-flow reports; budgets; and financial dimensions.
-- **Not implemented:** FX rates/revaluation, payment-provider or bank integration, statement reconciliation, jurisdiction tax calculation/filing, compliant invoice numbering, finance-specific permissions, and audit-grade close/retention controls.
+- **Not implemented:** reconciliation of journal amounts to source subledger totals or external bank statements; automatic inventory/stock postings; FX rates/revaluation; payment-provider or bank integration; jurisdiction tax calculation/filing; compliant invoice numbering; dedicated finance roles; and audit-grade retention controls.
+- Automatic postings require active account mappings and an open fiscal period. Source-record posting checks do not compare amounts or prove full accounting reconciliation; statements are operational summaries rather than statutory financial statements.
 - Validate accounting, tax, access, retention, audit, and document rules for the target jurisdictions before treating this operational foundation as a production ledger or statutory finance product.
 - Add integrations or broader ERP capabilities only after user research, jurisdiction review, and a separate scoped PRD.
 
@@ -204,8 +210,13 @@ The sales workflow is operational and links to a separate quantity-only inventor
 - **OPS-3:** Expenses identify project, submitter, date, currency, description, and positive decimal-safe amount; new expenses enter a pending-approval state.
 - **OPS-4:** Only a project manager or administrator may approve/reject an expense. A non-admin submitter cannot approve their own expense; decisions retain actor, timestamp, and comment history and cannot be repeated after a terminal decision.
 - **OPS-5:** Project documents are accessible only through authenticated endpoints, use server-generated storage keys, enforce an allowlisted MIME type and file-size limit, and do not accept client paths as storage locations.
-- **OPS-6:** Project operations pages expose visible project selection, loading/empty/error states, and clarify that logged time, approved expenses, and local documents do not themselves create payroll, reimbursement, or accounting postings.
+- **OPS-6:** Project operations pages expose visible project selection, loading/empty/error states, and clarify that logged time does not create payroll or ledger postings. Expense approval is separate from reimbursement; recorded reimbursements create mapped operational ledger postings.
 - **OPS-7:** Local document storage requires backup, retention, access-control, and malware-scanning decisions before production use.
+- **OPS-8:** Time entries have an explicit approval decision and retain the deciding actor, timestamp, and comment. Approved billable time may be selected to create a draft invoice; approval alone does not issue or post an invoice.
+- **OPS-9:** New time entries snapshot configured user cost and project billing rates in integer minor units and an explicit currency; later rate changes do not rewrite historical snapshots.
+- **OPS-10:** Project expenses support configured categories and administrators can record partial reimbursements without reimbursing more than the approved amount.
+- **OPS-11:** Projects support priced milestones and draft invoice creation from completed milestones; tasks support same-project dependencies, cycle prevention, assignees, and due/overdue indicators.
+- **OPS-12:** Project profitability summaries disclose their currency and are operational estimates, not payroll or statutory project accounts.
 
 ### Financial Operations
 
@@ -222,7 +233,10 @@ The sales workflow is operational and links to a separate quantity-only inventor
 - **FN-11:** Posted entries are immutable through ordinary update/delete APIs; corrections require a reversal/replacement workflow.
 - **FN-12:** Trial balance and AR/AP reports must be limited to one explicit currency unless a validated FX conversion layer is implemented; report output must disclose date range and calculation basis.
 - **FN-13:** Tax-code configuration is not tax calculation. Do not apply configured rates to documents or claim tax compliance until jurisdiction rules and rounding tests are implemented.
-- **FN-14:** Operational AR/AP subledgers must not be presented as reconciled GL balances until source transactions generate atomic postings and reconciliation controls exist.
+- **FN-14:** Operational AR/AP subledgers must not be presented as reconciled GL balances without comparing source balances and journal amounts; posting-reference checks alone are not reconciliation.
+- **FN-15:** Automatic postings use configured active account mappings, integer minor-unit amounts, an open fiscal period, and idempotent source references; a failed posting must not leave the source transaction and journal in a partially committed state.
+- **FN-16:** Corrections to posted entries use reversal entries. Opening balances and period close/reopen actions retain administrator identity, timestamp, and required reason.
+- **FN-17:** Operational P&L, balance-sheet, and cash-movement summaries disclose currency and date range and must not be described as statutory statements.
 - **INV-1:** On-hand is derived from immutable movements per product and warehouse; corrections use offsetting movements, not edits or deletes.
 - **INV-2:** Goods receipts reference a purchase order and warehouse; cumulative received quantities cannot exceed ordered quantities.
 - **INV-3:** Warehouse dispatch references a sales shipment, is idempotent, and requires sufficient on-hand stock.

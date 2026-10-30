@@ -44,6 +44,12 @@ class Project
     #[ORM\Column(length: 3, nullable: true)]
     private ?string $budgetCurrency = null;
 
+    #[ORM\Column(type: Types::BIGINT, nullable: true)]
+    private ?int $hourlyRateMinor = null;
+
+    #[ORM\Column(length: 3, nullable: true)]
+    private ?string $billingCurrency = null;
+
     #[ORM\Column]
     private ?\DateTimeImmutable $createdAt = null;
 
@@ -133,6 +139,27 @@ class Project
     public function getBudgetCurrency(): ?string
     {
         return $this->budgetCurrency;
+    }
+
+    public function getHourlyRateMinor(): ?int
+    {
+        return $this->hourlyRateMinor;
+    }
+
+    public function getBillingCurrency(): ?string
+    {
+        return $this->billingCurrency;
+    }
+
+    public function setBillingRate(?int $hourlyRateMinor, ?string $currency): static
+    {
+        if (($hourlyRateMinor === null) !== ($currency === null) || ($hourlyRateMinor !== null && $hourlyRateMinor < 0)) {
+            throw new \InvalidArgumentException('Billing rate requires a non-negative amount and currency together.');
+        }
+        $this->hourlyRateMinor = $hourlyRateMinor;
+        $this->billingCurrency = $currency;
+
+        return $this;
     }
 
     public function setBudget(?int $budgetMinor, ?string $budgetCurrency): static

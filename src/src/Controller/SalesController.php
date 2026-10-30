@@ -21,6 +21,7 @@ use App\Repository\ProductRepository;
 use App\Repository\SalesDocumentRepository;
 use App\Repository\ShipmentRepository;
 use App\Service\InvoiceMoney;
+use App\Service\FinancePostingService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -41,6 +42,7 @@ final class SalesController extends AbstractController
         private readonly PaymentRepository $paymentRepository,
         private readonly EntityManagerInterface $entityManager,
         private readonly InvoiceMoney $money,
+        private readonly FinancePostingService $postingService,
     ) {
     }
 
@@ -325,10 +327,21 @@ final class SalesController extends AbstractController
             return $this->json(['error' => 'Payment exceeds the invoice balance due.'], JsonResponse::HTTP_CONFLICT);
         }
 
+        try {
+            $this->postingService->assertCanPost($paidAt, ['cash', 'accounts_receivable']);
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
         $payment = new Payment($invoice, $amountMinor, $paidAt, $input->reference !== null ? trim($input->reference) : null);
-        $this->entityManager->persist($payment);
         $invoice->setStatus($amountMinor === $invoice->getTotalMinor() - $paidMinor ? 'paid' : 'partially_paid');
-        $this->entityManager->flush();
+        $this->postingService->runAtomically(function () use ($payment, $paidAt, $invoice, $amountMinor): void {
+            $this->entityManager->persist($payment);
+            $this->entityManager->flush();
+            $this->postingService->post('customer_receipt', (int) $payment->getId(), $paidAt, $invoice->getCurrency(), 'Customer receipt for '.$invoice->getInvoiceNumber(), [
+                ['role' => 'cash', 'debit_minor' => $amountMinor, 'credit_minor' => 0, 'memo' => 'Customer receipt'],
+                ['role' => 'accounts_receivable', 'debit_minor' => 0, 'credit_minor' => $amountMinor, 'memo' => 'Invoice receivable settlement'],
+            ]);
+        });
 
         return $this->json($this->serializePayment($payment), JsonResponse::HTTP_CREATED);
     }

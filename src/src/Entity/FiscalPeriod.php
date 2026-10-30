@@ -28,6 +28,24 @@ class FiscalPeriod
     #[ORM\Column(options: ['default' => false])]
     private bool $closed = false;
 
+    #[ORM\Column(length: 180, nullable: true)]
+    private ?string $closedBy = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $closedAt = null;
+
+    #[ORM\Column(length: 500, nullable: true)]
+    private ?string $closeReason = null;
+
+    #[ORM\Column(length: 180, nullable: true)]
+    private ?string $reopenedBy = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $reopenedAt = null;
+
+    #[ORM\Column(length: 500, nullable: true)]
+    private ?string $reopenReason = null;
+
     public function __construct(string $name, \DateTimeImmutable $startsOn, \DateTimeImmutable $endsOn)
     {
         $this->name = $name;
@@ -41,5 +59,34 @@ class FiscalPeriod
     public function getEndsOn(): \DateTimeImmutable { return $this->endsOn; }
     public function isClosed(): bool { return $this->closed; }
     public function contains(\DateTimeImmutable $date): bool { return $date >= $this->startsOn && $date <= $this->endsOn; }
-    public function close(): static { $this->closed = true; return $this; }
+    public function getClosedBy(): ?string { return $this->closedBy; }
+    public function getClosedAt(): ?\DateTimeImmutable { return $this->closedAt; }
+    public function getCloseReason(): ?string { return $this->closeReason; }
+    public function getReopenedBy(): ?string { return $this->reopenedBy; }
+    public function getReopenedAt(): ?\DateTimeImmutable { return $this->reopenedAt; }
+    public function getReopenReason(): ?string { return $this->reopenReason; }
+
+    public function close(string $actor, string $reason, \DateTimeImmutable $at): static
+    {
+        if ($this->closed) {
+            throw new \DomainException('Fiscal period is already closed.');
+        }
+        $this->closed = true;
+        $this->closedBy = $actor;
+        $this->closedAt = $at;
+        $this->closeReason = $reason;
+        return $this;
+    }
+
+    public function reopen(string $actor, string $reason, \DateTimeImmutable $at): static
+    {
+        if (!$this->closed) {
+            throw new \DomainException('Only a closed fiscal period can be reopened.');
+        }
+        $this->closed = false;
+        $this->reopenedBy = $actor;
+        $this->reopenedAt = $at;
+        $this->reopenReason = $reason;
+        return $this;
+    }
 }

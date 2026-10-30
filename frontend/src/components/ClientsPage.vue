@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import ClientActivityPanel from "./ClientActivityPanel.vue";
 import ClientContactsPanel from "./ClientContactsPanel.vue";
 import EntityNotesPanel from "./EntityNotesPanel.vue";
@@ -25,6 +25,11 @@ const errorMessage = ref("");
 const isLoading = ref(true);
 const isSaving = ref(false);
 const deletingId = ref<number | null>(null);
+const searchQuery = ref("");
+const visibleClients = computed(() => {
+  const query = searchQuery.value.trim().toLocaleLowerCase();
+  return clients.value.filter((client) => `${client.title} ${client.notes}`.toLocaleLowerCase().includes(query));
+});
 
 function formatClientDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
@@ -185,7 +190,9 @@ async function deleteClient(client: Client) {
     </div>
 
     <div v-else class="article-list">
-      <article v-for="client in clients" :key="client.id" class="article-item">
+      <label for="client-search">Search clients</label>
+      <input id="client-search" v-model="searchQuery" type="search" placeholder="Name or notes..." />
+      <article v-for="client in visibleClients" :key="client.id" class="article-item">
         <div>
           <p class="card-kicker">
             {{ formatClientDate(client.created_at) }}
@@ -221,6 +228,7 @@ async function deleteClient(client: Client) {
           </button>
         </div>
       </article>
+      <p v-if="visibleClients.length === 0" class="muted">No clients match your search.</p>
     </div>
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 import EntityNotesPanel from "./EntityNotesPanel.vue";
 import { isValidDateRange } from "../lib/planning";
@@ -17,14 +17,17 @@ type Project = {
   end_date: string | null;
   budget_amount: string | null;
   budget_currency: string | null;
+  hourly_rate: string | null;
+  billing_currency: string | null;
   created_at: string;
   updated_at: string;
 };
 
 type Client = { id: number; title: string };
 type Manager = { id: number; email: string };
+type ProjectMilestone = { id: number; project_id: number; title: string; description: string; due_date: string | null; amount: string | null; currency: string | null; status: string; invoice_id: number | null };
 type ProjectStatus = "planned" | "active" | "on_hold" | "completed" | "cancelled";
-type ProjectInput = Pick<Project, "title" | "description" | "client_id" | "manager_id" | "status" | "start_date" | "end_date" | "budget_amount" | "budget_currency">;
+type ProjectInput = Pick<Project, "title" | "description" | "client_id" | "manager_id" | "status" | "start_date" | "end_date" | "budget_amount" | "budget_currency" | "hourly_rate" | "billing_currency">;
 
 const projectStatuses: { value: ProjectStatus; label: string }[] = [
   { value: "planned", label: "Planned" },
@@ -48,10 +51,26 @@ const startDate = ref("");
 const endDate = ref("");
 const budgetAmount = ref("");
 const budgetCurrency = ref(getOrganizationDefaultCurrency());
+const hourlyRate = ref("");
+const billingCurrency = ref(getOrganizationDefaultCurrency());
 const errorMessage = ref("");
 const isLoading = ref(true);
 const isSaving = ref(false);
 const isDeleting = ref(false);
+const expandedProjectId = ref<number | null>(null);
+const milestones = ref<ProjectMilestone[]>([]);
+const milestoneTitle = ref("");
+const milestoneDescription = ref("");
+const milestoneDueDate = ref("");
+const milestoneAmount = ref("");
+const milestoneCurrency = ref(getOrganizationDefaultCurrency());
+const searchQuery = ref("");
+const statusFilter = ref("");
+const visibleProjects = computed(() => projects.value.filter((project) => {
+  const query = searchQuery.value.trim().toLocaleLowerCase();
+  const matchesQuery = query === "" || `${project.title} ${project.description} ${project.client_title ?? ""} ${project.manager_email ?? ""}`.toLocaleLowerCase().includes(query);
+  return matchesQuery && (!statusFilter.value || project.status === statusFilter.value);
+}));
 
 function formatProjectDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
@@ -109,6 +128,8 @@ function openCreateForm() {
   endDate.value = "";
   budgetAmount.value = "";
   budgetCurrency.value = getOrganizationDefaultCurrency();
+  hourlyRate.value = "";
+  billingCurrency.value = getOrganizationDefaultCurrency();
   errorMessage.value = "";
   isFormVisible.value = true;
 }
@@ -124,6 +145,8 @@ function editProject(project: Project) {
   endDate.value = project.end_date ?? "";
   budgetAmount.value = project.budget_amount ?? "";
   budgetCurrency.value = project.budget_currency ?? "EUR";
+  hourlyRate.value = project.hourly_rate ?? "";
+  billingCurrency.value = project.billing_currency ?? "EUR";
   errorMessage.value = "";
   isFormVisible.value = true;
 }
@@ -143,6 +166,8 @@ async function saveProject() {
     end_date: endDate.value || null,
     budget_amount: budgetAmount.value.trim() || null,
     budget_currency: budgetAmount.value.trim() ? budgetCurrency.value : null,
+    hourly_rate: hourlyRate.value.trim() || null,
+    billing_currency: hourlyRate.value.trim() ? billingCurrency.value : null,
   };
 
   if (!project.title || !project.description || project.client_id === null) {
@@ -155,6 +180,10 @@ async function saveProject() {
   }
   if (project.budget_amount !== null && !/^(0|[1-9]\d*)(?:\.\d{1,2})?$/.test(project.budget_amount)) {
     errorMessage.value = "Project budget must be a non-negative amount with at most two decimal places.";
+    return;
+  }
+  if (project.hourly_rate !== null && !/^(0|[1-9]\d*)(?:\.\d{1,2})?$/.test(project.hourly_rate)) {
+    errorMessage.value = "Project hourly rate must be a non-negative amount with at most two decimal places.";
     return;
   }
 
@@ -199,6 +228,71 @@ async function deleteProject() {
     isDeleting.value = false;
   }
 }
+
+  async function toggleProjectDetails(project: Project) {
+    if (expandedProjectId.value === project.id) {
+      expandedProjectId.value = null;
+      return;
+    }
+    errorMessage.value = "";
+    try {
+      milestones.value = await request<ProjectMilestone[]>(`/projects/${project.id}/milestones`);
+      expandedProjectId.value = project.id;
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : "Unable to load project details.";
+    }
+  }
+
+  async function createMilestone(project: Project) {
+    if (!milestoneTitle.value.trim() || (milestoneAmount.value && !/^(0|[1-9]\d*)(?:\.\d{1,2})?$/.test(milestoneAmount.value))) {
+      errorMessage.value = "Enter a milestone title and a valid optional amount.";
+      return;
+    }
+    isSaving.value = true;
+    errorMessage.value = "";
+    try {
+      const milestone = await request<ProjectMilestone>(`/projects/${project.id}/milestones`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: milestoneTitle.value.trim(),
+          description: milestoneDescription.value.trim(),
+          due_date: milestoneDueDate.value || null,
+          amount: milestoneAmount.value.trim() || null,
+          currency: milestoneAmount.value.trim() ? milestoneCurrency.value : null,
+        }),
+      });
+      milestones.value.push(milestone);
+      milestoneTitle.value = "";
+      milestoneDescription.value = "";
+      milestoneDueDate.value = "";
+      milestoneAmount.value = "";
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : "Unable to create milestone.";
+    } finally {
+      isSaving.value = false;
+    }
+  }
+
+  async function completeMilestone(milestone: ProjectMilestone) {
+    try {
+      const updated = await request<ProjectMilestone>(`/projects/milestones/${milestone.id}/complete`, { method: "POST" });
+      milestones.value = milestones.value.map((item) => item.id === updated.id ? updated : item);
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : "Unable to complete milestone.";
+    }
+  }
+
+  async function invoiceMilestone(milestone: ProjectMilestone) {
+    try {
+      const invoice = await request<{ id: number }>(`/invoices/from-milestone/${milestone.id}`, {
+        method: "POST",
+        body: JSON.stringify({ invoice_date: new Date().toISOString().slice(0, 10) }),
+      });
+      milestones.value = milestones.value.map((item) => item.id === milestone.id ? { ...item, status: "invoiced", invoice_id: invoice.id } : item);
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : "Unable to create milestone invoice.";
+    }
+  }
 </script>
 
 <template>
@@ -261,6 +355,21 @@ async function deleteProject() {
 
       <div class="task-datetime-grid">
         <div>
+          <label for="project-hourly-rate">Billable hourly rate</label>
+          <input id="project-hourly-rate" v-model="hourlyRate" inputmode="decimal" placeholder="Optional" />
+        </div>
+        <div>
+          <label for="project-billing-currency">Billing currency</label>
+          <select id="project-billing-currency" v-model="billingCurrency" :disabled="!hourlyRate">
+            <option value="EUR">EUR</option>
+            <option value="GBP">GBP</option>
+            <option value="USD">USD</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="task-datetime-grid">
+        <div>
           <label for="project-budget">Approved budget</label>
           <input id="project-budget" v-model="budgetAmount" inputmode="decimal" placeholder="Optional" />
         </div>
@@ -292,19 +401,36 @@ async function deleteProject() {
     </div>
 
     <div v-else class="article-list project-list">
-      <article v-for="project in projects" :key="project.id" class="article-item project-item">
+      <div class="task-filter-row"><label for="project-search">Search projects</label><input id="project-search" v-model="searchQuery" type="search" placeholder="Title, client, manager..." /><label for="project-status-filter">Status</label><select id="project-status-filter" v-model="statusFilter"><option value="">All statuses</option><option v-for="option in projectStatuses" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
+      <article v-for="project in visibleProjects" :key="project.id" class="article-item project-item">
         <div>
           <p class="card-kicker">{{ project.client_title ?? "Unlinked legacy project" }} · {{ project.status.replace("_", " ") }} · {{ project.manager_email ?? "No manager" }}</p>
           <h2>{{ project.title }}</h2>
           <p class="muted">{{ project.description }}</p>
           <p v-if="project.budget_amount !== null" class="card-kicker">Budget {{ project.budget_amount }} {{ project.budget_currency }}</p>
+          <p v-if="project.hourly_rate !== null" class="card-kicker">Billable {{ project.hourly_rate }} / hour {{ project.billing_currency }}</p>
           <p v-if="project.start_date || project.end_date" class="card-kicker">
             {{ project.start_date || "Start not set" }} to {{ project.end_date || "End not set" }}
           </p>
           <EntityNotesPanel :entity-type="'project'" :entity-id="project.id" />
+          <button class="edit-button" type="button" @click="toggleProjectDetails(project)">{{ expandedProjectId === project.id ? "Hide delivery details" : "Delivery details" }}</button>
+          <section v-if="expandedProjectId === project.id" class="project-milestones">
+            <h3>Milestones and billing</h3>
+            <form class="finance-inline-form" @submit.prevent="createMilestone(project)">
+              <div><label :for="`milestone-title-${project.id}`">Milestone</label><input :id="`milestone-title-${project.id}`" v-model="milestoneTitle" maxlength="255" required /></div>
+              <div><label :for="`milestone-description-${project.id}`">Description</label><input :id="`milestone-description-${project.id}`" v-model="milestoneDescription" maxlength="5000" /></div>
+              <div><label :for="`milestone-due-${project.id}`">Due date</label><input :id="`milestone-due-${project.id}`" v-model="milestoneDueDate" type="date" /></div>
+              <div><label :for="`milestone-amount-${project.id}`">Invoice amount</label><input :id="`milestone-amount-${project.id}`" v-model="milestoneAmount" inputmode="decimal" /></div>
+              <div><label :for="`milestone-currency-${project.id}`">Currency</label><select :id="`milestone-currency-${project.id}`" v-model="milestoneCurrency"><option>EUR</option><option>GBP</option><option>USD</option></select></div>
+              <button class="edit-button" type="submit" :disabled="isSaving">Add milestone</button>
+            </form>
+            <ul v-if="milestones.length" class="milestone-list"><li v-for="milestone in milestones" :key="milestone.id"><div><strong>{{ milestone.title }}</strong><span>{{ milestone.due_date ?? "No due date" }} · {{ milestone.status }}<span v-if="milestone.amount"> · {{ milestone.amount }} {{ milestone.currency }}</span></span><p v-if="milestone.description">{{ milestone.description }}</p></div><div><button v-if="milestone.status === 'planned'" class="edit-button" type="button" @click="completeMilestone(milestone)">Complete</button><button v-if="milestone.status === 'completed' && milestone.amount !== null" class="edit-button" type="button" @click="invoiceMilestone(milestone)">Create draft invoice</button><span v-if="milestone.invoice_id">Invoice #{{ milestone.invoice_id }}</span></div></li></ul>
+            <p v-else class="muted">No milestones yet.</p>
+          </section>
         </div>
         <button class="edit-button" type="button" @click="editProject(project)">Edit</button>
       </article>
+      <p v-if="visibleProjects.length === 0" class="muted">No projects match your filters.</p>
     </div>
   </div>
 </template>

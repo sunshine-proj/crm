@@ -15,6 +15,8 @@ final class ExpenseInput
         public readonly ?string $amount = null,
         #[Assert\Choice(choices: ['EUR', 'GBP', 'USD'])]
         public readonly ?string $currency = null,
+        #[Assert\Choice(choices: ['travel', 'accommodation', 'meals', 'software', 'supplies', 'other'])]
+        public readonly ?string $category = 'other',
         #[Assert\Date]
         public readonly ?string $expense_date = null,
     ) {

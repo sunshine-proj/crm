@@ -25,6 +25,10 @@ class Task
 	#[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
 	private ?Project $project = null;
 
+	#[ORM\ManyToOne(targetEntity: User::class)]
+	#[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+	private ?User $assignee = null;
+
 	#[ORM\Column(length: 20, enumType: TaskStatus::class, options: ['default' => 'todo'])]
 	private TaskStatus $status = TaskStatus::Todo;
 
@@ -83,6 +87,18 @@ class Task
 	public function setProject(?Project $project): static
 	{
 		$this->project = $project;
+
+		return $this;
+	}
+
+	public function getAssignee(): ?User
+	{
+		return $this->assignee;
+	}
+
+	public function setAssignee(?User $assignee): static
+	{
+		$this->assignee = $assignee;
 
 		return $this;
 	}

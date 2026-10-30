@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { isValidDateTimeRange } from "../lib/planning";
 
 type Task = {
@@ -8,9 +8,12 @@ type Task = {
   description: string;
   project_id: number | null;
   project_title: string | null;
+  assignee_id: number | null;
+  assignee_email: string | null;
   status: TaskStatus;
   priority: TaskPriority;
   due_date: string | null;
+  due_status: "done" | "overdue" | "upcoming" | null;
   start_datetime: string;
   end_datetime: string;
   created_at: string;
@@ -21,6 +24,7 @@ type TaskInput = {
   title: string;
   description: string;
   project_id: number | null;
+  assignee_id: number | null;
   start_datetime: string;
   end_datetime: string;
   status: TaskStatus;
@@ -29,6 +33,7 @@ type TaskInput = {
 };
 
 type Project = { id: number; title: string };
+type Manager = { id: number; email: string };
 type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
 type TaskPriority = "low" | "normal" | "high" | "urgent";
 
@@ -48,10 +53,12 @@ const taskPriorities: { value: TaskPriority; label: string }[] = [
 const isFormVisible = ref(false);
 const tasks = ref<Task[]>([]);
 const projects = ref<Project[]>([]);
+const managers = ref<Manager[]>([]);
 const editingId = ref<number | null>(null);
 const title = ref("");
 const description = ref("");
 const projectId = ref<number | null>(null);
+const assigneeId = ref<number | null>(null);
 const status = ref<TaskStatus>("todo");
 const priority = ref<TaskPriority>("normal");
 const dueDate = ref("");
@@ -61,6 +68,17 @@ const errorMessage = ref("");
 const isLoading = ref(true);
 const isSaving = ref(false);
 const isDeleting = ref(false);
+const searchQuery = ref("");
+const statusFilter = ref("");
+const dependenciesTaskId = ref<number | null>(null);
+const selectedDependencyIds = ref<number[]>([]);
+const isSavingDependencies = ref(false);
+const visibleTasks = computed(() => tasks.value.filter((task) => {
+  const query = searchQuery.value.trim().toLocaleLowerCase();
+  const matchesQuery = query === "" || `${task.title} ${task.description} ${task.project_title ?? ""} ${task.assignee_email ?? ""}`.toLocaleLowerCase().includes(query);
+  return matchesQuery && (!statusFilter.value || task.status === statusFilter.value);
+}));
+const dependencyChoices = computed(() => tasks.value.filter((task) => task.project_id === tasks.value.find((item) => item.id === dependenciesTaskId.value)?.project_id && task.id !== dependenciesTaskId.value));
 
 function formatTaskDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
@@ -101,12 +119,14 @@ async function loadTasks() {
   isLoading.value = true;
 
   try {
-    const [loadedTasks, loadedProjects] = await Promise.all([
+    const [loadedTasks, loadedProjects, loadedManagers] = await Promise.all([
       request<Task[]>("/tasks"),
       request<Project[]>("/projects"),
+      request<Manager[]>("/projects/managers"),
     ]);
     tasks.value = loadedTasks;
     projects.value = loadedProjects;
+    managers.value = loadedManagers;
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to load tasks.";
   } finally {
@@ -121,6 +141,7 @@ function openCreateForm() {
   title.value = "";
   description.value = "";
   projectId.value = projects.value[0]?.id ?? null;
+  assigneeId.value = null;
   status.value = "todo";
   priority.value = "normal";
   dueDate.value = "";
@@ -135,6 +156,7 @@ function editTask(task: Task) {
   title.value = task.title;
   description.value = task.description;
   projectId.value = task.project_id;
+  assigneeId.value = task.assignee_id;
   status.value = task.status;
   priority.value = task.priority;
   dueDate.value = task.due_date ?? "";
@@ -153,6 +175,7 @@ async function saveTask() {
     title: title.value.trim(),
     description: description.value.trim(),
     project_id: projectId.value,
+    assignee_id: assigneeId.value,
     start_datetime: startDatetime.value ? toApiDatetime(startDatetime.value) : "",
     end_datetime: endDatetime.value ? toApiDatetime(endDatetime.value) : "",
     status: status.value,
@@ -210,6 +233,33 @@ async function deleteTask() {
     isDeleting.value = false;
   }
 }
+
+  async function openDependencies(task: Task) {
+    errorMessage.value = "";
+    try {
+      const dependencies = await request<{ id: number; title: string }[]>(`/tasks/${task.id}/dependencies`);
+      dependenciesTaskId.value = task.id;
+      selectedDependencyIds.value = dependencies.map((dependency) => dependency.id);
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : "Unable to load task dependencies.";
+    }
+  }
+
+  async function saveDependencies(task: Task) {
+    isSavingDependencies.value = true;
+    errorMessage.value = "";
+    try {
+      await request(`/tasks/${task.id}/dependencies`, {
+        method: "PUT",
+        body: JSON.stringify({ depends_on_ids: selectedDependencyIds.value }),
+      });
+      dependenciesTaskId.value = null;
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : "Unable to save task dependencies.";
+    } finally {
+      isSavingDependencies.value = false;
+    }
+  }
 </script>
 
 <template>
@@ -246,6 +296,12 @@ async function deleteTask() {
       <select id="task-project" v-model="projectId" required>
         <option :value="null" disabled>Select a project</option>
         <option v-for="project in projects" :key="project.id" :value="project.id">{{ project.title }}</option>
+      </select>
+
+      <label for="task-assignee">Assignee</label>
+      <select id="task-assignee" v-model="assigneeId">
+        <option :value="null">Unassigned</option>
+        <option v-for="manager in managers" :key="manager.id" :value="manager.id">{{ manager.email }}</option>
       </select>
 
       <div class="task-datetime-grid">
@@ -295,15 +351,24 @@ async function deleteTask() {
     </div>
 
     <div v-else class="article-list task-list">
-      <article v-for="task in tasks" :key="task.id" class="article-item task-item">
+      <div class="task-filter-row"><label for="task-search">Search tasks</label><input id="task-search" v-model="searchQuery" type="search" placeholder="Title, project, assignee..." /><label for="task-status-filter">Status</label><select id="task-status-filter" v-model="statusFilter"><option value="">All statuses</option><option v-for="option in taskStatuses" :key="option.value" :value="option.value">{{ option.label }}</option></select></div>
+      <article v-for="task in visibleTasks" :key="task.id" class="article-item task-item">
         <div>
-          <p class="card-kicker">{{ task.project_title ?? "Unlinked legacy task" }} · {{ task.status.replace("_", " ") }} · {{ task.priority }}</p>
+          <p class="card-kicker">{{ task.project_title ?? "Unlinked legacy task" }} · {{ task.status.replace("_", " ") }} · {{ task.priority }} · {{ task.assignee_email ?? "Unassigned" }}</p>
           <h2>{{ task.title }}</h2>
           <p class="muted">{{ task.description }}</p>
-          <p class="card-kicker">{{ formatTaskDate(task.start_datetime) }} to {{ formatTaskDate(task.end_datetime) }}<span v-if="task.due_date"> · Due {{ task.due_date }}</span></p>
+          <p class="card-kicker">{{ formatTaskDate(task.start_datetime) }} to {{ formatTaskDate(task.end_datetime) }}<span v-if="task.due_date"> · Due {{ task.due_date }}<strong v-if="task.due_status === 'overdue'"> · OVERDUE</strong></span></p>
+          <div class="task-dependency-panel">
+            <button class="edit-button" type="button" @click="dependenciesTaskId === task.id ? dependenciesTaskId = null : openDependencies(task)">Dependencies</button>
+            <div v-if="dependenciesTaskId === task.id" class="task-dependency-options">
+              <label v-for="choice in dependencyChoices" :key="choice.id"><input v-model="selectedDependencyIds" type="checkbox" :value="choice.id" /> {{ choice.title }}</label>
+              <button class="edit-button" type="button" :disabled="isSavingDependencies" @click="saveDependencies(task)">Save dependencies</button>
+            </div>
+          </div>
         </div>
         <button class="edit-button" type="button" @click="editTask(task)">Edit</button>
       </article>
+      <p v-if="visibleTasks.length === 0" class="muted">No tasks match the selected filters.</p>
     </div>
   </div>
 </template>

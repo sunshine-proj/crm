@@ -3,11 +3,14 @@
 namespace App\Controller;
 
 use App\Dto\ProjectInput;
+use App\Dto\ProjectMilestoneInput;
 use App\Entity\ProjectStatus;
 use App\Entity\Project;
+use App\Entity\ProjectMilestone;
 use App\Entity\User;
 use App\Repository\ClientRepository;
 use App\Repository\ProjectRepository;
+use App\Repository\ProjectMilestoneRepository;
 use App\Repository\UserRepository;
 use App\Service\ClientActivityLogger;
 use App\Service\InvoiceMoney;
@@ -26,6 +29,7 @@ class ProjectController extends AbstractController
 {
 	public function __construct(
 		private readonly ProjectRepository $projectRepository,
+		private readonly ProjectMilestoneRepository $milestoneRepository,
 		private readonly ClientRepository $clientRepository,
 		private readonly UserRepository $userRepository,
 		private readonly EntityManagerInterface $entityManager,
@@ -83,6 +87,13 @@ class ProjectController extends AbstractController
 		if (isset($budget['error'])) {
 			return $this->json(['error' => $budget['error']], JsonResponse::HTTP_BAD_REQUEST);
 		}
+		$billingRate = $this->parseBudget($input->hourly_rate, $input->billing_currency);
+		if (isset($billingRate['error'])) {
+			return $this->json(['error' => 'Billing rate: '.$billingRate['error']], JsonResponse::HTTP_BAD_REQUEST);
+		}
+		if ($billingRate['amount_minor'] === 0) {
+			return $this->json(['error' => 'A configured hourly billing rate must be greater than zero.'], JsonResponse::HTTP_BAD_REQUEST);
+		}
 
 		$now = new \DateTimeImmutable();
 		$item = (new Project())
@@ -93,6 +104,7 @@ class ProjectController extends AbstractController
 			->setStatus(ProjectStatus::from($input->status ?? ProjectStatus::Planned->value))
 			->setPlannedDates($startDate, $endDate)
 			->setBudget($budget['amount_minor'], $budget['currency'])
+			->setBillingRate($billingRate['amount_minor'], $billingRate['currency'])
 			->setCreatedAt($now)
 			->setUpdatedAt($now);
 
@@ -126,6 +138,66 @@ class ProjectController extends AbstractController
 		return $this->json($this->serializeItem($item));
 	}
 
+		#[Route('/{id<\d+>}/milestones', name: 'milestones_list', methods: ['GET'])]
+		#[IsGranted('ROLE_USER')]
+		public function milestones(int $id): JsonResponse
+		{
+			if ($this->projectRepository->find($id) === null) {
+				return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+
+			return $this->json(array_map(
+				fn (ProjectMilestone $milestone): array => $this->serializeMilestone($milestone),
+				$this->milestoneRepository->findForProject($id),
+			));
+		}
+
+		#[Route('/{id<\d+>}/milestones', name: 'milestones_create', methods: ['POST'])]
+		#[IsGranted('ROLE_USER')]
+		public function createMilestone(int $id, #[MapRequestPayload] ProjectMilestoneInput $input): JsonResponse
+		{
+			$project = $this->projectRepository->find($id);
+			if ($project === null) {
+				return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+			$title = trim((string) $input->title);
+			if ($title === '') {
+				return $this->json(['error' => 'Milestone title is required.'], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			try {
+				$dueDate = $input->due_date !== null ? $this->parseDate($input->due_date) : null;
+			} catch (\InvalidArgumentException) {
+				return $this->json(['error' => 'Milestone due date must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			$amountMinor = $input->amount !== null ? $this->money->parseMinor($input->amount) : null;
+			if (($input->amount === null) !== ($input->currency === null) || ($input->amount !== null && ($amountMinor === null || $amountMinor < 1))) {
+				return $this->json(['error' => 'Provide a positive milestone amount and currency together.'], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			$milestone = new ProjectMilestone($project, $title, trim((string) $input->description), $dueDate, $amountMinor, $input->currency);
+			$this->entityManager->persist($milestone);
+			$this->entityManager->flush();
+
+			return $this->json($this->serializeMilestone($milestone), JsonResponse::HTTP_CREATED);
+		}
+
+		#[Route('/milestones/{id<\d+>}/complete', name: 'milestones_complete', methods: ['POST'])]
+		#[IsGranted('ROLE_USER')]
+		public function completeMilestone(int $id): JsonResponse
+		{
+			$milestone = $this->milestoneRepository->find($id);
+			if (!$milestone instanceof ProjectMilestone) {
+				return $this->json(['error' => 'Milestone not found.'], JsonResponse::HTTP_NOT_FOUND);
+			}
+			try {
+				$milestone->complete();
+			} catch (\DomainException $exception) {
+				return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+			}
+			$this->entityManager->flush();
+
+			return $this->json($this->serializeMilestone($milestone));
+		}
+
 	#[Route('/{id<\d+>}', name: 'update', methods: ['PUT', 'PATCH'])]
 	#[IsGranted('ROLE_USER')]
 	public function update(int $id, #[MapRequestPayload] ProjectInput $input, Request $request): JsonResponse
@@ -152,6 +224,16 @@ class ProjectController extends AbstractController
 				return $this->json(['error' => $budget['error']], JsonResponse::HTTP_BAD_REQUEST);
 			}
 			$item->setBudget($budget['amount_minor'], $budget['currency']);
+		}
+		if (array_key_exists('hourly_rate', $payload) || array_key_exists('billing_currency', $payload)) {
+			$rate = $this->parseBudget($input->hourly_rate, $input->billing_currency);
+			if (isset($rate['error'])) {
+				return $this->json(['error' => 'Billing rate: '.$rate['error']], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			if ($rate['amount_minor'] === 0) {
+				return $this->json(['error' => 'A configured hourly billing rate must be greater than zero.'], JsonResponse::HTTP_BAD_REQUEST);
+			}
+			$item->setBillingRate($rate['amount_minor'], $rate['currency']);
 		}
 
 		if ($input->client_id !== null) {
@@ -238,9 +320,34 @@ class ProjectController extends AbstractController
 		if ($minor === null) {
 			return ['error' => 'Budget amount must be non-negative and have at most two decimal places.'];
 		}
-
 		return ['amount_minor' => $minor, 'currency' => $currency];
 	}
+
+	private function parseDate(string $value): \DateTimeImmutable
+	{
+		$date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+		if ($date === false || $date->format('Y-m-d') !== $value) {
+			throw new \InvalidArgumentException('Invalid calendar date.');
+		}
+
+		return $date;
+	}
+
+	private function serializeMilestone(ProjectMilestone $milestone): array
+	{
+		return [
+			'id' => $milestone->getId(),
+			'project_id' => $milestone->getProject()->getId(),
+			'title' => $milestone->getTitle(),
+			'description' => $milestone->getDescription(),
+			'due_date' => $milestone->getDueDate()?->format('Y-m-d'),
+			'amount' => $milestone->getAmountMinor() !== null ? $this->money->formatMinor($milestone->getAmountMinor()) : null,
+			'currency' => $milestone->getCurrency(),
+			'status' => $milestone->getStatus(),
+			'invoice_id' => $milestone->getInvoice()?->getId(),
+		];
+	}
+
 
 	/** @return array<string, int|string|null> */
 	private function serializeItem(Project $item): array
@@ -258,6 +365,8 @@ class ProjectController extends AbstractController
 			'end_date' => $item->getEndDate()?->format('Y-m-d'),
 			'budget_amount' => $item->getBudgetMinor() !== null ? $this->money->formatMinor($item->getBudgetMinor()) : null,
 			'budget_currency' => $item->getBudgetCurrency(),
+			'hourly_rate' => $item->getHourlyRateMinor() !== null ? $this->money->formatMinor($item->getHourlyRateMinor()) : null,
+			'billing_currency' => $item->getBillingCurrency(),
 			'created_at' => $item->getCreatedAt()?->format(\DateTimeInterface::ATOM),
 			'updated_at' => $item->getUpdatedAt()?->format(\DateTimeInterface::ATOM),
 		];

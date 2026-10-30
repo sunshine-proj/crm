@@ -5,6 +5,16 @@ import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 type Currency = { code: string; name: string; minor_unit: number };
 type Account = { id: number; code: string; name: string; type: string; active: boolean };
 type Period = { id: number; name: string; starts_on: string; ends_on: string; closed: boolean };
+type MappingRole = "accounts_receivable" | "revenue" | "cash" | "accounts_payable" | "project_expense" | "expense_payable";
+type MappingResponse = { mappings: Record<MappingRole, number | null>; accounts: Account[] };
+type FinancialStatements = {
+  currency: string;
+  profit_and_loss: { revenue: string; expenses: string; net_income: string; accounts: { account_id: number; code: string; name: string; balance: string }[] };
+  balance_sheet: { assets: string; liabilities_and_equity: string; retained_earnings_and_current_results: string; balanced: boolean };
+  cash_flow: { cash_inflows: string; cash_outflows: string; net_cash_change: string; basis: string };
+  basis: string;
+};
+type Reconciliation = { reconciled: boolean; missing_count: number; missing_postings: { source_type: string; reference: string; currency: string; amount: string }[]; basis: string };
 type TaxCode = { id: number; code: string; name: string; rate_percent: string; active: boolean };
 type Bill = {
   id: number;
@@ -28,6 +38,7 @@ type TrialBalance = {
   balanced: boolean;
   basis: string;
 };
+type JournalEntrySummary = { id: number; entry_number: string | null; entry_date: string; currency: string; description: string; source_type: string; debit_total: string; credit_total: string };
 type ArApReport = {
   currency: string;
   receivables_total: string;
@@ -38,15 +49,27 @@ type ArApReport = {
 };
 type JournalLineInput = { account_id: number | null; debit: string; credit: string; memo: string };
 
-const tabs = ["Ledger", "Receivables & payables", "Tax & currencies"] as const;
+const tabs = ["Ledger", "Receivables & payables", "Tax & currencies", "Reporting & mappings"] as const;
 type Tab = (typeof tabs)[number];
+const mappingRoles: { key: MappingRole; label: string }[] = [
+  { key: "accounts_receivable", label: "Accounts receivable" },
+  { key: "revenue", label: "Revenue" },
+  { key: "cash", label: "Cash" },
+  { key: "accounts_payable", label: "Accounts payable" },
+  { key: "project_expense", label: "Project expenses" },
+  { key: "expense_payable", label: "Expense payable" },
+];
 const tab = ref<Tab>("Ledger");
 const currencies = ref<Currency[]>([]);
 const accounts = ref<Account[]>([]);
+const mappings = ref<Record<MappingRole, number | null>>({ accounts_receivable: null, revenue: null, cash: null, accounts_payable: null, project_expense: null, expense_payable: null });
+const financialStatements = ref<FinancialStatements | null>(null);
+const reconciliation = ref<Reconciliation | null>(null);
 const periods = ref<Period[]>([]);
 const taxCodes = ref<TaxCode[]>([]);
 const bills = ref<Bill[]>([]);
 const trialBalance = ref<TrialBalance | null>(null);
+const journalEntries = ref<JournalEntrySummary[]>([]);
 const arApReport = ref<ArApReport | null>(null);
 const isLoading = ref(true);
 const isSaving = ref(false);
@@ -67,6 +90,7 @@ const journalLines = ref<JournalLineInput[]>([
   { account_id: null, debit: "", credit: "", memo: "" },
   { account_id: null, debit: "", credit: "", memo: "" },
 ]);
+const isOpeningBalance = ref(false);
 const reportCurrency = ref(getOrganizationDefaultCurrency());
 const reportFrom = ref("");
 const reportTo = ref("");
@@ -118,19 +142,23 @@ async function loadFinance() {
   isLoading.value = true;
   errorMessage.value = "";
   try {
-    const [loadedCurrencies, loadedAccounts, loadedPeriods, loadedTaxCodes, loadedBills] = await Promise.all([
+    const [loadedCurrencies, loadedAccounts, loadedPeriods, loadedTaxCodes, loadedBills, mappingResponse, loadedEntries] = await Promise.all([
       request<Currency[]>("/finance/currencies"),
       request<Account[]>("/finance/accounts"),
       request<Period[]>("/finance/periods"),
       request<TaxCode[]>("/finance/tax-codes"),
       request<Bill[]>("/finance/payables"),
+      request<MappingResponse>("/finance/account-mappings"),
+      request<JournalEntrySummary[]>("/finance/journal-entries"),
     ]);
     currencies.value = loadedCurrencies;
     accounts.value = loadedAccounts;
     periods.value = loadedPeriods;
     taxCodes.value = loadedTaxCodes;
     bills.value = loadedBills;
-    await Promise.all([loadTrialBalance(), loadArAp()]);
+    mappings.value = mappingResponse.mappings;
+    journalEntries.value = loadedEntries;
+    await Promise.all([loadTrialBalance(), loadArAp(), loadStatements(), loadReconciliation()]);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to load finance records.";
   } finally {
@@ -182,8 +210,22 @@ async function createPeriod() {
 }
 
 async function closePeriod(period: Period) {
-  const updated = await submit<Period>(`/finance/periods/${period.id}/close`, {}, `${period.name} closed.`);
+  const reason = window.prompt(`Why are you closing ${period.name}?`);
+  if (!reason?.trim()) return;
+  const updated = await submit<Period>(`/finance/periods/${period.id}/close`, { reason: reason.trim() }, `${period.name} closed.`);
   if (updated) periods.value = periods.value.map((item) => item.id === updated.id ? updated : item);
+}
+
+async function reopenPeriod(period: Period) {
+  const reason = window.prompt(`Why are you reopening ${period.name}?`);
+  if (!reason?.trim()) return;
+  const updated = await submit<Period>(`/finance/periods/${period.id}/reopen`, { reason: reason.trim() }, `${period.name} reopened.`);
+  if (updated) periods.value = periods.value.map((item) => item.id === updated.id ? updated : item);
+}
+
+async function saveMappings() {
+  const response = await submit<{ mappings: Record<MappingRole, number | null> }>("/finance/account-mappings", mappings.value, "Finance account mappings saved.", "PUT");
+  if (response) mappings.value = response.mappings;
 }
 
 function addJournalLine() {
@@ -213,7 +255,7 @@ async function postJournalEntry() {
     }
     payloadLines.push({ account_id: line.account_id, debit_minor: Number(debit), credit_minor: Number(credit), memo: line.memo.trim() || journalDescription.value.trim() });
   }
-  const entry = await submit<{ entry_number: string }>("/finance/journal-entries", {
+  const entry = await submit<{ entry_number: string }>(isOpeningBalance.value ? "/finance/opening-balances" : "/finance/journal-entries", {
     entry_date: journalDate.value,
     description: journalDescription.value,
     currency: journalCurrency.value,
@@ -221,10 +263,25 @@ async function postJournalEntry() {
   }, "Journal entry posted.");
   if (entry) {
     journalDescription.value = "";
+    isOpeningBalance.value = false;
     journalLines.value = [
       { account_id: null, debit: "", credit: "", memo: "" },
       { account_id: null, debit: null as unknown as string, credit: "", memo: "" },
     ];
+    await loadTrialBalance();
+    journalEntries.value = await request<JournalEntrySummary[]>("/finance/journal-entries");
+  }
+}
+
+async function reverseJournalEntry(entry: JournalEntrySummary) {
+  const reason = window.prompt(`Why are you reversing ${entry.entry_number ?? `entry ${entry.id}`}?`);
+  if (!reason?.trim()) return;
+  const reversed = await submit<JournalEntrySummary>(`/finance/journal-entries/${entry.id}/reverse`, {
+    entry_date: new Date().toISOString().slice(0, 10),
+    reason: reason.trim(),
+  }, `Reversal created for ${entry.entry_number ?? `entry ${entry.id}`}.`);
+  if (reversed) {
+    journalEntries.value = await request<JournalEntrySummary[]>("/finance/journal-entries");
     await loadTrialBalance();
   }
 }
@@ -245,6 +302,25 @@ async function loadArAp() {
     arApReport.value = await request<ArApReport>(`/finance/reports/receivables-payables?currency=${reportCurrency.value}`);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to load receivables and payables.";
+  }
+}
+
+async function loadStatements() {
+  const params = new URLSearchParams({ currency: reportCurrency.value });
+  if (reportFrom.value) params.set("from", reportFrom.value);
+  if (reportTo.value) params.set("to", reportTo.value);
+  try {
+    financialStatements.value = await request<FinancialStatements>(`/finance/reports/financial-statements?${params.toString()}`);
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Unable to load financial summaries.";
+  }
+}
+
+async function loadReconciliation() {
+  try {
+    reconciliation.value = await request<Reconciliation>("/finance/reports/reconciliation");
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Unable to load posting reconciliation.";
   }
 }
 
@@ -334,7 +410,7 @@ async function recordBillPayment(bill: Bill) {
           <div><label for="period-end">Ends</label><input id="period-end" v-model="periodEnd" type="date" required /></div>
           <button class="edit-button" type="submit" :disabled="isSaving">Add period</button>
         </form>
-        <div v-if="periods.length" class="finance-period-list"><article v-for="period in periods" :key="period.id"><div><strong>{{ period.name }}</strong><span>{{ period.starts_on }} to {{ period.ends_on }}</span></div><button v-if="!period.closed" class="edit-button danger-button" type="button" :disabled="isSaving" @click="closePeriod(period)">Close period</button><span v-else class="finance-closed">Closed</span></article></div>
+        <div v-if="periods.length" class="finance-period-list"><article v-for="period in periods" :key="period.id"><div><strong>{{ period.name }}</strong><span>{{ period.starts_on }} to {{ period.ends_on }}</span></div><button v-if="!period.closed" class="edit-button danger-button" type="button" :disabled="isSaving" @click="closePeriod(period)">Close period</button><button v-else class="edit-button" type="button" :disabled="isSaving" @click="reopenPeriod(period)">Reopen period</button></article></div>
         <p v-else class="muted">No fiscal periods configured.</p>
       </section>
 
@@ -345,6 +421,7 @@ async function recordBillPayment(bill: Bill) {
             <div><label for="journal-date">Entry date</label><input id="journal-date" v-model="journalDate" type="date" required /></div>
             <div><label for="journal-description">Description</label><input id="journal-description" v-model="journalDescription" maxlength="255" required /></div>
             <div><label for="journal-currency">Currency</label><select id="journal-currency" v-model="journalCurrency"><option v-for="currency in currencies" :key="currency.code" :value="currency.code">{{ currency.code }}</option></select></div>
+            <label class="operations-checkbox"><input v-model="isOpeningBalance" type="checkbox" /> Opening balance (administrator)</label>
           </div>
           <div class="finance-journal-lines"><div class="finance-journal-header"><span>Account and memo</span><span>Debit</span><span>Credit</span><span></span></div>
             <div v-for="(line, index) in journalLines" :key="index" class="finance-journal-line">
@@ -363,6 +440,11 @@ async function recordBillPayment(bill: Bill) {
         <div class="finance-section-heading"><div><p class="card-kicker">Financial report</p><h2>Trial balance</h2></div></div>
         <form class="finance-report-filters" @submit.prevent="loadTrialBalance"><div><label for="trial-currency">Currency</label><select id="trial-currency" v-model="reportCurrency"><option v-for="currency in currencies" :key="currency.code" :value="currency.code">{{ currency.code }}</option></select></div><div><label for="trial-from">From</label><input id="trial-from" v-model="reportFrom" type="date" /></div><div><label for="trial-to">To</label><input id="trial-to" v-model="reportTo" type="date" /></div><button class="edit-button" type="submit">Run report</button></form>
         <div v-if="trialBalance" class="finance-report-result"><p class="finance-report-basis">{{ trialBalance.basis }} <strong :class="trialBalance.balanced ? 'finance-balanced' : 'finance-unbalanced'">{{ trialBalance.balanced ? "Balanced" : "Out of balance" }}</strong></p><div class="finance-table-wrap"><table class="finance-table"><thead><tr><th>Account</th><th>Debit</th><th>Credit</th><th>Net debit</th></tr></thead><tbody><tr v-for="account in trialBalance.accounts" :key="account.account_id"><td>{{ account.code }} · {{ account.name }}</td><td>{{ account.debit }} {{ reportCurrency }}</td><td>{{ account.credit }} {{ reportCurrency }}</td><td>{{ account.balance }} {{ reportCurrency }}</td></tr><tr class="finance-table-total"><th>Total</th><th>{{ trialBalance.total_debits }} {{ reportCurrency }}</th><th>{{ trialBalance.total_credits }} {{ reportCurrency }}</th><th></th></tr></tbody></table></div></div>
+      </section>
+
+      <section class="finance-section">
+        <div class="finance-section-heading"><div><p class="card-kicker">Audit trail</p><h2>Posted journal entries</h2></div></div>
+        <div v-if="journalEntries.length" class="finance-bill-list"><article v-for="entry in journalEntries" :key="entry.id"><div><p class="card-kicker">{{ entry.entry_number }} · {{ entry.entry_date }} · {{ entry.source_type }}</p><h3>{{ entry.description }}</h3><span>{{ entry.debit_total }} debits · {{ entry.credit_total }} credits · {{ entry.currency }}</span></div><button class="edit-button danger-button" type="button" :disabled="isSaving" @click="reverseJournalEntry(entry)">Reverse</button></article></div><p v-else class="muted">No journal entries posted.</p>
       </section>
     </template>
 
@@ -390,7 +472,7 @@ async function recordBillPayment(bill: Bill) {
       </section>
     </template>
 
-    <template v-else>
+    <template v-else-if="tab === 'Tax & currencies'">
       <section class="finance-section">
         <div class="finance-section-heading"><div><p class="card-kicker">Tax configuration</p><h2>Reference rates</h2></div></div>
         <p class="finance-report-basis">Rates are stored as configuration only. They are not automatically applied to products, quotes, invoices, or filings.</p>
@@ -398,6 +480,34 @@ async function recordBillPayment(bill: Bill) {
         <div v-if="taxCodes.length" class="finance-table-wrap"><table class="finance-table"><thead><tr><th>Code</th><th>Name</th><th>Rate</th><th>State</th></tr></thead><tbody><tr v-for="tax in taxCodes" :key="tax.id"><td>{{ tax.code }}</td><td>{{ tax.name }}</td><td>{{ tax.rate_percent }}%</td><td>{{ tax.active ? "Active" : "Inactive" }}</td></tr></tbody></table></div><p v-else class="muted">No tax codes configured.</p>
       </section>
       <section class="finance-section"><div class="finance-section-heading"><div><p class="card-kicker">Currencies</p><h2>Supported transaction currencies</h2></div></div><div class="finance-currency-list"><article v-for="currency in currencies" :key="currency.code"><strong>{{ currency.code }}</strong><span>{{ currency.name }}</span><span>{{ currency.minor_unit }} minor digits</span></article></div><p class="finance-report-basis">Transactions and reports remain in their original currency. Exchange rates, revaluation, and cross-currency consolidation are not implemented.</p></section>
+    </template>
+
+    <template v-else>
+      <section class="finance-section">
+        <div class="finance-section-heading"><div><p class="card-kicker">Automatic posting</p><h2>Map finance roles to ledger accounts</h2></div></div>
+        <p class="finance-report-basis">Mappings control automatic postings for invoices, receipts, vendor bills, approved expenses, and payments. Configure active accounts of the required types before recording these transactions.</p>
+        <form class="finance-inline-form" @submit.prevent="saveMappings">
+          <div v-for="role in mappingRoles" :key="role.key"><label :for="`mapping-${role.key}`">{{ role.label }}</label><select :id="`mapping-${role.key}`" v-model.number="mappings[role.key]"><option :value="null">Not configured</option><option v-for="account in accounts.filter((item) => item.active)" :key="account.id" :value="account.id">{{ account.code }} · {{ account.name }} ({{ account.type }})</option></select></div>
+          <button class="edit-button" type="submit" :disabled="isSaving">Save mappings</button>
+        </form>
+      </section>
+
+      <section class="finance-section">
+        <div class="finance-section-heading"><div><p class="card-kicker">Operational reporting</p><h2>Financial summaries</h2></div></div>
+        <form class="finance-report-filters" @submit.prevent="loadStatements"><div><label for="statements-currency">Currency</label><select id="statements-currency" v-model="reportCurrency"><option v-for="currency in currencies" :key="currency.code" :value="currency.code">{{ currency.code }}</option></select></div><div><label for="statements-from">From</label><input id="statements-from" v-model="reportFrom" type="date" /></div><div><label for="statements-to">To</label><input id="statements-to" v-model="reportTo" type="date" /></div><button class="edit-button" type="submit">Run summaries</button></form>
+        <p class="finance-report-basis">{{ financialStatements?.basis ?? "These reports summarize posted entries only." }}</p>
+        <div v-if="financialStatements" class="finance-arap-grid">
+          <section><p class="card-kicker">Profit and loss · {{ financialStatements.currency }}</p><p>Revenue <strong>{{ financialStatements.profit_and_loss.revenue }}</strong></p><p>Expenses <strong>{{ financialStatements.profit_and_loss.expenses }}</strong></p><h3>Net income {{ financialStatements.profit_and_loss.net_income }}</h3></section>
+          <section><p class="card-kicker">Balance sheet · {{ financialStatements.currency }}</p><p>Assets <strong>{{ financialStatements.balance_sheet.assets }}</strong></p><p>Liabilities and equity <strong>{{ financialStatements.balance_sheet.liabilities_and_equity }}</strong></p><strong :class="financialStatements.balance_sheet.balanced ? 'finance-balanced' : 'finance-unbalanced'">{{ financialStatements.balance_sheet.balanced ? "Balanced" : "Out of balance" }}</strong></section>
+          <section><p class="card-kicker">Cash movement · {{ financialStatements.currency }}</p><p>Inflows {{ financialStatements.cash_flow.cash_inflows }}</p><p>Outflows {{ financialStatements.cash_flow.cash_outflows }}</p><h3>Net {{ financialStatements.cash_flow.net_cash_change }}</h3><p class="finance-report-basis">{{ financialStatements.cash_flow.basis }}</p></section>
+        </div>
+      </section>
+
+      <section class="finance-section">
+        <div class="finance-section-heading"><div><p class="card-kicker">Posting reconciliation</p><h2>{{ reconciliation?.reconciled ? "All source records have journal entries" : `${reconciliation?.missing_count ?? 0} records missing postings` }}</h2></div><button class="edit-button" type="button" @click="loadReconciliation">Refresh</button></div>
+        <p class="finance-report-basis">{{ reconciliation?.basis }}</p>
+        <div v-if="reconciliation?.missing_postings.length" class="finance-balance-list"><article v-for="item in reconciliation.missing_postings" :key="`${item.source_type}-${item.reference}`"><div><strong>{{ item.source_type }}</strong><span>{{ item.reference }}</span></div><strong>{{ item.amount }} {{ item.currency }}</strong></article></div>
+      </section>
     </template>
   </div>
 </template>

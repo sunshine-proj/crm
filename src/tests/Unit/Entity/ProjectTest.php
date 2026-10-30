@@ -43,4 +43,21 @@ final class ProjectTest extends TestCase
             new DateTimeImmutable('2026-10-01'),
         );
     }
+
+    #[Test]
+    public function it_keeps_an_explicit_project_billing_rate_and_currency(): void
+    {
+        $project = (new Project())->setBillingRate(12500, 'EUR');
+
+        self::assertSame(12500, $project->getHourlyRateMinor());
+        self::assertSame('EUR', $project->getBillingCurrency());
+    }
+
+    #[Test]
+    public function it_rejects_a_billing_rate_without_a_currency(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        (new Project())->setBillingRate(12500, null);
+    }
 }
