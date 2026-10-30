@@ -101,6 +101,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/accounts', name: 'accounts_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createAccount(#[MapRequestPayload] LedgerAccountInput $input): JsonResponse
     {
         $data = $this->accountData($input);
@@ -117,6 +118,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/accounts/{id<\d+>}', name: 'accounts_update', methods: ['PUT', 'PATCH'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function updateAccount(int $id, #[MapRequestPayload] LedgerAccountInput $input): JsonResponse
     {
         $account = $this->accountRepository->find($id);
@@ -148,6 +150,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/periods', name: 'periods_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createPeriod(#[MapRequestPayload] FiscalPeriodInput $input): JsonResponse
     {
         try {
@@ -223,6 +226,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/journal-entries', name: 'journal_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createJournalEntry(#[MapRequestPayload] JournalEntryInput $input): JsonResponse
     {
         return $this->saveJournalEntry($input);
@@ -335,6 +339,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/tax-codes', name: 'tax_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createTaxCode(#[MapRequestPayload] TaxCodeInput $input): JsonResponse
     {
         $data = $this->taxCodeData($input);
@@ -357,6 +362,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/payables', name: 'payables_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createPayable(#[MapRequestPayload] PayableBillInput $input): JsonResponse
     {
         $vendor = trim((string) $input->vendor_name);
@@ -395,6 +401,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/payables/{id<\d+>}/payments', name: 'payables_payment', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createPayablePayment(int $id, #[MapRequestPayload] PayablePaymentInput $input): JsonResponse
     {
         $bill = $this->billRepository->find($id);

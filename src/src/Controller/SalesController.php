@@ -23,6 +23,7 @@ use App\Repository\ShipmentRepository;
 use App\Service\InvoiceMoney;
 use App\Service\FinancePostingService;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\DBAL\LockMode;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpKernel\Attribute\MapRequestPayload;
@@ -303,13 +304,6 @@ final class SalesController extends AbstractController
     #[Route('/invoices/{id<\d+>}/payments', name: 'payments_create', methods: ['POST'])]
     public function createPayment(int $id, #[MapRequestPayload] PaymentInput $input): JsonResponse
     {
-        $invoice = $this->invoiceRepository->find($id);
-        if ($invoice === null) {
-            return $this->json(['error' => 'Invoice not found.'], JsonResponse::HTTP_NOT_FOUND);
-        }
-        if (!in_array($invoice->getStatus(), ['issued', 'partially_paid'], true)) {
-            return $this->json(['error' => 'Only issued invoices can receive payments.'], JsonResponse::HTTP_CONFLICT);
-        }
         $amountMinor = $input->amount !== null ? $this->money->parseMinor($input->amount) : null;
         if ($amountMinor === null || $amountMinor < 1) {
             return $this->json(['error' => 'Payment amount must be greater than zero and have at most two decimal places.'], JsonResponse::HTTP_BAD_REQUEST);
@@ -322,28 +316,55 @@ final class SalesController extends AbstractController
         } catch (\InvalidArgumentException) {
             return $this->json(['error' => 'Payment date must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST);
         }
-        $paidMinor = $this->paymentRepository->sumMinorForInvoice($id);
-        if ($amountMinor > $invoice->getTotalMinor() - $paidMinor) {
-            return $this->json(['error' => 'Payment exceeds the invoice balance due.'], JsonResponse::HTTP_CONFLICT);
-        }
-
         try {
             $this->postingService->assertCanPost($paidAt, ['cash', 'accounts_receivable']);
         } catch (\DomainException $exception) {
             return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
         }
-        $payment = new Payment($invoice, $amountMinor, $paidAt, $input->reference !== null ? trim($input->reference) : null);
-        $invoice->setStatus($amountMinor === $invoice->getTotalMinor() - $paidMinor ? 'paid' : 'partially_paid');
-        $this->postingService->runAtomically(function () use ($payment, $paidAt, $invoice, $amountMinor): void {
-            $this->entityManager->persist($payment);
-            $this->entityManager->flush();
-            $this->postingService->post('customer_receipt', (int) $payment->getId(), $paidAt, $invoice->getCurrency(), 'Customer receipt for '.$invoice->getInvoiceNumber(), [
-                ['role' => 'cash', 'debit_minor' => $amountMinor, 'credit_minor' => 0, 'memo' => 'Customer receipt'],
-                ['role' => 'accounts_receivable', 'debit_minor' => 0, 'credit_minor' => $amountMinor, 'memo' => 'Invoice receivable settlement'],
-            ]);
-        });
+        $payment = null;
+        $balanceDue = null;
+        $invoiceNotFound = false;
+        try {
+            $this->postingService->runAtomically(function () use ($id, $amountMinor, $paidAt, $input, &$payment, &$balanceDue, &$invoiceNotFound): void {
+                $invoice = $this->invoiceRepository->find($id, LockMode::PESSIMISTIC_WRITE);
+                if (!$invoice instanceof Invoice) {
+                    $invoiceNotFound = true;
+                    return;
+                }
+                if (!in_array($invoice->getStatus(), ['issued', 'partially_paid'], true)) {
+                    throw new \DomainException('Only issued invoices can receive payments.');
+                }
 
-        return $this->json($this->serializePayment($payment), JsonResponse::HTTP_CREATED);
+                $paidMinor = $this->paymentRepository->sumMinorForInvoice($id);
+                $balanceDue = $invoice->getTotalMinor() - $paidMinor;
+                if ($amountMinor > $balanceDue) {
+                    throw new \DomainException('Payment exceeds the invoice balance due.');
+                }
+
+                $payment = new Payment($invoice, $amountMinor, $paidAt, $input->reference !== null ? trim($input->reference) : null);
+                $invoice->setStatus($amountMinor === $balanceDue ? 'paid' : 'partially_paid');
+                $this->entityManager->persist($payment);
+                $this->entityManager->flush();
+                $this->postingService->post('customer_receipt', (int) $payment->getId(), $paidAt, $invoice->getCurrency(), 'Customer receipt for '.$invoice->getInvoiceNumber(), [
+                    ['role' => 'cash', 'debit_minor' => $amountMinor, 'credit_minor' => 0, 'memo' => 'Customer receipt'],
+                    ['role' => 'accounts_receivable', 'debit_minor' => 0, 'credit_minor' => $amountMinor, 'memo' => 'Invoice receivable settlement'],
+                ]);
+                $balanceDue = $balanceDue - $amountMinor;
+            });
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
+
+        if ($invoiceNotFound || !($payment instanceof Payment) || $balanceDue === null) {
+            return $this->json(['error' => 'Invoice not found.'], JsonResponse::HTTP_NOT_FOUND);
+        }
+
+        return $this->json(
+            $this->serializePayment($payment) + [
+                'balance_due' => $this->money->formatMinor($balanceDue),
+            ],
+            JsonResponse::HTTP_CREATED,
+        );
     }
 
     private function validatedProduct(ProductInput $input): array

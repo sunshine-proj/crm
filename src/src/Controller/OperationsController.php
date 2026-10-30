@@ -310,6 +310,15 @@ final class OperationsController extends AbstractController
     {
         $expense = $this->expenseRepository->find($id);
         if ($expense === null) return $this->json(['error' => 'Expense not found.'], JsonResponse::HTTP_NOT_FOUND);
+        $actor = $this->getUser();
+        if (!$actor instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
+        $isAdmin = in_array('ROLE_ADMIN', $actor->getRoles(), true);
+        $isSubmitter = $expense->getSubmitter()->getId() === $actor->getId();
+        $isProjectManager = $expense->getProject()->getManager()?->getId() === $actor->getId();
+        if (!$isAdmin && !$isSubmitter && !$isProjectManager) {
+            return $this->json(['error' => 'Only an administrator, the expense submitter, or the project manager may view reimbursements.'], JsonResponse::HTTP_FORBIDDEN);
+        }
+
         return $this->json(array_map(fn (ExpenseReimbursement $item): array => $this->serializeReimbursement($item), $this->reimbursementRepository->findForExpense($id)));
     }
 
