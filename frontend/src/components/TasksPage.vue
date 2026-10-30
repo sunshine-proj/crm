@@ -13,7 +13,7 @@ type Task = {
   status: TaskStatus;
   priority: TaskPriority;
   due_date: string | null;
-  due_status: "done" | "overdue" | "upcoming" | null;
+  due_status: "done" | "cancelled" | "overdue" | "upcoming" | null;
   start_datetime: string;
   end_datetime: string;
   created_at: string;
@@ -34,7 +34,7 @@ type TaskInput = {
 
 type Project = { id: number; title: string };
 type Manager = { id: number; email: string };
-type TaskStatus = "todo" | "in_progress" | "blocked" | "done";
+type TaskStatus = "todo" | "in_progress" | "blocked" | "done" | "cancelled";
 type TaskPriority = "low" | "normal" | "high" | "urgent";
 
 const taskStatuses: { value: TaskStatus; label: string }[] = [
@@ -42,6 +42,7 @@ const taskStatuses: { value: TaskStatus; label: string }[] = [
   { value: "in_progress", label: "In progress" },
   { value: "blocked", label: "Blocked" },
   { value: "done", label: "Done" },
+  { value: "cancelled", label: "Canceled" },
 ];
 const taskPriorities: { value: TaskPriority; label: string }[] = [
   { value: "low", label: "Low" },

@@ -38,7 +38,7 @@ Implemented modules include:
 - **Authentication:** sign-in through `POST /api/login` and bearer-token API requests.
 - **Organization Settings:** administrators can set the operating country, default currency, and a ten-year reference retention period for the single organization in an installation. Changes are audited and can be restored. Country-specific tax/accounting profiles remain unverified and no retention deletion is automated.
 
-New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. Client/project search, inline context, milestones, task assignments/dependencies, due indicators, approval workflows, and basic cost-to-billing flows are implemented. The client record is not yet a full structured organization/account profile, and dedicated detail routes and project schedule views remain open. Finance postings and reports are operational foundations only: mappings must be configured, cross-currency accounting and external bank reconciliation are absent, and no jurisdiction-specific compliance is claimed. Migrations and backend integration tests for the latest finance/project changes still require execution and verification.
+New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. Client/project search, inline context, milestones, task assignments/dependencies, due indicators, approval workflows, basic cost-to-billing flows, and a project-management overview with a project/task timetable and status/overdue statistics are implemented. The client record is not yet a full structured organization/account profile, and dedicated client/project detail routes remain open. Finance postings and reports are operational foundations only: mappings must be configured, cross-currency accounting and external bank reconciliation are absent, and no jurisdiction-specific compliance is claimed. Migrations and backend integration tests for the latest finance/project changes still require execution and verification.
 
 ## Product Principles
 
@@ -102,9 +102,11 @@ The initial relational planning slice is implemented: clients can manage structu
 
 ### Phase 2: Planning And Delivery Management
 
-- Support project scope, milestones, dependencies, and a schedule view appropriate to the team's workflow.
+- **Implemented MVP:** provide a project-management overview with a timetable of active projects by default, an option to include every lifecycle status, separate project/task schedule bars, and status-based colors with a visible legend.
+- **Implemented MVP:** show date-range-filtered project and task status statistics and separate overdue project and task tables.
+- Continue improving project scope, milestones, dependencies, schedule interaction, and historical change visibility to fit validated team workflows.
 - Support task estimates and actual time entries with author, date, duration, and project/task attribution.
-- Surface risks, overdue work, workload, and budget-versus-actual status using defined calculations.
+- Add defined risk, workload, and budget-versus-actual calculations; overdue project/task counts and lists are available in the management overview.
 - Preserve a change history for meaningful project and task updates.
 
 ### Phase 3: Invoicing And Payments
@@ -202,6 +204,18 @@ The sales workflow is operational and links to a separate quantity-only inventor
 - **PR-4:** Project status and schedule summaries are calculated from defined persisted values, never hard-coded.
 - **PR-5:** A project view provides access to its client, tasks, schedule, budget, time, invoices, and expenses as those capabilities are released.
 - **PR-6:** Changes to project scope, dates, status, and commercial values preserve an auditable history appropriate to their impact.
+
+### Project Management Overview
+
+- **PM-1:** The application provides an overall project-management section for reviewing project schedules and delivery status.
+- **PM-2:** The timetable shows active projects by default. A clearly labeled “show all projects” option includes projects in every lifecycle state: planned, active, stopped/on hold, finished/completed, and canceled.
+- **PM-3:** A project schedule bar is calculated from its planned start and end dates. Each associated task/subtask is shown on a separate row with its own bar calculated from its scheduled start and end dates.
+- **PM-4:** Project and task status colors distinguish planned, in-progress, overdue, finished, and canceled work. The existing project `on_hold` value is presented as stopped; completed is presented as finished. Blocked tasks remain visually distinct. A visible text legend and status labels ensure status is not communicated by color alone.
+- **PM-5:** Overdue project status is derived when the planned end date is before the current date and the project is not finished or canceled. An unfinished task is overdue when its due date, or scheduled end date when no due date exists, is before the current date. Finished/canceled work is never counted as overdue.
+- **PM-6:** The overview provides date-range filters and displays project and task counts grouped by status for the selected project scope and schedule range. Date-range overlap is inclusive of both endpoints; unscheduled records are included when no date filter is set and excluded when a date filter is applied.
+- **PM-7:** Overdue projects and overdue tasks have separate statistics tables identifying the work, its client/project, responsible manager/assignee, due/end date, and overdue days. Tables also show a clear empty state.
+- **PM-8:** Records without both schedule endpoints remain visible in the overview with an explicit unscheduled indication, but do not receive a misleading timetable bar.
+- **PM-9:** Tasks may be canceled; cancellation is terminal for overdue/open-task calculations, while existing task statuses remain supported.
 
 ### Project Operations
 

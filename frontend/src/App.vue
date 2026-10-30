@@ -4,6 +4,7 @@ import DashboardPage from "./components/DashboardPage.vue";
 import NewsPage from "./components/NewsPage.vue";
 import ClientsPage from "./components/ClientsPage.vue";
 import ProjectsPage from "./components/ProjectsPage.vue";
+import ProjectManagementPage from "./components/ProjectManagementPage.vue";
 import TasksPage from "./components/TasksPage.vue";
 import InvoicesPage from "./components/InvoicesPage.vue";
 import SalesPage from "./components/SalesPage.vue";
@@ -27,12 +28,13 @@ const isSubmitting = ref(false);
 const activeSection = ref("Dashboard");
 const organizationSettingsReady = ref(false);
 const organizationSettingsError = ref("");
-const sections = ["Dashboard", "News", "Clients", "Projects", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Settings"];
+const sections = ["Dashboard", "News", "Clients", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Settings"];
 const pageComponents = {
   Dashboard: DashboardPage,
   News: NewsPage,
   Clients: ClientsPage,
   Projects: ProjectsPage,
+  "Project Management": ProjectManagementPage,
   Tasks: TasksPage,
   Sales: SalesPage,
   Invoices: InvoicesPage,
@@ -154,6 +156,8 @@ function signOut() {
                   ? "&#9673;"
                   : section === "Projects"
                     ? "&#9633;"
+                    : section === "Project Management"
+                      ? "&#9776;"
                     : section === "Tasks"
                       ? "&#10003;"
                       : section === "Sales"

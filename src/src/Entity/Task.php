@@ -117,7 +117,7 @@ class Task
 
 	public function isOpen(): bool
 	{
-		return $this->status !== TaskStatus::Done;
+		return !in_array($this->status, [TaskStatus::Done, TaskStatus::Cancelled], true);
 	}
 
 	public function getPriority(): TaskPriority

@@ -34,6 +34,14 @@ final class TaskTest extends TestCase
     }
 
     #[Test]
+    public function cancelled_tasks_are_not_open(): void
+    {
+        $task = (new Task())->setStatus(TaskStatus::Cancelled);
+
+        self::assertFalse($task->isOpen());
+    }
+
+    #[Test]
     public function it_rejects_an_end_time_before_the_start_time(): void
     {
         $this->expectException(InvalidArgumentException::class);

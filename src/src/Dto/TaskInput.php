@@ -18,7 +18,7 @@ final class TaskInput
         public readonly ?int $assignee_id = null,
         public readonly ?\DateTimeImmutable $start_datetime = null,
         public readonly ?\DateTimeImmutable $end_datetime = null,
-        #[Assert\Choice(choices: ['todo', 'in_progress', 'blocked', 'done'])]
+        #[Assert\Choice(choices: ['todo', 'in_progress', 'blocked', 'done', 'cancelled'])]
         public readonly ?string $status = null,
         #[Assert\Choice(choices: ['low', 'normal', 'high', 'urgent'])]
         public readonly ?string $priority = null,

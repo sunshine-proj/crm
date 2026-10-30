@@ -301,7 +301,9 @@ class TaskController extends AbstractController
 			'status' => $item->getStatus()->value,
 			'priority' => $item->getPriority()->value,
 			'due_date' => $item->getDueDate()?->format('Y-m-d'),
-			'due_status' => $item->getDueDate() === null ? null : ($item->getStatus() === TaskStatus::Done ? 'done' : ($item->getDueDate() < new \DateTimeImmutable('today') ? 'overdue' : 'upcoming')),
+			'due_status' => $item->getStatus() === TaskStatus::Cancelled
+				? 'cancelled'
+				: ($item->getDueDate() === null ? null : ($item->getStatus() === TaskStatus::Done ? 'done' : ($item->getDueDate() < new \DateTimeImmutable('today') ? 'overdue' : 'upcoming'))),
 			'start_datetime' => $item->getStartDatetime()?->format(\DateTimeInterface::ATOM),
 			'end_datetime' => $item->getEndDatetime()?->format(\DateTimeInterface::ATOM),
 			'created_at' => $item->getCreatedAt()?->format(\DateTimeInterface::ATOM),

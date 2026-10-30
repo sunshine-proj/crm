@@ -18,8 +18,8 @@ class TaskRepository extends ServiceEntityRepository
     {
         return (int) $this->createQueryBuilder('task')
             ->select('COUNT(task.id)')
-            ->where('task.status != :done')
-            ->setParameter('done', TaskStatus::Done->value)
+            ->where('task.status NOT IN (:closed)')
+            ->setParameter('closed', [TaskStatus::Done->value, TaskStatus::Cancelled->value])
             ->getQuery()
             ->getSingleScalarResult();
     }

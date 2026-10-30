@@ -8,4 +8,5 @@ enum TaskStatus: string
     case InProgress = 'in_progress';
     case Blocked = 'blocked';
     case Done = 'done';
+    case Cancelled = 'cancelled';
 }
