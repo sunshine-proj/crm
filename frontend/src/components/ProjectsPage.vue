@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 import EntityNotesPanel from "./EntityNotesPanel.vue";
 import { isValidDateRange } from "../lib/planning";
 
@@ -46,7 +47,7 @@ const status = ref<ProjectStatus>("planned");
 const startDate = ref("");
 const endDate = ref("");
 const budgetAmount = ref("");
-const budgetCurrency = ref("EUR");
+const budgetCurrency = ref(getOrganizationDefaultCurrency());
 const errorMessage = ref("");
 const isLoading = ref(true);
 const isSaving = ref(false);
@@ -107,7 +108,7 @@ function openCreateForm() {
   startDate.value = "";
   endDate.value = "";
   budgetAmount.value = "";
-  budgetCurrency.value = "EUR";
+  budgetCurrency.value = getOrganizationDefaultCurrency();
   errorMessage.value = "";
   isFormVisible.value = true;
 }

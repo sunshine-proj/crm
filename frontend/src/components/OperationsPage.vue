@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 
 type Project = { id: number; title: string; client_title: string | null; manager_email: string | null; budget_amount: string | null; budget_currency: string | null };
 type Task = { id: number; title: string; project_id: number | null };
@@ -31,7 +32,7 @@ const timeDescription = ref("");
 const expenseProjectId = ref<number | null>(null);
 const expenseDescription = ref("");
 const expenseAmount = ref("");
-const expenseCurrency = ref("EUR");
+const expenseCurrency = ref(getOrganizationDefaultCurrency());
 const expenseDate = ref(new Date().toISOString().slice(0, 10));
 const approvalComments = ref<Record<number, string>>({});
 const selectedFile = ref<File | null>(null);

@@ -8,6 +8,8 @@ This directory contains the Symfony 8 application code (PHP 8.4): API controller
 
 ## Structure And Conventions
 
+- Think hard.
+- Follow applicable PHP-FIG PSR recommendations, especially PSR-12 coding style and PSR-4 autoloading, and use Symfony 8 development best practices and conventions for application code.
 - Apply object-oriented design throughout application code: keep responsibilities cohesive, encapsulate state and business rules, use constructor dependency injection, and avoid procedural or static business logic. Keep controllers thin; put reusable use-case logic in services when it grows beyond HTTP coordination. Follow the existing Symfony and Doctrine patterns without adding abstractions that do not clarify a real responsibility.
 - Keep HTTP concerns in `Controller/`, typed data-transfer objects and validation constraints in `Dto/`, persistence mappings and domain invariants in `Entity/`, entity queries in `Repository/`, and cross-cutting use cases in services. Inject dependencies through constructors.
 - Use Doctrine ORM and repositories for all runtime database reads and writes. Do not use raw SQL, direct PDO, or another persistence mechanism in application code. SQL in Doctrine migration classes is expected; keep schema changes versioned under `src/migrations/`.

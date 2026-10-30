@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 
 type Client = { id: number; title: string };
 type Manager = { id: number; email: string };
@@ -67,7 +68,7 @@ const filterMaximum = ref("");
 const projectId = ref<number | null>(null);
 const invoiceDate = ref("");
 const dueDate = ref("");
-const currency = ref("EUR");
+const currency = ref(getOrganizationDefaultCurrency());
 const items = ref<InvoiceLine[]>([]);
 const taskToAddId = ref<number | null>(null);
 const savedInvoiceId = ref<number | null>(null);
@@ -201,7 +202,7 @@ function setNewInvoiceDefaults() {
   projectId.value = projects.value.find((project) => project.client_id !== null)?.id ?? null;
   invoiceDate.value = new Date().toISOString().slice(0, 10);
   dueDate.value = "";
-  currency.value = "EUR";
+  currency.value = getOrganizationDefaultCurrency();
   items.value = [];
   taskToAddId.value = null;
   errorMessage.value = "";

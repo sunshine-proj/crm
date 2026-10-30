@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 
 type Currency = { code: string; name: string; minor_unit: number };
 type Account = { id: number; code: string; name: string; type: string; active: boolean };
@@ -61,12 +62,12 @@ const periodStart = ref("");
 const periodEnd = ref("");
 const journalDate = ref("");
 const journalDescription = ref("");
-const journalCurrency = ref("EUR");
+const journalCurrency = ref(getOrganizationDefaultCurrency());
 const journalLines = ref<JournalLineInput[]>([
   { account_id: null, debit: "", credit: "", memo: "" },
   { account_id: null, debit: "", credit: "", memo: "" },
 ]);
-const reportCurrency = ref("EUR");
+const reportCurrency = ref(getOrganizationDefaultCurrency());
 const reportFrom = ref("");
 const reportTo = ref("");
 const taxCode = ref("");
@@ -74,7 +75,7 @@ const taxName = ref("");
 const taxRate = ref("");
 const vendorName = ref("");
 const vendorReference = ref("");
-const billCurrency = ref("EUR");
+const billCurrency = ref(getOrganizationDefaultCurrency());
 const billTotal = ref("");
 const billDate = ref("");
 const billDueDate = ref("");

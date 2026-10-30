@@ -36,6 +36,7 @@ Implemented modules include:
 - **News:** news-item records with user ownership behavior in the API.
 - **Dashboard:** displays live client, active-project, and open-task counts from an authenticated API summary endpoint.
 - **Authentication:** sign-in through `POST /api/login` and bearer-token API requests.
+- **Organization Settings:** administrators can set the operating country, default currency, and a ten-year reference retention period for the single organization in an installation. Changes are audited and can be restored. Country-specific tax/accounting profiles remain unverified and no retention deletion is automated.
 
 New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. The client record is not yet a full structured organization/account profile. Project ownership beyond the responsible manager, milestones, dependencies, time tracking, expense management, automatic subledger-to-GL posting/reconciliation, FX, statutory accounting, tax filing, and compliant financial statements remain unimplemented. Treat these as roadmap requirements, not existing features. PHPUnit backend tests and Vitest frontend unit tests are configured; coverage reporting is still outstanding.
 
@@ -84,6 +85,7 @@ Phases describe intended order, not a commitment to dates. Each phase should be 
 
 - Establish automated backend and frontend tests, a test database, and coverage reporting.
 - Define shared error, validation, permission, audit, date/time, currency, and API response conventions.
+- Provide organization Settings where an administrator selects the country of operation and default currency; use that country to select the applicable tax jurisdiction and accounting configuration only when validated country-specific rules are available.
 - Replace placeholder dashboard values with persisted calculations or remove them until implemented.
 - Define supported user roles and record-level access rules before expanding sensitive features.
 
@@ -167,6 +169,16 @@ The sales workflow is operational and links to a separate quantity-only inventor
 - Add integrations or broader ERP capabilities only after user research, jurisdiction review, and a separate scoped PRD.
 
 ## Functional Requirements
+
+### Organization Settings And Localization
+
+- **ORG-1:** An administrator can select and update the organization's country of operation in Settings. Initial supported choices are Latvia (LV), Lithuania (LT), Estonia (EE), Germany (DE), and the United Kingdom (GB). The selected country determines the applicable tax jurisdiction and country-specific accounting properties, defaults, and required financial configuration only when those rules have been validated and implemented.
+- **ORG-2:** Country selection must use an explicit supported-country and jurisdiction configuration; it must not imply that tax or accounting rules are complete for a country until those rules have been validated and implemented.
+- **ORG-3:** Changing the country of operation must not silently rewrite or recalculate historical invoices, payments, bills, journal entries, or reports. Any migration or treatment of existing records requires explicit, auditable rules.
+- **ORG-4:** The initial deployment model is one organization per installation. Do not expose an installation to multiple organizations until organization ownership and per-organization authorization are implemented and tested.
+- **ORG-5:** Settings record a default currency for new records and a ten-year reference retention period. Retention does not automatically delete data; the retention trigger and jurisdiction-specific legal requirements must be validated before production use.
+- **ORG-6:** Organization-setting changes preserve an append-only actor/time/value history. Administrators may restore an earlier settings snapshot; restoration itself creates a new history entry.
+- **ORG-7:** The deployment backup policy is encrypted off-host daily backups of the database and uploaded business documents, 35-day retention, quarterly restore tests, and 24-hour RPO/RTO. This policy is not considered operational until the deployment implements and verifies it.
 
 ### Clients
 
@@ -260,11 +272,13 @@ Do not present a candidate measure as a live KPI until its source data and calcu
 
 ## Open Product Decisions
 
-- Which organization types, countries, tax regimes, currencies, and invoice formats are first-class targets?
+- Which legal entity types, tax regimes, accounting standards, and invoice formats apply in the initial countries (LV, LT, EE, DE, and GB), and who validates the rules?
+- What event starts the ten-year retention period, and are different periods required for client data, financial records, audit logs, and uploaded documents?
+- Which country-specific accounting properties and tax rules must be configured for each initial country?
 - Is a client a company/account only, or must the product support individual customers and parent-child organizations?
 - Which project pricing models are required first: fixed fee, time and materials, recurring, or a combination?
 - Should users track billable time in the product, import it, or integrate with an external time-tracking tool?
 - What does bookkeeping mean for the first target users: expense tracking and cash summaries, accounting-system integration, or a general ledger?
 - Which roles need access to client data, project budgets, costs, invoices, and payment details?
-- What audit, retention, export, backup, and deletion policies apply to customer and financial data?
+- What audit, export, and deletion controls are required in addition to the initial ten-year reference period and backup policy?
 - Which currencies beyond EUR, GBP, and USD, tax rules, billing addresses, payment instructions, and document templates are required for invoice drafts?

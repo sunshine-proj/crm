@@ -19,6 +19,22 @@ The Operations workspace adds optional project budgets, project/task time entrie
 
 Stage 1 is not complete: organization/tenant scoping, deals and pipelines, a dedicated client detail route, append-only/soft-delete/version recovery, and offline storage and synchronization remain roadmap requirements. See [NOTES.md](NOTES.md) for the staged roadmap and current implementation gaps.
 
+## Remaining Work, Prioritized for ERP Use
+
+| Priority | Remaining work | Why it matters |
+|---|---|---|
+| **P0 — Before production or multi-organization use** | Initial deployment is one organization per installation; initial countries are Latvia, Lithuania, Estonia, Germany, and the UK. Settings now captures country, default currency, and a 10-year retention period, with audited settings history and restore. Do not serve multiple organizations: tenant isolation is not implemented. Country tax/accounting profiles remain unverified, finance roles remain unchanged, and the accepted encrypted off-host daily backup policy (35-day retention, quarterly restore tests, 24-hour RPO/RTO) is not automated or verified. General business-record recovery and measured automated test coverage are not yet in place. | Country selection is not legal or tax compliance. Retention start rules, finance-specific access, backup implementation and restore verification, and jurisdiction review remain production blockers. |
+| **P1 — Connect finance** | Post invoices and customer receipts, vendor bills and payments, sales, and approved expenses to the general ledger; add subledger-to-GL reconciliation. Add opening balances, corrections/reversals, controlled close/reopen, and financial statements. | The general ledger is manual while AR/AP are separate operational subledgers, so the reports are not yet a coherent, reconciled accounting picture. |
+| **P1 — Complete the CRM and delivery loop** | Add dedicated client/project detail views, structured organization details, practical search and filtering, task ownership and reminders, milestones/dependencies, schedule views, and meaningful change history. Bring client activity, project work, and financial history together. | Client and project workflows are the product core, but these documented gaps make the existing modules harder to use as one workspace. |
+| **P1 — Link project costs to billing** | Add timesheet approval and cost rates, expense categories and reimbursement/accounting linkage, budget-versus-actual and profitability reports, and invoice creation from approved time or milestones. | Time, budgets, and expense approvals exist, but do not yet provide payroll, reimbursement, accounting postings, or profitability reporting. |
+| **P1/P2 — Make inventory financially meaningful** | When inventory is material to the business, implement a validated stock-costing method, landed costs, GL postings for receipts/dispatches/returns, and purchasing controls such as PO approvals and supplier-invoice matching. | Current inventory is quantity-only and is not a valued accounting asset. |
+| **P2 — Add jurisdiction-specific finance operations** | After confirming requirements, implement country-specific tax calculation, compliant invoice numbering and correction flows, bank/payment integrations and reconciliation, and FX where needed. | Configured tax codes are not applied, invoice output is not claimed to be legally compliant, and currencies are not converted. |
+| **Later — Validate demand first** | Consider manufacturing, MRP, payroll, advanced planning, BI, and other broad ERP modules only when supported by user and market research. | These are later-stage, market-dependent capabilities, not prerequisites for a coherent CRM and project-focused ERP. |
+
+**Recommended next milestone:** deliver one auditable end-to-end flow: client/project → approved work and expenses → invoice and payment → GL posting → reconciliation and report.
+
+This table summarizes documented roadmap gaps; it is not an independent verification of implementation status. See [PRD.md](PRD.md) and [NOTES.md](NOTES.md) for detailed scope and limitations.
+
 ## bundles
 composer require symfony/security-bundle
 composer require symfony/orm-pack
@@ -85,4 +101,3 @@ apt policy nodejs
 sudo apt update
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
-

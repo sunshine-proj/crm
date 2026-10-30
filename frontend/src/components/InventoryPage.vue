@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 
 type Warehouse = { id: number; code: string; name: string; address: string | null; active: boolean };
 type Supplier = { id: number; code: string; name: string; email: string | null; phone: string | null; address: string | null; active: boolean };
@@ -37,7 +38,7 @@ const supplierEmail = ref("");
 const supplierPhone = ref("");
 const supplierAddress = ref("");
 const purchaseSupplierId = ref<number | null>(null);
-const purchaseCurrency = ref("EUR");
+const purchaseCurrency = ref(getOrganizationDefaultCurrency());
 const purchaseDate = ref("");
 const purchaseLines = ref<{ product_id: number | null; quantity: number; unit_cost: string }[]>([]);
 const receiptOrderId = ref<number | null>(null);
@@ -193,7 +194,7 @@ async function toggleSupplier(supplier: Supplier) {
 
 function startPurchaseOrder() {
   purchaseSupplierId.value = activeSuppliers.value[0]?.id ?? null;
-  purchaseCurrency.value = "EUR";
+  purchaseCurrency.value = getOrganizationDefaultCurrency();
   purchaseDate.value = new Date().toISOString().slice(0, 10);
   purchaseLines.value = [{ product_id: null, quantity: 1, unit_cost: "" }];
 }

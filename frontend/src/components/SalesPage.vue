@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 
 type Client = { id: number; title: string };
 type Product = {
@@ -67,12 +68,12 @@ const editingProductId = ref<number | null>(null);
 const productSku = ref("");
 const productName = ref("");
 const productDescription = ref("");
-const productCurrency = ref("EUR");
+const productCurrency = ref(getOrganizationDefaultCurrency());
 const productPrice = ref("");
 const productActive = ref(true);
 const quoteFormVisible = ref(false);
 const quoteClientId = ref<number | null>(null);
-const quoteCurrency = ref("EUR");
+const quoteCurrency = ref(getOrganizationDefaultCurrency());
 const quoteValidUntil = ref("");
 const quoteProductId = ref<number | null>(null);
 const quoteQuantity = ref(1);
@@ -152,7 +153,7 @@ function resetProductForm() {
   productSku.value = "";
   productName.value = "";
   productDescription.value = "";
-  productCurrency.value = "EUR";
+  productCurrency.value = getOrganizationDefaultCurrency();
   productPrice.value = "";
   productActive.value = true;
   productFormVisible.value = true;
@@ -200,7 +201,7 @@ async function saveProduct() {
 
 function startQuote() {
   quoteClientId.value = clients.value[0]?.id ?? null;
-  quoteCurrency.value = "EUR";
+  quoteCurrency.value = getOrganizationDefaultCurrency();
   quoteValidUntil.value = "";
   quoteProductId.value = quoteProducts.value[0]?.id ?? null;
   quoteQuantity.value = 1;

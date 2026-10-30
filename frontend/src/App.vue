@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import DashboardPage from "./components/DashboardPage.vue";
 import NewsPage from "./components/NewsPage.vue";
 import ClientsPage from "./components/ClientsPage.vue";
@@ -10,6 +10,8 @@ import SalesPage from "./components/SalesPage.vue";
 import FinancePage from "./components/FinancePage.vue";
 import InventoryPage from "./components/InventoryPage.vue";
 import OperationsPage from "./components/OperationsPage.vue";
+import SettingsPage from "./components/SettingsPage.vue";
+import { setOrganizationDefaultCurrency } from "./lib/organizationSettings";
 
 type LoginResponse = {
   token: string;
@@ -23,7 +25,9 @@ const userEmail = ref(localStorage.getItem("crm_user_email"));
 const errorMessage = ref("");
 const isSubmitting = ref(false);
 const activeSection = ref("Dashboard");
-const sections = ["Dashboard", "News", "Clients", "Projects", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance"];
+const organizationSettingsReady = ref(false);
+const organizationSettingsError = ref("");
+const sections = ["Dashboard", "News", "Clients", "Projects", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Settings"];
 const pageComponents = {
   Dashboard: DashboardPage,
   News: NewsPage,
@@ -35,6 +39,7 @@ const pageComponents = {
   Finance: FinancePage,
   Inventory: InventoryPage,
   Operations: OperationsPage,
+  Settings: SettingsPage,
 };
 
 function hasValidToken(value: string | null) {
@@ -49,6 +54,34 @@ function hasValidToken(value: string | null) {
 }
 
 const isSignedIn = computed(() => hasValidToken(token.value));
+
+watch(isSignedIn, () => {
+  void loadOrganizationSettings();
+}, { immediate: true });
+
+async function loadOrganizationSettings() {
+  organizationSettingsReady.value = false;
+  organizationSettingsError.value = "";
+  if (!isSignedIn.value) {
+    organizationSettingsReady.value = true;
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/settings", {
+      headers: { Authorization: `Bearer ${token.value}` },
+    });
+    if (!response.ok) {
+      throw new Error("Unable to load organization defaults. Existing currency defaults will be used.");
+    }
+    const settings = (await response.json()) as { default_currency?: string | null };
+    setOrganizationDefaultCurrency(settings.default_currency ?? null);
+  } catch (error) {
+    organizationSettingsError.value = error instanceof Error ? error.message : "Unable to load organization defaults.";
+  } finally {
+    organizationSettingsReady.value = true;
+  }
+}
 
 async function submitLogin() {
   errorMessage.value = "";
@@ -81,6 +114,7 @@ async function submitLogin() {
 function signOut() {
   localStorage.removeItem("crm_token");
   localStorage.removeItem("crm_user_email");
+  setOrganizationDefaultCurrency(null);
   token.value = null;
   userEmail.value = null;
   activeSection.value = "Dashboard";
@@ -130,7 +164,9 @@ function signOut() {
                             ? "&#9638;"
                             : section === "Operations"
                               ? "&#9881;"
-                          : "&#36;"
+                                : section === "Settings"
+                                  ? "&#9881;"
+                            : "&#36;"
           }}</span>
           {{ section }}
         </button>
@@ -139,7 +175,9 @@ function signOut() {
     </aside>
 
     <section class="workspace" aria-live="polite">
-      <component :is="pageComponents[activeSection as keyof typeof pageComponents]" />
+      <p v-if="organizationSettingsError" class="error" role="alert">{{ organizationSettingsError }}</p>
+      <div v-if="!organizationSettingsReady" class="empty-page"><h2>Loading organization settings...</h2></div>
+      <component v-else :is="pageComponents[activeSection as keyof typeof pageComponents]" />
     </section>
   </main>
 
