@@ -27,8 +27,12 @@ final class ApiAccessPolicyTest extends TestCase
         'api_inventory_returns_list', 'api_inventory_returns_create',
         'api_invoices_list', 'api_invoices_create', 'api_invoices_from_approved_time', 'api_invoices_from_milestone',
         'api_invoices_show', 'api_invoices_update', 'api_invoices_pdf', 'api_invoices_delete',
+        'api_deals_list', 'api_deals_summary', 'api_deals_create', 'api_deals_show', 'api_deals_update', 'api_deals_stage', 'api_deals_history',
+        'api_notifications_list', 'api_notifications_read', 'api_notifications_read_all', 'api_notifications_preferences_show', 'api_notifications_preferences_update',
+        'api_history_show',
         'api_notes_list', 'api_notes_create', 'api_notes_update', 'api_notes_delete',
         'api_operations_time_entries_list', 'api_operations_time_entries_create', 'api_operations_time_entry_decision',
+        'api_operations_time_entry_reopen', 'api_operations_time_entry_withdraw', 'api_operations_time_entry_history',
         'api_operations_expenses_list', 'api_operations_expenses_create', 'api_operations_expenses_pending',
         'api_operations_expense_decision', 'api_operations_expense_reimbursements_list',
         'api_operations_documents_list', 'api_operations_documents_upload', 'api_operations_documents_download',
@@ -58,6 +62,7 @@ final class ApiAccessPolicyTest extends TestCase
         'api_finance_financial_statements',
         'api_finance_reconciliation',
         'api_finance_ar_ap',
+        'api_finance_subledger_reconciliation',
         'api_invoices_issue',
         'api_operations_project_profitability',
         'api_operations_expense_reimbursements_create',
@@ -79,6 +84,7 @@ final class ApiAccessPolicyTest extends TestCase
 
 
         'api_inventory_adjustment_create',
+        'api_deals_delete',
         'api_records_revisions_list', 'api_records_revisions_restore',
 
         'api_operations_user_cost_rate',

@@ -91,10 +91,39 @@ I left the README P0 checkboxes unticked; the note under them lists what remains
 
 
 
+I built eight of the nine P1 items in a first version; the AR/AP reconciliation (item 8) is only half done. All 23 migrations apply to a fresh PostgreSQL 16, and the backend suite (88 tests) and frontend suite (28 tests) pass. I left every P1 checkbox unticked in README.md. The note under the list says what each item still lacks.
+
+What now exists
+
+Client account details: clients have legal name, registration and VAT numbers, country, billing address and e-mail, website, industry, and an account status. They are searchable and filterable. Registration and VAT numbers, billing address and billing e-mail are only returned to finance users and admins, and non-finance users can't find clients by those fields.
+Detail pages: #/clients/<id> and #/projects/<id> combine the profile, contacts, activity, notes, deals, projects, tasks, milestones, time, expenses, invoices, budget, schedule and change history. The project page also has a period-filtered financial report for finance users.
+Task board: Project Management has a Timetable / Task board toggle. Cards move by drag-and-drop or a select, and a move is rolled back if the API rejects it.
+Deals: a new Deals section with a pipeline board from lead to won/lost. A lost deal needs a reason. There is an append-only stage history and a forecast using fixed stage probabilities, per currency.
+Reminders: php bin/console app:reminders:run creates in-app due-soon, overdue and escalation notifications, and a bell in the header shows them. The new scheduler compose service runs the command hourly. Each user sets their own lead days, escalation threshold and on/off switch. Overdue work escalates to the project manager, or to admins if the assignee is the manager.
+Change history: deals are now versioned. Any signed-in user can see who changed a record and which fields, without the values. Admins see values and can restore.
+Time-entry rules: the author can withdraw pending or rejected time that hasn't been invoiced. A manager or admin can reopen approved, uninvoiced time with a reason. Invoiced time is locked. Decisions and reopenings are kept in an append-only history.
+Project profitability: accepts a from/to period.
+AR/AP reconciliation: a new /api/finance/reports/subledger-reconciliation endpoint compares sub-ledgers with their journal postings and with the mapped AR/AP accounts. It reports missing, differing and orphaned postings. It's shown on the Receivables & payables tab.
+Accounting treatment: docs/ACCOUNTING_TREATMENT.md writes down what the ledger does for sales and inventory. A test checks that stock movements create no journal entries.
+Not done
+
+E-mail reminders: I didn't add symfony/mailer because it is blocked by security advisories on symfony/mime. Delivery is in-app only.
+Bank-statement reconciliation: no bank workflow has been chosen. Manual journals on the AR/AP accounts will show up as differences in the reconciliation report.
+Accounting treatment: it is defined but not validated by an accountant. It has no inventory asset, no cost of sales and no credit notes, and it needs a costing method first.
+Smaller gaps:
+won deals don't convert to quotes or projects
+invoiced time can't be corrected without credit notes
+the detail pages load whole lists and need pagination for large data
+Verification
+
+I ran scripts/verify-ledger-e2e.sh, now with a sub-ledger check, against PostgreSQL. It passed: AR matched the ledger and 10 concurrent receipts were handled correctly. I also ran the deal, reminder, task-move and time-entry flows over the API there.
+Measured backend line coverage is 34.3%. The Vue components have no unit tests; only the helper libraries do.
+Nothing is committed.
 
 
 
 
+===================================================
 
 
 

@@ -4,6 +4,7 @@ namespace App\Service;
 
 use App\Entity\Client;
 use App\Entity\ClientContact;
+use App\Entity\Deal;
 use App\Entity\Product;
 use App\Entity\Project;
 use App\Entity\ProjectMilestone;
@@ -22,6 +23,7 @@ final class TrackedRecords
     private const TYPES = [
         'client' => Client::class,
         'client_contact' => ClientContact::class,
+        'deal' => Deal::class,
         'project' => Project::class,
         'project_milestone' => ProjectMilestone::class,
         'task' => Task::class,

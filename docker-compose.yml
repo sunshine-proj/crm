@@ -77,6 +77,25 @@ services:
       "
       # cp /opt/app-audit /etc/logrotate.d/app-audit;
   
+  # Generates in-app task/project reminders and escalations hourly (idempotent).
+  scheduler:
+    image: crm/php-1.1
+    container_name: scheduler
+    working_dir: /var/www/html
+    volumes:
+      - ./src:/var/www/html
+    depends_on:
+      - postgres
+    networks:
+      - app
+    command: >
+      sh -c "
+        while true; do
+          php bin/console app:reminders:run --no-interaction || true;
+          sleep 3600;
+        done
+      "
+
   # Encrypted off-host daily backups (database + uploaded documents). Not started by default:
   # `docker compose --profile backup up -d backup` after setting BACKUP_AGE_RECIPIENT and BACKUP_REMOTE
   # (plus rclone remote settings). See docs/BACKUP.md.

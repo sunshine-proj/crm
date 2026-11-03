@@ -185,6 +185,41 @@ async function submitExpense() {
   }
 }
 
+async function reopenTimeEntry(entry: TimeEntry) {
+  const reason = window.prompt("Why is this approved time being reopened? The earlier decision stays in the history.");
+  if (!reason?.trim()) return;
+  isSaving.value = true;
+  errorMessage.value = "";
+  try {
+    const updated = await request<TimeEntry>(`/operations/time-entries/${entry.id}/reopen`, { method: "POST", body: JSON.stringify({ reason: reason.trim() }) });
+    timeEntries.value = timeEntries.value.map((item) => (item.id === updated.id ? updated : item));
+    await loadProfitability();
+    noticeMessage.value = "Time entry reopened for a new decision.";
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Unable to reopen the time entry.";
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+async function withdrawTimeEntry(entry: TimeEntry) {
+  if (!window.confirm("Withdraw this time entry? Record it again with the corrected values afterwards.")) return;
+  isSaving.value = true;
+  errorMessage.value = "";
+  try {
+    await request(`/operations/time-entries/${entry.id}`, { method: "DELETE" });
+    timeEntries.value = timeEntries.value.filter((item) => item.id !== entry.id);
+    await loadProfitability();
+    noticeMessage.value = "Time entry withdrawn.";
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Unable to withdraw the time entry.";
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+const currentUserEmail = localStorage.getItem("crm_user_email");
+
 async function decideTimeEntry(entry: TimeEntry, decision: "approved" | "rejected") {
   isSaving.value = true;
   errorMessage.value = "";
@@ -346,7 +381,7 @@ async function downloadDocument(uploadedDocument: ProjectDocument) {
         <form class="operations-form-grid" @submit.prevent="saveTimeEntry"><div><label for="time-project">Project</label><select id="time-project" v-model.number="timeProjectId"><option :value="null" disabled>Select project</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.title }}</option></select></div><div><label for="time-task">Task</label><select id="time-task" v-model.number="timeTaskId"><option :value="null">No task</option><option v-for="task in projectTasks" :key="task.id" :value="task.id">{{ task.title }}</option></select></div><div><label for="time-date">Work date</label><input id="time-date" v-model="timeDate" type="date" required /></div><div><label for="time-minutes">Duration (minutes)</label><input id="time-minutes" v-model.number="timeMinutes" type="number" min="1" max="1440" step="1" required /></div><div><label for="time-description">Work summary</label><input id="time-description" v-model="timeDescription" maxlength="255" required /></div><label class="operations-checkbox"><input v-model="timeBillable" type="checkbox" /> Billable</label><button class="edit-button" type="submit" :disabled="isSaving">{{ isSaving ? "Recording..." : "Record time" }}</button></form>
         <div class="operations-summary"><span>{{ timeEntries.length }} entries</span><strong>{{ Math.floor(totalLoggedMinutes / 60) }}h {{ totalLoggedMinutes % 60 }}m logged</strong></div>
         <div v-if="invoicableTimeEntries.length" class="operations-form-grid"><div><label for="time-invoice-date">Draft invoice date</label><input id="time-invoice-date" v-model="invoiceDate" type="date" /></div><button class="edit-button" type="button" :disabled="isSaving" @click="createInvoiceFromTime">Create draft invoice from {{ invoicableTimeEntries.length }} entries</button></div>
-        <div v-if="timeEntries.length" class="operations-record-list"><article v-for="entry in timeEntries" :key="entry.id"><div><p class="card-kicker">{{ entry.work_date }} · {{ entry.user_email }} · {{ entry.billable ? "Billable" : "Non-billable" }} · {{ entry.approval_status.replaceAll("_", " ") }}</p><h3>{{ entry.description }}</h3><span>{{ entry.project_title }}<span v-if="entry.task_title"> · {{ entry.task_title }}</span></span><span v-if="entry.billing_amount"> · {{ entry.billing_amount }} {{ entry.billing_currency }}</span><span v-if="entry.cost_amount"> · Cost {{ entry.cost_amount }} {{ entry.cost_currency }}</span><span v-if="entry.invoice_id"> · Invoice draft #{{ entry.invoice_id }}</span></div><div><strong>{{ Math.floor(entry.duration_minutes / 60) }}h {{ entry.duration_minutes % 60 }}m</strong><div v-if="entry.approval_status === 'pending_approval'" class="operations-approval-actions"><button class="edit-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'approved')">Approve</button><button class="edit-button danger-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'rejected')">Reject</button></div></div></article></div><p v-else class="muted">No time entries for this project.</p>
+        <div v-if="timeEntries.length" class="operations-record-list"><article v-for="entry in timeEntries" :key="entry.id"><div><p class="card-kicker">{{ entry.work_date }} · {{ entry.user_email }} · {{ entry.billable ? "Billable" : "Non-billable" }} · {{ entry.approval_status.replaceAll("_", " ") }}</p><h3>{{ entry.description }}</h3><span>{{ entry.project_title }}<span v-if="entry.task_title"> · {{ entry.task_title }}</span></span><span v-if="entry.billing_amount"> · {{ entry.billing_amount }} {{ entry.billing_currency }}</span><span v-if="entry.cost_amount"> · Cost {{ entry.cost_amount }} {{ entry.cost_currency }}</span><span v-if="entry.invoice_id"> · Invoice draft #{{ entry.invoice_id }}</span></div><div><strong>{{ Math.floor(entry.duration_minutes / 60) }}h {{ entry.duration_minutes % 60 }}m</strong><div v-if="entry.approval_status === 'pending_approval'" class="operations-approval-actions"><button class="edit-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'approved')">Approve</button><button class="edit-button danger-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'rejected')">Reject</button></div><div class="operations-approval-actions"><button v-if="entry.approval_status === 'approved' && !entry.invoice_id" class="edit-button" type="button" :disabled="isSaving" @click="reopenTimeEntry(entry)">Reopen</button><button v-if="entry.user_email === currentUserEmail && !entry.invoice_id && (entry.approval_status === 'pending_approval' || entry.approval_status === 'rejected')" class="edit-button danger-button" type="button" :disabled="isSaving" @click="withdrawTimeEntry(entry)">Withdraw</button></div></div></article></div><p v-else class="muted">No time entries for this project.</p>
         <section v-if="profitability" class="operations-section"><div class="finance-section-heading"><div><p class="card-kicker">Budget and profitability · {{ profitability.currency }}</p><h2>Approved work and cost summary</h2></div></div><div class="operations-summary"><span>Billable revenue {{ profitability.approved_billable_revenue }}</span><span>Labor {{ profitability.approved_labor_cost }}</span><span>Expenses {{ profitability.approved_expense_cost }}</span><strong>Margin {{ profitability.gross_margin }}</strong></div><p class="finance-report-basis">{{ profitability.basis }} Budget {{ profitability.budget ?? "not configured" }}; variance {{ profitability.budget_variance ?? "not available" }}. {{ profitability.unpriced_billable_entries }} unpriced billable entries, {{ profitability.uncosted_approved_time_entries }} approved entries without cost rates, and {{ profitability.excluded_expenses_other_currency }} expenses excluded for currency mismatch.</p></section>
       </section>
     </template>

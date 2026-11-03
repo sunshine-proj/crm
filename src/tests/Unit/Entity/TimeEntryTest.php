@@ -58,4 +58,53 @@ final class TimeEntryTest extends TestCase
         $this->expectException(DomainException::class);
         $entry->decide('rejected', $actor);
     }
+
+    private function entry(): TimeEntry
+    {
+        return new TimeEntry(new Project(), null, (new User())->setEmail('member@example.test'), new DateTimeImmutable('2026-10-01'), 60, true, 'Work', 100, 'EUR', 200, 'EUR');
+    }
+
+    #[Test]
+    public function approved_uninvoiced_time_can_be_reopened_and_decided_again(): void
+    {
+        $entry = $this->entry();
+        $manager = (new User())->setEmail('pm@example.test');
+        $entry->decide('approved', $manager, 'ok');
+
+        $entry->reopen();
+
+        self::assertSame('pending_approval', $entry->getApprovalStatus());
+        self::assertNull($entry->getDecidedBy());
+        self::assertSame(200, $entry->getBillingAmountMinor(), 'rate snapshots are not rewritten');
+        $entry->decide('rejected', $manager, 'too long');
+        self::assertSame('rejected', $entry->getApprovalStatus());
+    }
+
+    #[Test]
+    public function pending_and_rejected_time_cannot_be_reopened(): void
+    {
+        $this->expectException(DomainException::class);
+        $this->entry()->reopen();
+    }
+
+    #[Test]
+    public function invoiced_time_cannot_be_reopened_or_withdrawn(): void
+    {
+        $entry = $this->entry();
+        $entry->decide('approved', (new User())->setEmail('pm@example.test'));
+        $entry->setInvoice(new \App\Entity\Invoice());
+
+        self::assertFalse($entry->isWithdrawable());
+        $this->expectException(DomainException::class);
+        $entry->reopen();
+    }
+
+    #[Test]
+    public function only_pending_or_rejected_uninvoiced_time_is_withdrawable(): void
+    {
+        $entry = $this->entry();
+        self::assertTrue($entry->isWithdrawable());
+        $entry->decide('approved', (new User())->setEmail('pm@example.test'));
+        self::assertFalse($entry->isWithdrawable());
+    }
 }

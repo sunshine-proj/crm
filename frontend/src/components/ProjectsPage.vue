@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 import EntityNotesPanel from "./EntityNotesPanel.vue";
 import { isValidDateRange } from "../lib/planning";
+import { detailHref } from "../lib/route";
 
 type Project = {
   id: number;
@@ -405,7 +406,7 @@ async function deleteProject() {
       <article v-for="project in visibleProjects" :key="project.id" class="article-item project-item">
         <div>
           <p class="card-kicker">{{ project.client_title ?? "Unlinked legacy project" }} · {{ project.status.replace("_", " ") }} · {{ project.manager_email ?? "No manager" }}</p>
-          <h2>{{ project.title }}</h2>
+          <h2><a :href="detailHref('project', project.id)">{{ project.title }}</a></h2>
           <p class="muted">{{ project.description }}</p>
           <p v-if="project.budget_amount !== null" class="card-kicker">Budget {{ project.budget_amount }} {{ project.budget_currency }}</p>
           <p v-if="project.hourly_rate !== null" class="card-kicker">Billable {{ project.hourly_rate }} / hour {{ project.billing_currency }}</p>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import TaskBoard from "./TaskBoard.vue";
 import {
   matchesScheduleDateRange,
   overdueDays,
@@ -78,6 +79,7 @@ const taskStatusOptions: { value: TaskManagementStatus; label: string }[] = [
 const projects = ref<Project[]>([]);
 const tasks = ref<Task[]>([]);
 const errorMessage = ref("");
+const view = ref<"timetable" | "board">("timetable");
 const isLoading = ref(true);
 const showAllProjects = ref(false);
 const dateFrom = ref("");
@@ -297,12 +299,19 @@ onMounted(loadManagementData);
         <p class="eyebrow">Project management</p>
         <h1>One view of the work.</h1>
       </div>
-      <label class="pm-all-projects-toggle">
+      <label v-if="view === 'timetable'" class="pm-all-projects-toggle">
         <input v-model="showAllProjects" type="checkbox" />
         Show all projects
       </label>
     </div>
 
+    <div class="view-tabs" role="tablist" aria-label="Project management views">
+      <button role="tab" type="button" :aria-selected="view === 'timetable'" :class="{ active: view === 'timetable' }" @click="view = 'timetable'">Timetable</button>
+      <button role="tab" type="button" :aria-selected="view === 'board'" :class="{ active: view === 'board' }" @click="view = 'board'">Task board</button>
+    </div>
+
+    <TaskBoard v-if="view === 'board'" />
+    <template v-else>
     <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
     <div v-if="isLoading" class="empty-page"><h2>Loading project management...</h2></div>
     <div v-else>
@@ -442,5 +451,6 @@ onMounted(loadManagementData);
         </div>
       </section>
     </div>
+    </template>
   </div>
 </template>

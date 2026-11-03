@@ -7,6 +7,11 @@ use App\Dto\ExpenseInput;
 use App\Dto\ExpenseReimbursementInput;
 use App\Dto\HourlyCostRateInput;
 use App\Dto\TimeEntryDecisionInput;
+use App\Dto\TimeEntryReopenInput;
+use App\Entity\TimeEntryEvent;
+use App\Repository\TimeEntryEventRepository;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use App\Dto\TimeEntryInput;
 use App\Entity\Expense;
 use App\Entity\ExpenseApproval;
@@ -57,6 +62,8 @@ final class OperationsController extends AbstractController
         private readonly FinanceCatalog $financeCatalog,
         private readonly ProjectDocumentStorage $documentStorage,
         private readonly FinancePostingService $postingService,
+        private readonly TimeEntryEventRepository $timeEntryEventRepository,
+        #[Autowire(service: 'monolog.logger.audit')] private readonly LoggerInterface $auditLogger,
     ) {
     }
 
@@ -122,13 +129,65 @@ final class OperationsController extends AbstractController
         if ($input->decision === null || !in_array($input->decision, ['approved', 'rejected'], true)) return $this->json(['error' => 'Decision must be approved or rejected.'], JsonResponse::HTTP_BAD_REQUEST);
         if ($entry->getUser()->getId() === $actor->getId() && !$isAdmin) return $this->json(['error' => 'Time-entry submitters cannot approve their own entries.'], JsonResponse::HTTP_FORBIDDEN);
         try {
-            $entry->decide($input->decision, $actor, $input->comment !== null ? trim($input->comment) : null);
+            $comment = $input->comment !== null ? trim($input->comment) : null;
+            $entry->decide($input->decision, $actor, $comment);
+            $this->entityManager->persist(new TimeEntryEvent($entry, $actor, $input->decision, $comment));
         } catch (\DomainException $exception) {
             return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
         }
         $this->entityManager->flush();
 
         return $this->json($this->serializeTimeEntry($entry));
+    }
+
+    #[Route('/time-entries/{id<\d+>}/reopen', name: 'time_entry_reopen', methods: ['POST'])]
+    public function reopenTimeEntry(int $id, #[MapRequestPayload] TimeEntryReopenInput $input): JsonResponse
+    {
+        $entry = $this->timeEntryRepository->find($id);
+        if (!$entry instanceof TimeEntry) return $this->json(['error' => 'Time entry not found.'], JsonResponse::HTTP_NOT_FOUND);
+        $actor = $this->getUser();
+        if (!$actor instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
+        $isAdmin = $this->isGranted('ROLE_ADMIN');
+        if (!$isAdmin && $entry->getProject()->getManager()?->getId() !== $actor->getId()) return $this->json(['error' => 'Only an administrator or the project manager may reopen approved time.'], JsonResponse::HTTP_FORBIDDEN);
+        $reason = trim((string) $input->reason);
+        if ($reason === '') return $this->json(['error' => 'A reason is required to reopen approved time.'], JsonResponse::HTTP_BAD_REQUEST);
+        try {
+            $entry->reopen();
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
+        $this->entityManager->persist(new TimeEntryEvent($entry, $actor, TimeEntryEvent::REOPENED, $reason));
+        $this->entityManager->flush();
+        $this->auditLogger->info('Approved time entry reopened.', ['time_entry_id' => $id, 'actor' => $actor->getUserIdentifier()]);
+
+        return $this->json($this->serializeTimeEntry($entry));
+    }
+
+    #[Route('/time-entries/{id<\d+>}', name: 'time_entry_withdraw', methods: ['DELETE'])]
+    public function withdrawTimeEntry(int $id): Response
+    {
+        $entry = $this->timeEntryRepository->find($id);
+        if (!$entry instanceof TimeEntry) return $this->json(['error' => 'Time entry not found.'], JsonResponse::HTTP_NOT_FOUND);
+        $actor = $this->getUser();
+        if (!$actor instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
+        if ($entry->getUser()->getId() !== $actor->getId() && !$this->isGranted('ROLE_ADMIN')) return $this->json(['error' => 'Only the author or an administrator may withdraw this time entry.'], JsonResponse::HTTP_FORBIDDEN);
+        if (!$entry->isWithdrawable()) return $this->json(['error' => 'Only pending or rejected time that has not been invoiced can be withdrawn; reopen approved time first.'], JsonResponse::HTTP_CONFLICT);
+        $this->auditLogger->info('Time entry withdrawn.', ['time_entry_id' => $id, 'project_id' => $entry->getProject()->getId(), 'actor' => $actor->getUserIdentifier(), 'status' => $entry->getApprovalStatus()]);
+        $this->entityManager->remove($entry);
+        $this->entityManager->flush();
+
+        return new Response(null, Response::HTTP_NO_CONTENT);
+    }
+
+    #[Route('/time-entries/{id<\d+>}/history', name: 'time_entry_history', methods: ['GET'])]
+    public function timeEntryHistory(int $id): JsonResponse
+    {
+        if ($this->timeEntryRepository->find($id) === null) return $this->json(['error' => 'Time entry not found.'], JsonResponse::HTTP_NOT_FOUND);
+
+        return $this->json(array_map(static fn (TimeEntryEvent $event): array => [
+            'id' => $event->getId(), 'action' => $event->getAction(), 'actor' => $event->getActor()->getUserIdentifier(),
+            'comment' => $event->getComment(), 'created_at' => $event->getCreatedAt()->format(\DateTimeInterface::ATOM),
+        ], $this->timeEntryEventRepository->findForEntry($id)));
     }
 
     #[Route('/users/{id<\d+>}/cost-rate', name: 'user_cost_rate', methods: ['PUT'])]
@@ -166,12 +225,25 @@ final class OperationsController extends AbstractController
         if (!is_string($currency) || !$this->financeCatalog->supportsCurrency($currency)) {
             return $this->json(['error' => 'Choose a supported currency: EUR, GBP, or USD.'], JsonResponse::HTTP_BAD_REQUEST);
         }
+        try {
+            $from = ($raw = $request->query->get('from')) !== null && $raw !== '' ? $this->parseDate((string) $raw) : null;
+            $to = ($raw = $request->query->get('to')) !== null && $raw !== '' ? $this->parseDate((string) $raw) : null;
+        } catch (\InvalidArgumentException) {
+            return $this->json(['error' => 'Period dates must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        if ($from !== null && $to !== null && $from > $to) return $this->json(['error' => 'Period start must not be after the period end.'], JsonResponse::HTTP_BAD_REQUEST);
+        $inPeriod = static fn (\DateTimeImmutable $date): bool => ($from === null || $date >= $from) && ($to === null || $date <= $to);
         $revenue = 0;
         $laborCost = 0;
+        $approvedMinutes = 0;
+        $pendingMinutes = 0;
         $billableUnpriced = 0;
         $uncostedApprovedTime = 0;
         foreach ($this->timeEntryRepository->findForProject($id) as $entry) {
+            if (!$inPeriod($entry->getWorkDate())) continue;
+            if ($entry->getApprovalStatus() === 'pending_approval') $pendingMinutes += $entry->getDurationMinutes();
             if ($entry->getApprovalStatus() !== 'approved') continue;
+            $approvedMinutes += $entry->getDurationMinutes();
             if ($entry->isBillable()) {
                 if ($entry->getBillingCurrency() === $currency && $entry->getBillingAmountMinor() !== null) {
                     $revenue += $entry->getBillingAmountMinor();
@@ -188,6 +260,7 @@ final class OperationsController extends AbstractController
         $expenseCost = 0;
         $excludedExpenses = 0;
         foreach ($this->expenseRepository->findFiltered($id, 'approved') as $expense) {
+            if (!$inPeriod($expense->getExpenseDate())) continue;
             if ($expense->getCurrency() === $currency) {
                 $expenseCost += $expense->getAmountMinor();
             } else {
@@ -201,17 +274,20 @@ final class OperationsController extends AbstractController
         return $this->json([
             'project_id' => $id,
             'currency' => $currency,
+            'period' => ['from' => $from?->format('Y-m-d'), 'to' => $to?->format('Y-m-d')],
+            'approved_minutes' => $approvedMinutes,
+            'pending_approval_minutes' => $pendingMinutes,
             'approved_billable_revenue' => $this->money->formatMinor($revenue),
             'approved_labor_cost' => $this->money->formatMinor($laborCost),
             'approved_expense_cost' => $this->money->formatMinor($expenseCost),
             'total_cost' => $this->money->formatMinor($cost),
             'gross_margin' => $this->money->formatMinor($margin),
             'budget' => $budget !== null ? $this->money->formatMinor($budget) : null,
-            'budget_variance' => $budget !== null ? $this->money->formatMinor($budget - $cost) : null,
+            'budget_variance' => $budget !== null && $from === null && $to === null ? $this->money->formatMinor($budget - $cost) : null,
             'unpriced_billable_entries' => $billableUnpriced,
             'uncosted_approved_time_entries' => $uncostedApprovedTime,
             'excluded_expenses_other_currency' => $excludedExpenses,
-            'basis' => 'Operational totals from approved time-entry rate snapshots and approved expenses. Cross-currency conversion, payroll, tax, and statutory accounting are excluded.',
+            'basis' => 'Operational totals from approved time-entry rate snapshots (by work date) and approved expenses (by expense date) within the optional period; the budget is the whole-project budget, not prorated. Cross-currency conversion, payroll, tax, and statutory accounting are excluded.',
         ]);
     }
 

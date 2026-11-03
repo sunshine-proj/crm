@@ -41,6 +41,9 @@ check "no overpayment: balance due" "$(api GET "/invoices/$invoice" | jq -r .bal
 
 recon="$(api GET /finance/reports/reconciliation)"
 check "every issued invoice and receipt has a journal posting" "$(jq -r .reconciled <<<"$recon")" "true"
+sub="$(api GET '/finance/reports/subledger-reconciliation?currency=EUR')"
+check "AR sub-ledger equals the general-ledger control account" "$(jq -r .receivables.difference <<<"$sub")" "0.00"
+check "sub-ledger reconciliation reports no differences" "$(jq -r .reconciled <<<"$sub")" "true"
 tb="$(api GET '/finance/reports/trial-balance?currency=EUR')"
 check "trial balance debits equal credits" "$(jq -r .balanced <<<"$tb")" "true"
 

@@ -125,6 +125,26 @@ class TimeEntry
     public function getBillingAmountMinor(): ?int { return $this->billingAmountMinor; }
     public function getBillingCurrency(): ?string { return $this->billingCurrency; }
 
+    /** Pending or rejected entries that were never invoiced may be withdrawn by their author. */
+    public function isWithdrawable(): bool
+    {
+        return $this->invoice === null && in_array($this->approvalStatus, ['pending_approval', 'rejected'], true);
+    }
+
+    /** Sends an approved, not yet invoiced entry back for a new decision; the earlier decision stays in the event history. */
+    public function reopen(): static
+    {
+        if ($this->approvalStatus !== 'approved' || $this->invoice !== null) {
+            throw new \DomainException('Only approved time that has not been invoiced can be reopened.');
+        }
+        $this->approvalStatus = 'pending_approval';
+        $this->decidedBy = null;
+        $this->decidedAt = null;
+        $this->decisionComment = null;
+
+        return $this;
+    }
+
     public function decide(string $status, User $actor, ?string $comment = null): static
     {
         if ($this->approvalStatus !== 'pending_approval' || !in_array($status, ['approved', 'rejected'], true)) {

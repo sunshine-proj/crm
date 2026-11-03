@@ -10,6 +10,11 @@ import TasksPage from "./components/TasksPage.vue";
 import InvoicesPage from "./components/InvoicesPage.vue";
 import SalesPage from "./components/SalesPage.vue";
 import FinancePage from "./components/FinancePage.vue";
+import DealsPage from "./components/DealsPage.vue";
+import ClientDetailPage from "./components/ClientDetailPage.vue";
+import ProjectDetailPage from "./components/ProjectDetailPage.vue";
+import NotificationCenter from "./components/NotificationCenter.vue";
+import { parseDetailRoute, sectionForRoute } from "./lib/route";
 import InventoryPage from "./components/InventoryPage.vue";
 import OperationsPage from "./components/OperationsPage.vue";
 import SettingsPage from "./components/SettingsPage.vue";
@@ -27,9 +32,21 @@ const userEmail = ref(localStorage.getItem("crm_user_email"));
 const errorMessage = ref("");
 const isSubmitting = ref(false);
 const activeSection = ref("Dashboard");
+const detailRoute = ref(parseDetailRoute(window.location.hash));
+window.addEventListener("hashchange", () => {
+  detailRoute.value = parseDetailRoute(window.location.hash);
+  if (detailRoute.value) activeSection.value = sectionForRoute(detailRoute.value);
+});
+if (detailRoute.value) activeSection.value = sectionForRoute(detailRoute.value);
+
+function openSection(section: string) {
+  activeSection.value = section;
+  if (window.location.hash) window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  detailRoute.value = null;
+}
 const organizationSettingsReady = ref(false);
 const organizationSettingsError = ref("");
-const allSections = ["Dashboard", "News", "Clients", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Settings"];
+const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Settings"];
 const isFinance = computed(() => isFinanceToken(token.value));
 const sections = computed(() => allSections.filter((section) => section !== "Finance" || isFinance.value));
 const pageComponents = {
@@ -38,6 +55,7 @@ const pageComponents = {
   Clients: ClientsPage,
   Projects: ProjectsPage,
   "Project Management": ProjectManagementPage,
+  Deals: DealsPage,
   Tasks: TasksPage,
   Sales: SalesPage,
   Invoices: InvoicesPage,
@@ -134,6 +152,7 @@ function signOut() {
         <span>My CRM</span>
       </div>
       <div class="account-area">
+        <NotificationCenter />
         <span class="account-email">{{ userEmail }}</span>
         <button class="sign-out" type="button" @click="signOut">Sign out</button>
       </div>
@@ -148,7 +167,7 @@ function signOut() {
           class="nav-item"
           :class="{ active: activeSection === section }"
           type="button"
-          @click="activeSection = section"
+          @click="openSection(section)"
         >
           <span class="nav-icon" aria-hidden="true">{{
             section === "Dashboard"
@@ -157,6 +176,8 @@ function signOut() {
                 ? "&#9733;"
                 : section === "Clients"
                   ? "&#9673;"
+                  : section === "Deals"
+                    ? "&#9670;"
                   : section === "Projects"
                     ? "&#9633;"
                     : section === "Project Management"
@@ -184,6 +205,8 @@ function signOut() {
     <section class="workspace" aria-live="polite">
       <p v-if="organizationSettingsError" class="error" role="alert">{{ organizationSettingsError }}</p>
       <div v-if="!organizationSettingsReady" class="empty-page"><h2>Loading organization settings...</h2></div>
+      <ClientDetailPage v-else-if="detailRoute?.kind === 'client'" :client-id="detailRoute.id" :key="`client-${detailRoute.id}`" />
+      <ProjectDetailPage v-else-if="detailRoute?.kind === 'project'" :project-id="detailRoute.id" :key="`project-${detailRoute.id}`" />
       <component v-else :is="pageComponents[activeSection as keyof typeof pageComponents]" />
     </section>
   </main>

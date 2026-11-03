@@ -297,7 +297,29 @@ async function loadTrialBalance() {
   }
 }
 
+type ControlBalance = { subledger: string; ledger: string | null; difference: string | null };
+type SubledgerReconciliation = {
+  currency: string;
+  reconciled: boolean;
+  receivables: ControlBalance;
+  payables: ControlBalance;
+  missing_postings: { source_type: string; source_id: number; reference: string; expected: string }[];
+  amount_mismatches: { source_type: string; source_id: number; reference: string; expected: string; posted: string }[];
+  orphaned_postings: { source_type: string; source_id: number; entry_number: string | null; posted: string }[];
+  basis: string;
+};
+const subledger = ref<SubledgerReconciliation | null>(null);
+
+async function loadSubledger() {
+  try {
+    subledger.value = await request<SubledgerReconciliation>(`/finance/reports/subledger-reconciliation?currency=${reportCurrency.value}`);
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Unable to load the sub-ledger reconciliation.";
+  }
+}
+
 async function loadArAp() {
+  void loadSubledger();
   try {
     arApReport.value = await request<ArApReport>(`/finance/reports/receivables-payables?currency=${reportCurrency.value}`);
   } catch (error) {
@@ -463,6 +485,25 @@ async function recordBillPayment(bill: Bill) {
         <div class="finance-arap-grid">
           <section><div class="finance-section-heading"><div><p class="card-kicker">Accounts receivable</p><h2>{{ arApReport?.receivables_total ?? "0.00" }} {{ reportCurrency }}</h2></div></div><div v-if="arApReport?.receivables.length" class="finance-balance-list"><article v-for="item in arApReport.receivables" :key="item.invoice_id"><div><strong>{{ item.client_name }}</strong><span>{{ item.invoice_number }} · {{ item.due_date ?? "No due date" }}<em v-if="item.overdue">Overdue</em></span></div><strong>{{ item.balance_due }} {{ reportCurrency }}</strong></article></div><p v-else class="muted">No outstanding receivables.</p></section>
           <section><div class="finance-section-heading"><div><p class="card-kicker">Accounts payable</p><h2>{{ arApReport?.payables_total ?? "0.00" }} {{ reportCurrency }}</h2></div></div><div v-if="arApReport?.payables.length" class="finance-balance-list"><article v-for="item in arApReport.payables" :key="item.bill_id"><div><strong>{{ item.vendor_name }}</strong><span>{{ item.vendor_reference }} · {{ item.due_date ?? "No due date" }}<em v-if="item.overdue">Overdue</em></span></div><strong>{{ item.balance_due }} {{ reportCurrency }}</strong></article></div><p v-else class="muted">No outstanding payables.</p></section>
+        </div>
+        <div class="finance-report-result" aria-label="Sub-ledger reconciliation">
+          <div class="finance-section-heading"><div><p class="card-kicker">Reconciliation</p><h2>Sub-ledgers vs general ledger <strong v-if="subledger" :class="subledger.reconciled ? 'finance-balanced' : 'finance-unbalanced'">{{ subledger.reconciled ? "Reconciled" : "Differences found" }}</strong></h2></div></div>
+          <div v-if="subledger" class="finance-table-wrap">
+            <table class="finance-table">
+              <thead><tr><th>Control account</th><th>Sub-ledger</th><th>Ledger</th><th>Difference</th></tr></thead>
+              <tbody>
+                <tr><td>Receivables</td><td>{{ subledger.receivables.subledger }} {{ reportCurrency }}</td><td>{{ subledger.receivables.ledger ?? "No mapping" }}</td><td>{{ subledger.receivables.difference ?? "n/a" }}</td></tr>
+                <tr><td>Payables</td><td>{{ subledger.payables.subledger }} {{ reportCurrency }}</td><td>{{ subledger.payables.ledger ?? "No mapping" }}</td><td>{{ subledger.payables.difference ?? "n/a" }}</td></tr>
+              </tbody>
+            </table>
+            <p v-if="subledger.missing_postings.length" class="error">{{ subledger.missing_postings.length }} source record(s) have no journal posting:
+              <span v-for="item in subledger.missing_postings" :key="`${item.source_type}-${item.source_id}`"> {{ item.source_type.replace("_", " ") }} {{ item.reference }} ({{ item.expected }});</span></p>
+            <p v-if="subledger.amount_mismatches.length" class="error">Posted amount differs from the source:
+              <span v-for="item in subledger.amount_mismatches" :key="`${item.source_type}-${item.source_id}`"> {{ item.source_type.replace("_", " ") }} {{ item.reference }} expected {{ item.expected }}, posted {{ item.posted }};</span></p>
+            <p v-if="subledger.orphaned_postings.length" class="error">Postings whose source record no longer exists:
+              <span v-for="item in subledger.orphaned_postings" :key="`${item.source_type}-${item.source_id}`"> {{ item.entry_number ?? item.source_type }} ({{ item.posted }});</span></p>
+            <p class="finance-report-basis">{{ subledger.basis }}</p>
+          </div>
         </div>
       </section>
 

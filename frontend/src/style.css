@@ -2543,3 +2543,203 @@ input[type="radio"] {
     text-align: right;
   }
 }
+
+/* Shared helpers for views, boards, detail pages and notifications */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.view-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+.view-tabs button {
+  padding: 8px 16px;
+  border: 1px solid var(--line, #2a3446);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.view-tabs button.active,
+.view-tabs button[aria-selected="true"] {
+  border-color: var(--accent, #5eead4);
+  color: var(--accent, #5eead4);
+}
+.board-columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(230px, 1fr);
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.board-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 160px;
+  padding: 12px;
+  border: 1px solid var(--line, #2a3446);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.board-column.is-drop-target {
+  border-color: var(--accent, #5eead4);
+  background: rgba(94, 234, 212, 0.06);
+}
+.board-column h3 {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 0.95rem;
+}
+.board-count {
+  color: var(--muted, #8b97ad);
+}
+.board-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #2a3446);
+  border-left-width: 4px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: grab;
+}
+.board-card.is-saving {
+  opacity: 0.6;
+}
+.board-card.priority-urgent { border-left-color: #f87171; }
+.board-card.priority-high { border-left-color: #fb923c; }
+.board-card.priority-normal { border-left-color: #60a5fa; }
+.board-card.priority-low { border-left-color: #64748b; }
+.board-due.is-overdue {
+  color: #f87171;
+  font-weight: 600;
+}
+.board-move select {
+  width: 100%;
+}
+.settings-filters select,
+.board-move select {
+  max-width: 100%;
+}
+.detail-back {
+  display: inline-block;
+  margin-bottom: 12px;
+}
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px;
+}
+.detail-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--line, #2a3446);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.detail-card.wide {
+  grid-column: 1 / -1;
+}
+.detail-card h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.detail-card dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 0;
+}
+.detail-card dt {
+  color: var(--muted, #8b97ad);
+}
+.detail-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.detail-list {
+  display: grid;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.status-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border: 1px solid var(--line, #2a3446);
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+.deal-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #2a3446);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.deal-column-total {
+  color: var(--muted, #8b97ad);
+  font-size: 0.85rem;
+}
+.notification-center {
+  position: relative;
+}
+.notification-toggle {
+  position: relative;
+  padding: 6px 12px;
+  border: 1px solid var(--line, #2a3446);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.notification-badge {
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #f87171;
+  color: #0b1020;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.notification-panel {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  width: min(380px, 92vw);
+  max-height: 70vh;
+  overflow: auto;
+  margin-top: 8px;
+  padding: 14px;
+  border: 1px solid var(--line, #2a3446);
+  border-radius: 14px;
+  background: var(--surface, #111827);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+.notification-panel ul {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 10px 0;
+  list-style: none;
+}
+.notification-panel li.unread {
+  border-left: 3px solid var(--accent, #5eead4);
+  padding-left: 8px;
+}
+.notification-panel li.escalation strong {
+  color: #fb923c;
+}

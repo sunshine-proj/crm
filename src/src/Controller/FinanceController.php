@@ -32,6 +32,7 @@ use App\Repository\ExpenseRepository;
 use App\Repository\ExpenseReimbursementRepository;
 use App\Service\FinanceCatalog;
 use App\Service\FinancePostingService;
+use App\Service\LedgerReconciliationService;
 use App\Service\InvoiceMoney;
 use App\Service\JournalEntryBalance;
 use Doctrine\ORM\EntityManagerInterface;
@@ -685,6 +686,34 @@ final class FinanceController extends AbstractController
             'currency' => $currency,
             'amount' => $this->money->formatMinor($amountMinor),
         ];
+    }
+
+    #[Route('/reports/subledger-reconciliation', name: 'subledger_reconciliation', methods: ['GET'])]
+    #[IsGranted('ROLE_FINANCE')]
+    public function subledgerReconciliation(Request $request, LedgerReconciliationService $reconciliation): JsonResponse
+    {
+        $currency = $request->query->get('currency');
+        if (!is_string($currency) || !$this->catalog->supportsCurrency($currency)) {
+            return $this->json(['error' => 'Choose one supported currency: EUR, GBP, or USD.'], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        $result = $reconciliation->reconcile($currency);
+        $format = fn (?int $minor): ?string => $minor === null ? null : $this->money->formatMinor($minor);
+        $control = fn (array $row): array => [
+            'subledger' => $format($row['subledger_minor']),
+            'ledger' => $format($row['ledger_minor']),
+            'difference' => $format($row['difference_minor']),
+        ];
+
+        return $this->json([
+            'currency' => $currency,
+            'reconciled' => $result['reconciled'],
+            'receivables' => $control($result['receivables']),
+            'payables' => $control($result['payables']),
+            'missing_postings' => array_map(fn (array $row): array => ['source_type' => $row['source_type'], 'source_id' => $row['source_id'], 'reference' => $row['reference'], 'expected' => $format($row['expected_minor'])], $result['missing']),
+            'amount_mismatches' => array_map(fn (array $row): array => ['source_type' => $row['source_type'], 'source_id' => $row['source_id'], 'reference' => $row['reference'], 'expected' => $format($row['expected_minor']), 'posted' => $format($row['posted_minor'])], $result['amount_mismatches']),
+            'orphaned_postings' => array_map(fn (array $row): array => ['source_type' => $row['source_type'], 'source_id' => $row['source_id'], 'entry_number' => $row['entry_number'], 'posted' => $format($row['posted_minor'])], $result['orphaned']),
+            'basis' => 'Compares sub-ledger balances and per-record amounts with posted journal entries in one currency. A non-zero control-account difference can also come from manual or opening-balance journals on the mapped account. External bank statements are not reconciled.',
+        ]);
     }
 
     #[Route('/reports/receivables-payables', name: 'ar_ap', methods: ['GET'])]
