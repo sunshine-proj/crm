@@ -128,5 +128,68 @@ Nothing is committed.
 
 
 
+I built the three P1/P2 items, but I left the checkboxes unticked in README.md because each still has gaps, listed below. The backend suite passes (110 tests, 46% line coverage). The new migration applies, reverses and re-applies on PostgreSQL 16 with no schema drift. scripts/verify-inventory-e2e.sh (new) and the existing scripts/verify-ledger-e2e.sh both passed on a fresh database. The new script covers approval, receipt with landed cost, dispatch, bill matching and reconciliation. Run these scripts only on a fresh database; remapping accounts changes which ledger accounts the reconciliation compares.
+
+Costing method. I chose perpetual weighted-average cost per product and warehouse. I picked it because FIFO needs cost layers and standard cost needs variance upkeep. LIFO isn't allowed under IFRS. The reasoning and alternatives are in docs/ACCOUNTING_TREATMENT.md. It's a recommendation that your accountant needs to confirm. Changing method later means revaluing history.
+
+Landed costs and ledger postings
+
+Finance users enter landed costs (freight, duty) on a goods receipt. They are allocated across lines by value, and the shares always add up exactly.
+Receipts, dispatches, customer and supplier returns, and stock adjustments now post to the ledger. Receipts debit Inventory and credit Goods received not invoiced. Dispatches debit Cost of sales and credit Inventory.
+This switches on only once four accounts are mapped: inventory, cost of sales, goods received not invoiced, and inventory adjustment. Until then stock stays quantity-only, as before. A fifth account, purchase price variance, is mapped separately.
+Stock received before valuation was switched on can't be issued until it gets an opening valuation. The offset goes to the inventory adjustment account and should be reviewed by an accountant.
+Each stock pool holds a single currency. Receiving in another currency while stock is on hand is refused.
+Purchasing controls
+
+Admins set an approval threshold. Orders at or above it, and any order in a non-default currency, wait for a finance user other than the creator before goods can be received. Rejection needs a comment, and decisions are kept in an append-only history.
+A vendor bill can be linked to a purchase order. It's matched against the value of goods received, using order prices, plus landed costs. A larger bill needs an override reason and is stored as an "exception".
+Matched bills clear the Goods received not invoiced accrual, and any excess is expensed as purchase price variance.
+The sub-ledger reconciliation now also compares stock value and the accrual with their ledger accounts.
+UI. The Inventory page has a Valuation tab for finance users: stock value, opening valuation, and the approval threshold for admins. Purchase orders get Approve and Reject buttons. The goods receipt form has a landed-cost field. The Finance bill form has a purchase-order selector, and the account mappings include the five new accounts.
+
+Not done
+
+Credit notes (a customer return doesn't reverse revenue).
+Tax and currency conversion.
+Landed costs added after the receipt.
+Period-end write-downs.
+Bills that span several orders.
+Please check: two decisions in docs/ACCOUNTING_TREATMENT.md that I made for you:
+
+Revenue is recognised at invoice issue, not at delivery.
+Supplier returns leave stock at average cost, not the original receipt cost.
+
+
+
+===================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

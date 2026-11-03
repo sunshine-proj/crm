@@ -11,8 +11,9 @@ use Doctrine\ORM\Tools\SchemaTool;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 
 /**
- * Pins the documented accounting treatment (docs/ACCOUNTING_TREATMENT.md): stock movements are quantity-only and
- * never create journal entries, so no inventory asset, cost of sales or accrual exists until a costing method is chosen.
+ * Pins the documented accounting treatment (docs/ACCOUNTING_TREATMENT.md): the stock ledger itself is quantity-only and
+ * never creates journal entries. Valuation postings come only from InventoryValuationService, and only once the
+ * inventory accounts are mapped (see InventoryValuationServiceTest).
  */
 final class SalesInventoryAccountingTreatmentTest extends KernelTestCase
 {

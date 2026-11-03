@@ -16,6 +16,9 @@ final class GoodsReceiptInput
         public readonly ?string $reference = null,
         #[Assert\Count(min: 1, max: 100)]
         public readonly array $items = [],
+        /** @var list<array<string, mixed>> freight, duty and similar costs capitalised into inventory; finance users only */
+        #[Assert\Count(max: 20)]
+        public readonly array $landed_costs = [],
     ) {
     }
 }

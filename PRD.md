@@ -27,7 +27,7 @@ Implemented modules include:
 - **Projects:** create, list, edit, and delete records containing a title and description, linked to a client for new records, with lifecycle status, planned dates, optional budget, and optional billable hourly rate/currency.
 - **Projects:** can have an optional responsible manager selected from authenticated workspace users.
 - **Tasks:** create, list, edit, and delete records containing a title, description, start/end times, a project link, status, priority, optional due date, optional assignee, and same-project predecessor dependencies. Lists support search/status filtering and due/overdue indicators; notifications are not sent.
-- **Inventory and procurement:** authenticated users can configure warehouses and suppliers, create purchase orders, post partial receipts, inspect movement-derived stock, adjust counts, dispatch sales shipments from stock, and record bounded inventory returns. This is quantity tracking only; inventory valuation and GL integration are not implemented.
+- **Inventory and procurement:** authenticated users can configure warehouses and suppliers, create purchase orders, post partial receipts, inspect movement-derived stock, adjust counts, dispatch sales shipments from stock, and record bounded inventory returns. Quantities are tracked from movements; when inventory accounts are mapped, stock is also valued at weighted-average cost (with landed costs) and receipts, dispatches, returns and adjustments post to the ledger. Purchase orders can require approval and vendor bills can be matched to goods received.
 - **Project operations:** users record project/task time, project managers/admins approve or reject it, and per-user cost rates/project billing rates are snapshotted for new time entries. Expenses have categories and manager/admin decisions; administrators can record partial reimbursements. Single-currency profitability summaries and draft invoice creation from approved billable time or completed priced milestones are available.
 - **Invoices and customer payments:** authenticated users can manage project-linked draft invoices, generate invoices from shipped sales orders, approved time, and completed priced milestones; issue invoices; record partial/full customer receipts; view outstanding balances; and export invoice PDFs. Amounts use integer minor units. This is an operational workflow, not legally compliant invoice issuance or payment processing.
 - **Inventory and purchasing:** authenticated users can configure warehouses and suppliers, create product-based purchase orders, receive partial/full quantities into a warehouse, derive on-hand quantities from signed stock movements, post adjustments, explicitly dispatch sales shipments against warehouse stock, and record bounded customer/supplier returns. The ledger tracks quantities only and is not valued inventory.
@@ -147,7 +147,8 @@ The sales workflow is operational and links to a separate quantity-only inventor
 - **Implemented MVP:** record customer returns only against dispatched shipments and supplier returns only against received purchase-order quantities; cap returns to original quantities and record corresponding stock movements.
 - Keep sales shipment recording and warehouse dispatch as separate steps: a sales shipment alone does not reduce inventory.
 - **Not implemented:** inter-warehouse transfers, stock reservation, bin locations, lots/serials/expiry dates, stock valuation, cost layers, landed costs, purchasing approvals, PO editing/cancellation, three-way matching, carrier integrations, or automated replenishment.
-- **Not implemented:** GL postings or valuation consequences for receipts, returns, or dispatch. Quantity stock is not an accounting asset balance.
+- **Implemented foundation:** weighted-average valuation per product and warehouse, landed costs entered on goods receipts, opening valuation of legacy stock, and mapped ledger postings for receipts, dispatches, returns and adjustments; administrator-set purchase-order approval threshold; three-way matching of vendor bills to purchase orders with exceptions and price variance. Operational figures only.
+- **Not implemented here:** credit notes, tax, FX, late landed costs, period-end write-downs, and accountant validation of the costing method.
 
 ### Phase 5: Project Operations
 
@@ -255,7 +256,7 @@ The sales workflow is operational and links to a separate quantity-only inventor
 - **INV-2:** Goods receipts reference a purchase order and warehouse; cumulative received quantities cannot exceed ordered quantities.
 - **INV-3:** Warehouse dispatch references a sales shipment, is idempotent, and requires sufficient on-hand stock.
 - **INV-4:** Customer/supplier returns reference the originating shipment/order and cannot exceed original shipped/received quantity less previous returns.
-- **INV-5:** Quantity stock and inventory valuation are separate capabilities; do not report stock value until a costing method and accounting integration exist.
+- **INV-5:** Stock value is reported only from valued movements (weighted average) and only when the inventory accounts are mapped; unvalued legacy quantity is shown separately and cannot be issued until an opening valuation exists.
 
 ### Access, Privacy, And Audit
 

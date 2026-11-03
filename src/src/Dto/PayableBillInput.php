@@ -20,6 +20,12 @@ final class PayableBillInput
         public readonly ?string $bill_date = null,
         #[Assert\Date]
         public readonly ?string $due_date = null,
+        /** Links the bill to a purchase order for three-way matching against goods received. */
+        #[Assert\Positive]
+        public readonly ?int $purchase_order_id = null,
+        /** Required to accept a bill that exceeds the received, not yet invoiced value of its purchase order. */
+        #[Assert\Length(max: 500)]
+        public readonly ?string $override_reason = null,
     ) {
     }
 }

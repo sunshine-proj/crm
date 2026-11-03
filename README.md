@@ -75,7 +75,16 @@ P1 progress (checkboxes stay unticked where a gap remains):
 - [ ] Implement landed-cost handling and general-ledger postings for receipts, dispatches, and returns.
 - [ ] Add purchasing controls such as purchase-order approvals and supplier-invoice matching.
 
-Inventory currently tracks quantities and movements only; it is not a valued accounting asset.
+Inventory is valued only when the inventory accounts are mapped; the valuation is an operational weighted-average figure, not a statutory inventory account.
+
+P1/P2 progress (checkboxes stay unticked where a gap remains):
+
+- **Costing method:** perpetual **weighted-average** cost per product and warehouse was chosen and implemented; the rationale and alternatives are in [docs/ACCOUNTING_TREATMENT.md](docs/ACCOUNTING_TREATMENT.md). It is a recommendation pending your accountant's confirmation, and changing it later means revaluing history. Stock value is reported at Inventory → Valuation (finance users), per currency, with average unit cost and any unvalued legacy quantity.
+- **Landed costs and GL postings:** finance users can enter landed costs on a goods receipt; they are allocated to lines by value and capitalised. Receipts (Dr Inventory / Cr Goods received not invoiced), dispatches (Dr Cost of sales / Cr Inventory), customer and supplier returns, and stock adjustments now post to the ledger once the inventory, cost of sales, goods-received-not-invoiced and inventory-adjustment accounts are mapped. Without those mappings stock stays quantity-only. Not done: landed costs added after the receipt, allocation by weight or volume, credit notes (a customer return does not reverse revenue), tax, FX, and period-end write-downs.
+- **Legacy stock:** quantity received before valuation was enabled must get an opening valuation before it can be issued; its offset goes to the inventory adjustment account and should be reviewed by an accountant.
+- **Purchasing controls:** administrators can set an approval threshold; larger orders (and any order in a non-default currency) wait for a finance user other than the creator, with an append-only decision history, before goods can be received. Vendor bills can be linked to a purchase order for a three-way match against received value; a larger bill needs an override reason and is stored as an exception. Matched bills clear the accrual and any excess is expensed as purchase price variance. Not done: tax, bills spanning several orders, partial-line price tolerances, and multi-step or amount-banded approvals.
+- **Reconciliation:** the sub-ledger report now also compares stock value and the goods-received-not-invoiced accrual with their ledger accounts.
+- **Verification:** the new migration applies, reverses and re-applies on PostgreSQL 16 without schema drift; `scripts/verify-inventory-e2e.sh` (approval, receipt with landed cost, dispatch, bill matching, reconciliation) and `scripts/verify-ledger-e2e.sh` both pass on a fresh database. Backend: 110 tests pass with measured line coverage of 46.0% (2294/4992). Scripts must run against a fresh database because remapping accounts changes which ledger accounts the controls compare.
 
 ### P2 — Add jurisdiction-specific finance operations
 

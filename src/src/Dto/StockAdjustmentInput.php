@@ -17,6 +17,10 @@ final class StockAdjustmentInput
         public readonly ?string $reason = null,
         #[Assert\Date]
         public readonly ?string $moved_at = null,
+        /** Unit cost of extra stock when the warehouse holds no valued stock of the product. */
+        public readonly ?string $unit_cost = null,
+        #[Assert\Choice(choices: ['EUR', 'GBP', 'USD'])]
+        public readonly ?string $currency = null,
     ) {
     }
 }

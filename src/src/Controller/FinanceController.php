@@ -32,7 +32,10 @@ use App\Repository\ExpenseRepository;
 use App\Repository\ExpenseReimbursementRepository;
 use App\Service\FinanceCatalog;
 use App\Service\FinancePostingService;
+use App\Service\InventoryValuationService;
 use App\Service\LedgerReconciliationService;
+use App\Service\PurchaseMatchingService;
+use App\Repository\PurchaseOrderRepository;
 use App\Service\InvoiceMoney;
 use App\Service\JournalEntryBalance;
 use Doctrine\ORM\EntityManagerInterface;
@@ -63,6 +66,9 @@ final class FinanceController extends AbstractController
         private readonly FinanceCatalog $catalog,
         private readonly JournalEntryBalance $balance,
         private readonly FinancePostingService $postingService,
+        private readonly PurchaseOrderRepository $purchaseOrderRepository,
+        private readonly PurchaseMatchingService $matching,
+        private readonly InventoryValuationService $inventoryValuation,
     ) {
     }
 
@@ -390,17 +396,57 @@ final class FinanceController extends AbstractController
         if ($this->billRepository->findOneBy(['vendorName' => $vendor, 'vendorReference' => $reference]) !== null) {
             return $this->json(['error' => 'This vendor bill reference already exists.'], JsonResponse::HTTP_CONFLICT);
         }
+        $order = null;
+        $match = null;
+        if ($input->purchase_order_id !== null) {
+            $order = $this->purchaseOrderRepository->find($input->purchase_order_id);
+            if ($order === null) {
+                return $this->json(['error' => 'Purchase order not found.'], JsonResponse::HTTP_NOT_FOUND);
+            }
+            if (!in_array($order->getStatus(), ['open', 'partially_received', 'received'], true)) {
+                return $this->json(['error' => 'Only approved purchase orders can be matched to a vendor bill.'], JsonResponse::HTTP_CONFLICT);
+            }
+            if ($order->getCurrency() !== $input->currency) {
+                return $this->json(['error' => 'The bill currency must equal the purchase order currency.'], JsonResponse::HTTP_BAD_REQUEST);
+            }
+            if (mb_strtolower($order->getSupplier()->getName()) !== mb_strtolower($vendor)) {
+                return $this->json(['error' => 'The vendor name must match the purchase order supplier ('.$order->getSupplier()->getName().').'], JsonResponse::HTTP_BAD_REQUEST);
+            }
+            try {
+                $match = $this->matching->evaluate($order, $amount, $input->override_reason);
+            } catch (\DomainException $exception) {
+                return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+            }
+        }
+        // With valued receipts the bill clears the goods-received-not-invoiced accrual; excess is price variance.
+        $useAccrual = $order !== null && $this->inventoryValuation->isEnabled() && $this->matching->hasValuedReceipts($order);
+        $cleared = 0;
+        $variance = 0;
+        if ($useAccrual) {
+            $cleared = min($amount, $this->matching->accrualRemainingMinor($order));
+            $variance = $amount - $cleared;
+        }
+        $debitRoles = $useAccrual ? array_values(array_filter([$cleared > 0 ? 'goods_received_not_invoiced' : null, $variance > 0 ? 'purchase_price_variance' : null])) : ['project_expense'];
         try {
-            $this->postingService->assertCanPost($billDate, ['project_expense', 'accounts_payable']);
+            $this->postingService->assertCanPost($billDate, [...$debitRoles, 'accounts_payable']);
         } catch (\DomainException $exception) {
             return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
         }
         $bill = new PayableBill($vendor, $reference, $input->currency, $amount, $billDate, $dueDate);
-        $this->postingService->runAtomically(function () use ($bill, $billDate, $amount): void {
+        if ($order !== null && $match !== null) {
+            $bill->matchTo($order, $match['status'], $match['note'], $cleared, $variance);
+        }
+        $this->postingService->runAtomically(function () use ($bill, $billDate, $amount, $useAccrual, $cleared, $variance): void {
             $this->entityManager->persist($bill);
             $this->entityManager->flush();
+            $debits = $useAccrual
+                ? array_values(array_filter([
+                    $cleared > 0 ? ['role' => 'goods_received_not_invoiced', 'debit_minor' => $cleared, 'credit_minor' => 0, 'memo' => 'Clear goods received not invoiced'] : null,
+                    $variance > 0 ? ['role' => 'purchase_price_variance', 'debit_minor' => $variance, 'credit_minor' => 0, 'memo' => 'Purchase price variance'] : null,
+                ]))
+                : [['role' => 'project_expense', 'debit_minor' => $amount, 'credit_minor' => 0, 'memo' => 'Vendor bill expense']];
             $this->postingService->post('vendor_bill', (int) $bill->getId(), $billDate, $bill->getCurrency(), 'Vendor bill '.$bill->getVendorReference(), [
-                ['role' => 'project_expense', 'debit_minor' => $amount, 'credit_minor' => 0, 'memo' => 'Vendor bill expense'],
+                ...$debits,
                 ['role' => 'accounts_payable', 'debit_minor' => 0, 'credit_minor' => $amount, 'memo' => 'Vendor bill payable'],
             ]);
         });
@@ -709,6 +755,8 @@ final class FinanceController extends AbstractController
             'reconciled' => $result['reconciled'],
             'receivables' => $control($result['receivables']),
             'payables' => $control($result['payables']),
+            'inventory' => $control($result['inventory']),
+            'goods_received_not_invoiced' => $control($result['goods_received_not_invoiced']),
             'missing_postings' => array_map(fn (array $row): array => ['source_type' => $row['source_type'], 'source_id' => $row['source_id'], 'reference' => $row['reference'], 'expected' => $format($row['expected_minor'])], $result['missing']),
             'amount_mismatches' => array_map(fn (array $row): array => ['source_type' => $row['source_type'], 'source_id' => $row['source_id'], 'reference' => $row['reference'], 'expected' => $format($row['expected_minor']), 'posted' => $format($row['posted_minor'])], $result['amount_mismatches']),
             'orphaned_postings' => array_map(fn (array $row): array => ['source_type' => $row['source_type'], 'source_id' => $row['source_id'], 'entry_number' => $row['entry_number'], 'posted' => $format($row['posted_minor'])], $result['orphaned']),
@@ -892,6 +940,12 @@ final class FinanceController extends AbstractController
             'bill_date' => $bill->getBillDate()->format('Y-m-d'),
             'due_date' => $bill->getDueDate()?->format('Y-m-d'),
             'status' => $paid === 0 ? 'open' : ($paid >= $bill->getTotalMinor() ? 'paid' : 'partially_paid'),
+            'purchase_order_id' => $bill->getPurchaseOrder()?->getId(),
+            'purchase_order_number' => $bill->getPurchaseOrder()?->getOrderNumber(),
+            'match_status' => $bill->getMatchStatus(),
+            'match_note' => $bill->getMatchNote(),
+            'accrual_cleared' => $this->money->formatMinor($bill->getAccrualClearedMinor()),
+            'price_variance' => $this->money->formatMinor($bill->getPriceVarianceMinor()),
         ];
     }
 }

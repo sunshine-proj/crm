@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
+import { isFinanceToken } from "../lib/session";
+import InventoryValuationPanel from "./InventoryValuationPanel.vue";
 
 type Warehouse = { id: number; code: string; name: string; address: string | null; active: boolean };
 type Supplier = { id: number; code: string; name: string; email: string | null; phone: string | null; address: string | null; active: boolean };
@@ -8,12 +10,13 @@ type Product = { id: number; sku: string; name: string; currency: string; unit_p
 type StockBalance = { product_id: number; sku: string; product_name: string; warehouse_id: number; warehouse_code: string; warehouse_name: string; quantity_on_hand: number };
 type Movement = { id: number; product_id: number; sku: string; product_name: string; warehouse_id: number; warehouse_code: string; movement_type: string; quantity_delta: number; source_type: string; source_id: number | null; moved_at: string; memo: string };
 type PurchaseLine = { product_id: number; sku: string; description: string; quantity: number; unit_cost_minor: number; line_total_minor: number; unit_cost: string; line_total: string; received_quantity: number };
-type PurchaseOrder = { id: number; order_number: string; supplier_id: number; supplier_name: string; currency: string; items: PurchaseLine[]; total: string; status: string; ordered_at: string };
+type PurchaseOrder = { created_by?: string | null; id: number; order_number: string; supplier_id: number; supplier_name: string; currency: string; items: PurchaseLine[]; total: string; status: string; ordered_at: string };
 type SalesShipment = { shipment_id: number; sales_order_id: number; order_number: string; client_name: string; shipped_at: string; reference: string | null; items: { product_id: number; description: string; quantity: number }[] };
 type InventoryReturn = { id: number; return_type: string; source_type: string; source_id: number; warehouse_code: string; reference: string | null; returned_at: string; items: { product_id: number; description: string; quantity: number }[] };
 
-const tabs = ["Warehouses", "Stock", "Purchasing", "Returns"] as const;
-type Tab = (typeof tabs)[number];
+const canSeeFinance = isFinanceToken(localStorage.getItem("crm_token"));
+const tabs = (canSeeFinance ? ["Warehouses", "Stock", "Purchasing", "Returns", "Valuation"] : ["Warehouses", "Stock", "Purchasing", "Returns"]) as readonly ("Warehouses" | "Stock" | "Purchasing" | "Returns" | "Valuation")[];
+type Tab = "Warehouses" | "Stock" | "Purchasing" | "Returns" | "Valuation";
 const tab = ref<Tab>("Warehouses");
 const warehouses = ref<Warehouse[]>([]);
 const suppliers = ref<Supplier[]>([]);
@@ -45,6 +48,8 @@ const receiptOrderId = ref<number | null>(null);
 const receiptWarehouseId = ref<number | null>(null);
 const receiptDate = ref("");
 const receiptReference = ref("");
+const receiptLandedCost = ref("");
+const adjustmentUnitCost = ref("");
 const receiptQuantities = ref<Record<number, string>>({});
 const dispatchWarehouseIds = ref<Record<number, number | null>>({});
 const adjustmentProductId = ref<number | null>(null);
@@ -230,6 +235,7 @@ function openReceipt(order: PurchaseOrder) {
   receiptWarehouseId.value = activeWarehouses.value[0]?.id ?? null;
   receiptDate.value = new Date().toISOString().slice(0, 10);
   receiptReference.value = "";
+  receiptLandedCost.value = "";
   receiptQuantities.value = Object.fromEntries(order.items.filter((line) => line.received_quantity < line.quantity).map((line) => [line.product_id, String(line.quantity - line.received_quantity)]));
 }
 
@@ -239,11 +245,21 @@ async function receivePurchaseOrder(order: PurchaseOrder) {
     errorMessage.value = "Choose a warehouse and enter a quantity for at least one item.";
     return;
   }
-  const receipt = await submit("/inventory/purchase-orders/" + order.id + "/receipts", { warehouse_id: receiptWarehouseId.value, received_at: receiptDate.value, reference: receiptReference.value || null, items }, `Goods received against ${order.order_number}.`);
+  const receipt = await submit("/inventory/purchase-orders/" + order.id + "/receipts", { warehouse_id: receiptWarehouseId.value, received_at: receiptDate.value, reference: receiptReference.value || null, items, ...(canSeeFinance && receiptLandedCost.value.trim() ? { landed_costs: [{ description: "Freight, duty and handling", amount: receiptLandedCost.value.trim() }] } : {}) }, `Goods received against ${order.order_number}.`);
   if (receipt) {
     receiptOrderId.value = null;
     await loadPage();
   }
+}
+
+async function decideOrder(order: PurchaseOrder, decision: "approve" | "reject") {
+  let comment: string | null = null;
+  if (decision === "reject") {
+    comment = window.prompt("Why is this purchase order rejected?");
+    if (!comment?.trim()) return;
+  }
+  const result = await submit<{ status: string }>(`/inventory/purchase-orders/${order.id}/${decision}`, { comment }, decision === "approve" ? `${order.order_number} approved.` : `${order.order_number} rejected.`);
+  if (result) order.status = result.status;
 }
 
 async function createAdjustment() {
@@ -252,7 +268,7 @@ async function createAdjustment() {
     errorMessage.value = "Select product and warehouse, enter a non-zero whole quantity, and provide a reason.";
     return;
   }
-  const result = await submit("/inventory/adjustments", { product_id: adjustmentProductId.value, warehouse_id: adjustmentWarehouseId.value, quantity_delta: quantity, reason: adjustmentReason.value, moved_at: adjustmentDate.value || new Date().toISOString().slice(0, 10) }, "Stock adjustment posted.");
+  const result = await submit("/inventory/adjustments", { product_id: adjustmentProductId.value, warehouse_id: adjustmentWarehouseId.value, quantity_delta: quantity, reason: adjustmentReason.value, ...(canSeeFinance && adjustmentUnitCost.value.trim() ? { unit_cost: adjustmentUnitCost.value.trim(), currency: getOrganizationDefaultCurrency() } : {}), moved_at: adjustmentDate.value || new Date().toISOString().slice(0, 10) }, "Stock adjustment posted.");
   if (result) {
     adjustmentDelta.value = "";
     adjustmentReason.value = "";
@@ -329,7 +345,7 @@ async function createReturn() {
         <div v-if="balances.length" class="finance-table-wrap"><table class="finance-table"><thead><tr><th>SKU</th><th>Product</th><th>Warehouse</th><th>On hand</th></tr></thead><tbody><tr v-for="row in balances" :key="`${row.product_id}-${row.warehouse_id}`"><td>{{ row.sku }}</td><td>{{ row.product_name }}</td><td>{{ row.warehouse_code }} · {{ row.warehouse_name }}</td><td>{{ row.quantity_on_hand }}</td></tr></tbody></table></div><p v-else class="muted">No stock recorded. Receive a purchase order or post an opening adjustment.</p>
       </section>
       <section class="inventory-section"><div class="inventory-section-heading"><div><p class="card-kicker">Inventory adjustment</p><h2>Correct a counted quantity</h2></div></div>
-        <form class="inventory-form-grid" @submit.prevent="createAdjustment"><div><label for="adjustment-product">Product</label><select id="adjustment-product" v-model.number="adjustmentProductId"><option :value="null" disabled>Select product</option><option v-for="product in products" :key="product.id" :value="product.id">{{ product.sku }} · {{ product.name }}</option></select></div><div><label for="adjustment-warehouse">Warehouse</label><select id="adjustment-warehouse" v-model.number="adjustmentWarehouseId"><option :value="null" disabled>Select warehouse</option><option v-for="warehouse in activeWarehouses" :key="warehouse.id" :value="warehouse.id">{{ warehouse.code }} · {{ warehouse.name }}</option></select></div><div><label for="adjustment-quantity">Signed quantity</label><input id="adjustment-quantity" v-model="adjustmentDelta" type="number" step="1" placeholder="+5 or -2" required /></div><div><label for="adjustment-date">Date</label><input id="adjustment-date" v-model="adjustmentDate" type="date" /></div><div><label for="adjustment-reason">Reason</label><input id="adjustment-reason" v-model="adjustmentReason" maxlength="255" required /></div><button class="edit-button" type="submit" :disabled="isSaving">Post adjustment</button></form>
+        <form class="inventory-form-grid" @submit.prevent="createAdjustment"><div><label for="adjustment-product">Product</label><select id="adjustment-product" v-model.number="adjustmentProductId"><option :value="null" disabled>Select product</option><option v-for="product in products" :key="product.id" :value="product.id">{{ product.sku }} · {{ product.name }}</option></select></div><div><label for="adjustment-warehouse">Warehouse</label><select id="adjustment-warehouse" v-model.number="adjustmentWarehouseId"><option :value="null" disabled>Select warehouse</option><option v-for="warehouse in activeWarehouses" :key="warehouse.id" :value="warehouse.id">{{ warehouse.code }} · {{ warehouse.name }}</option></select></div><div><label for="adjustment-quantity">Signed quantity</label><input id="adjustment-quantity" v-model="adjustmentDelta" type="number" step="1" placeholder="+5 or -2" required /></div><div><label for="adjustment-date">Date</label><input id="adjustment-date" v-model="adjustmentDate" type="date" /></div><div v-if="canSeeFinance"><label for="adjustment-cost">Unit cost for extra stock (optional)</label><input id="adjustment-cost" v-model="adjustmentUnitCost" inputmode="decimal" placeholder="0.00" /></div><div><label for="adjustment-reason">Reason</label><input id="adjustment-reason" v-model="adjustmentReason" maxlength="255" required /></div><button class="edit-button" type="submit" :disabled="isSaving">Post adjustment</button></form>
       </section>
       <section class="inventory-section"><div class="inventory-section-heading"><div><p class="card-kicker">Sales dispatch</p><h2>Move shipped goods out of stock</h2></div></div>
         <div v-if="pendingShipments.length" class="inventory-document-list"><article v-for="shipment in pendingShipments" :key="shipment.shipment_id"><div><p class="card-kicker">{{ shipment.order_number }} · {{ shipment.shipped_at }}<span v-if="shipment.reference"> · {{ shipment.reference }}</span></p><h3>{{ shipment.client_name }}</h3><p class="muted">{{ shipment.items.map((line) => `${line.quantity} × ${line.description}`).join(" · ") }}</p></div><div class="inventory-dispatch-actions"><select v-model.number="dispatchWarehouseIds[shipment.shipment_id]" :aria-label="`Warehouse for ${shipment.order_number}`"><option :value="null" disabled>Select warehouse</option><option v-for="warehouse in activeWarehouses" :key="warehouse.id" :value="warehouse.id">{{ warehouse.code }}</option></select><button class="edit-button" type="button" :disabled="isSaving || !activeWarehouses.length" @click="dispatchShipment(shipment)">Dispatch</button></div></article></div><p v-else class="muted">No sales shipments are waiting for inventory dispatch.</p>
@@ -348,10 +364,12 @@ async function createReturn() {
       </section>
       <section class="inventory-section"><div class="inventory-section-heading"><div><p class="card-kicker">Goods receipts</p><h2>Receive ordered quantities into a warehouse</h2></div></div>
         <div v-if="orders.length" class="inventory-document-list"><article v-for="order in orders" :key="order.id"><div><p class="card-kicker">{{ order.order_number }} · {{ order.status }} · {{ order.ordered_at }}</p><h3>{{ order.supplier_name }} · {{ order.total }} {{ order.currency }}</h3><p class="muted">{{ order.items.map((line) => `${line.received_quantity}/${line.quantity} ${line.description}`).join(" · ") }}</p>
-            <form v-if="receiptOrderId === order.id" class="inventory-inline-receipt" @submit.prevent="receivePurchaseOrder(order)"><div class="inventory-form-grid"><div><label :for="`receipt-warehouse-${order.id}`">Warehouse</label><select :id="`receipt-warehouse-${order.id}`" v-model.number="receiptWarehouseId"><option :value="null" disabled>Select warehouse</option><option v-for="warehouse in activeWarehouses" :key="warehouse.id" :value="warehouse.id">{{ warehouse.code }} · {{ warehouse.name }}</option></select></div><div><label :for="`receipt-date-${order.id}`">Receipt date</label><input :id="`receipt-date-${order.id}`" v-model="receiptDate" type="date" required /></div><div><label :for="`receipt-ref-${order.id}`">Reference</label><input :id="`receipt-ref-${order.id}`" v-model="receiptReference" maxlength="80" /></div></div><div v-for="line in order.items.filter((item) => item.received_quantity < item.quantity)" :key="line.product_id" class="inventory-receipt-line"><span>{{ line.description }} · {{ line.quantity - line.received_quantity }} remaining</span><input v-model="receiptQuantities[line.product_id]" type="number" min="0" :max="line.quantity - line.received_quantity" step="1" :aria-label="`Received quantity for ${line.description}`" /></div><div class="task-form-actions"><button class="edit-button" type="submit" :disabled="isSaving">{{ isSaving ? "Receiving..." : "Post goods receipt" }}</button><button class="edit-button" type="button" @click="receiptOrderId = null">Cancel</button></div></form>
-          </div><button v-if="['open', 'partially_received'].includes(order.status) && receiptOrderId !== order.id" class="edit-button" type="button" :disabled="!activeWarehouses.length" @click="openReceipt(order)">Receive goods</button></article></div><p v-else class="muted">No purchase orders recorded.</p>
+            <form v-if="receiptOrderId === order.id" class="inventory-inline-receipt" @submit.prevent="receivePurchaseOrder(order)"><div class="inventory-form-grid"><div><label :for="`receipt-warehouse-${order.id}`">Warehouse</label><select :id="`receipt-warehouse-${order.id}`" v-model.number="receiptWarehouseId"><option :value="null" disabled>Select warehouse</option><option v-for="warehouse in activeWarehouses" :key="warehouse.id" :value="warehouse.id">{{ warehouse.code }} · {{ warehouse.name }}</option></select></div><div><label :for="`receipt-date-${order.id}`">Receipt date</label><input :id="`receipt-date-${order.id}`" v-model="receiptDate" type="date" required /></div><div><label :for="`receipt-ref-${order.id}`">Reference</label><input :id="`receipt-ref-${order.id}`" v-model="receiptReference" maxlength="80" /></div><div v-if="canSeeFinance"><label :for="`receipt-landed-${order.id}`">Landed cost ({{ order.currency }}, optional)</label><input :id="`receipt-landed-${order.id}`" v-model="receiptLandedCost" inputmode="decimal" placeholder="0.00" /></div></div><div v-for="line in order.items.filter((item) => item.received_quantity < item.quantity)" :key="line.product_id" class="inventory-receipt-line"><span>{{ line.description }} · {{ line.quantity - line.received_quantity }} remaining</span><input v-model="receiptQuantities[line.product_id]" type="number" min="0" :max="line.quantity - line.received_quantity" step="1" :aria-label="`Received quantity for ${line.description}`" /></div><div class="task-form-actions"><button class="edit-button" type="submit" :disabled="isSaving">{{ isSaving ? "Receiving..." : "Post goods receipt" }}</button><button class="edit-button" type="button" @click="receiptOrderId = null">Cancel</button></div></form>
+          </div><button v-if="['open', 'partially_received'].includes(order.status) && receiptOrderId !== order.id" class="edit-button" type="button" :disabled="!activeWarehouses.length" @click="openReceipt(order)">Receive goods</button><div v-if="order.status === 'pending_approval'" class="task-form-actions"><span class="card-kicker">Awaiting approval<template v-if="order.created_by"> · created by {{ order.created_by }}</template></span><template v-if="canSeeFinance"><button class="edit-button" type="button" :disabled="isSaving" @click="decideOrder(order, 'approve')">Approve</button><button class="edit-button danger-button" type="button" :disabled="isSaving" @click="decideOrder(order, 'reject')">Reject</button></template></div></article></div><p v-else class="muted">No purchase orders recorded.</p>
       </section>
     </template>
+
+    <InventoryValuationPanel v-else-if="tab === 'Valuation'" :products="products" :warehouses="warehouses" @changed="loadPage" />
 
     <template v-else>
       <section class="inventory-section"><div class="inventory-section-heading"><div><p class="card-kicker">Returns</p><h2>Record customer or supplier returns</h2></div></div>

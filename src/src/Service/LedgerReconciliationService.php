@@ -5,6 +5,8 @@ namespace App\Service;
 use App\Entity\JournalEntry;
 use App\Repository\ExpenseReimbursementRepository;
 use App\Repository\ExpenseRepository;
+use App\Entity\InventoryValuation;
+use App\Repository\InventoryValuationRepository;
 use App\Repository\InvoiceRepository;
 use App\Repository\JournalEntryRepository;
 use App\Repository\PayableBillRepository;
@@ -26,6 +28,22 @@ final class LedgerReconciliationService
         'vendor_payment' => 'vendor_payment',
         'expense_approval' => 'approved_expense',
         'expense_reimbursement' => 'expense_reimbursement',
+        'inventory_receipt' => 'inventory_receipt',
+        'inventory_dispatch' => 'inventory_dispatch',
+        'inventory_customer_return' => 'inventory_customer_return',
+        'inventory_supplier_return' => 'inventory_supplier_return',
+        'inventory_adjustment' => 'inventory_adjustment',
+        'inventory_opening' => 'inventory_opening',
+    ];
+
+    /** @var array<string, string> valuation kind => posting source type */
+    private const VALUATION_SOURCES = [
+        InventoryValuation::RECEIPT => 'inventory_receipt',
+        InventoryValuation::DISPATCH => 'inventory_dispatch',
+        InventoryValuation::CUSTOMER_RETURN => 'inventory_customer_return',
+        InventoryValuation::SUPPLIER_RETURN => 'inventory_supplier_return',
+        InventoryValuation::ADJUSTMENT => 'inventory_adjustment',
+        InventoryValuation::OPENING => 'inventory_opening',
     ];
 
     public function __construct(
@@ -37,6 +55,7 @@ final class LedgerReconciliationService
         private readonly ExpenseReimbursementRepository $reimbursementRepository,
         private readonly JournalEntryRepository $journalRepository,
         private readonly FinancePostingService $postingService,
+        private readonly InventoryValuationRepository $valuationRepository,
     ) {
     }
 
@@ -48,6 +67,8 @@ final class LedgerReconciliationService
      *   orphaned: list<array{source_type: string, source_id: int, entry_number: string|null, posted_minor: int}>,
      *   receivables: array{subledger_minor: int, ledger_minor: int|null, difference_minor: int|null},
      *   payables: array{subledger_minor: int, ledger_minor: int|null, difference_minor: int|null},
+     *   inventory: array{subledger_minor: int, ledger_minor: int|null, difference_minor: int|null},
+     *   goods_received_not_invoiced: array{subledger_minor: int, ledger_minor: int|null, difference_minor: int|null},
      *   reconciled: bool
      * }
      */
@@ -91,6 +112,12 @@ final class LedgerReconciliationService
         $receivables = ['subledger_minor' => $arSub, 'ledger_minor' => $arLedger, 'difference_minor' => $arLedger === null ? null : $arLedger - $arSub];
         $payables = ['subledger_minor' => $apSub, 'ledger_minor' => $apLedger, 'difference_minor' => $apLedger === null ? null : $apLedger - $apSub];
 
+        [$inventorySub, $grniSub] = $this->inventorySubledgers($currency);
+        $invLedger = $this->controlBalance($entries, $mappings['inventory'] ?? null, true);
+        $grniLedger = $this->controlBalance($entries, $mappings['goods_received_not_invoiced'] ?? null, false);
+        $inventory = ['subledger_minor' => $inventorySub, 'ledger_minor' => $invLedger, 'difference_minor' => $invLedger === null ? null : $invLedger - $inventorySub];
+        $grni = ['subledger_minor' => $grniSub, 'ledger_minor' => $grniLedger, 'difference_minor' => $grniLedger === null ? null : $grniLedger - $grniSub];
+
         return [
             'currency' => $currency,
             'missing' => $missing,
@@ -98,9 +125,23 @@ final class LedgerReconciliationService
             'orphaned' => $orphaned,
             'receivables' => $receivables,
             'payables' => $payables,
+            'inventory' => $inventory,
+            'goods_received_not_invoiced' => $grni,
             'reconciled' => $missing === [] && $mismatches === [] && $orphaned === []
-                && $receivables['difference_minor'] === 0 && $payables['difference_minor'] === 0,
+                && $this->controlIsReconciled($receivables) && $this->controlIsReconciled($payables)
+                && $this->controlIsReconciled($inventory) && $this->controlIsReconciled($grni),
         ];
+    }
+
+    /**
+     * A control with a ledger balance must match its sub-ledger. An unmapped control is fine only while its
+     * sub-ledger is empty (nothing could have been posted to it).
+     *
+     * @param array{subledger_minor: int, ledger_minor: int|null, difference_minor: int|null} $control
+     */
+    private function controlIsReconciled(array $control): bool
+    {
+        return ($control['difference_minor'] ?? ($control['subledger_minor'] === 0 ? 0 : null)) === 0;
     }
 
     /** @return array<string, array{id: int, record_type: string, reference: string, amount: int, kind: string}> keyed "type:id" */
@@ -139,7 +180,35 @@ final class LedgerReconciliationService
             }
         }
 
+        foreach ($this->valuationRepository->findAll() as $valuation) {
+            if ($valuation->getCurrency() === $currency && $valuation->getValueMinor() !== 0) {
+                $add(self::VALUATION_SOURCES[$valuation->getKind()], (int) $valuation->getId(), $valuation->getKind().' #'.$valuation->getSourceId(), abs($valuation->getValueMinor()));
+            }
+        }
+
         return $sources;
+    }
+
+    /**
+     * Stock value and the goods-received-not-invoiced accrual implied by valuation entries and matched bills.
+     *
+     * @return array{0: int, 1: int}
+     */
+    private function inventorySubledgers(string $currency): array
+    {
+        $stock = 0;
+        $accrual = 0;
+        foreach ($this->valuationRepository->findBy(['currency' => $currency]) as $valuation) {
+            $stock += $valuation->getValueMinor();
+            if (in_array($valuation->getKind(), [InventoryValuation::RECEIPT, InventoryValuation::SUPPLIER_RETURN], true)) {
+                $accrual += $valuation->getValueMinor();
+            }
+        }
+        foreach ($this->billRepository->findBy(['currency' => $currency]) as $bill) {
+            $accrual -= $bill->getAccrualClearedMinor();
+        }
+
+        return [$stock, $accrual];
     }
 
     /**

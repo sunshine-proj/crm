@@ -113,6 +113,11 @@ final class FinancePostingService
                 'accounts_payable',
                 'project_expense',
                 'expense_payable',
+                'inventory',
+                'cost_of_sales',
+                'goods_received_not_invoiced',
+                'inventory_adjustment',
+                'purchase_price_variance',
             ], null);
         }
 
@@ -161,6 +166,11 @@ final class FinancePostingService
             'accounts_payable' => 'liability',
             'project_expense' => 'expense',
             'expense_payable' => 'liability',
+            'inventory' => 'asset',
+            'cost_of_sales' => 'expense',
+            'goods_received_not_invoiced' => 'liability',
+            'inventory_adjustment' => 'expense',
+            'purchase_price_variance' => 'expense',
         ];
         $mappings = [];
         foreach ($expectedTypes as $role => $expectedType) {

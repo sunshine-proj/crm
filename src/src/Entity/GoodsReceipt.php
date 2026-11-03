@@ -35,6 +35,13 @@ class GoodsReceipt
     #[ORM\Column(type: Types::DATE_IMMUTABLE)]
     private \DateTimeImmutable $receivedAt;
 
+    /** @var list<array{description: string, amount_minor: int}> freight, duty and similar costs capitalised into inventory */
+    #[ORM\Column(type: Types::JSON, options: ['default' => '[]'])]
+    private array $landedCosts = [];
+
+    #[ORM\Column(type: Types::BIGINT, options: ['default' => 0])]
+    private int $landedTotalMinor = 0;
+
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
@@ -49,6 +56,25 @@ class GoodsReceipt
         $this->createdAt = new \DateTimeImmutable();
     }
 
+    /** @param list<array{description: string, amount_minor: int}> $landedCosts */
+    public function withLandedCosts(array $landedCosts): static
+    {
+        $total = 0;
+        foreach ($landedCosts as $cost) {
+            if ($cost['amount_minor'] < 1 || $cost['amount_minor'] > PHP_INT_MAX - $total) {
+                throw new \InvalidArgumentException('Landed cost amounts must be positive and within range.');
+            }
+            $total += $cost['amount_minor'];
+        }
+        $this->landedCosts = $landedCosts;
+        $this->landedTotalMinor = $total;
+
+        return $this;
+    }
+
+    /** @return list<array{description: string, amount_minor: int}> */
+    public function getLandedCosts(): array { return $this->landedCosts; }
+    public function getLandedTotalMinor(): int { return $this->landedTotalMinor; }
     public function getId(): ?int { return $this->id; }
     public function getPurchaseOrder(): PurchaseOrder { return $this->purchaseOrder; }
     public function getWarehouse(): Warehouse { return $this->warehouse; }

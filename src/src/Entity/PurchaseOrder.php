@@ -24,6 +24,10 @@ class PurchaseOrder
     #[ORM\JoinColumn(nullable: false, onDelete: 'RESTRICT')]
     private Supplier $supplier;
 
+    #[ORM\ManyToOne(targetEntity: User::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?User $createdBy = null;
+
     #[ORM\Column(length: 3)]
     private string $currency;
 
@@ -58,6 +62,8 @@ class PurchaseOrder
         $this->updatedAt = $this->createdAt;
     }
 
+    public function getCreatedBy(): ?User { return $this->createdBy; }
+    public function setCreatedBy(?User $user): static { $this->createdBy = $user; return $this; }
     public function getId(): ?int { return $this->id; }
     public function getOrderNumber(): ?string { return $this->orderNumber; }
     public function getSupplier(): Supplier { return $this->supplier; }

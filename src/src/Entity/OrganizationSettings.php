@@ -59,6 +59,30 @@ class OrganizationSettings
     #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
     private ?LedgerAccount $expensePayableAccount = null;
 
+    #[ORM\ManyToOne(targetEntity: LedgerAccount::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?LedgerAccount $inventoryAccount = null;
+
+    #[ORM\ManyToOne(targetEntity: LedgerAccount::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?LedgerAccount $costOfSalesAccount = null;
+
+    #[ORM\ManyToOne(targetEntity: LedgerAccount::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?LedgerAccount $goodsReceivedNotInvoicedAccount = null;
+
+    #[ORM\ManyToOne(targetEntity: LedgerAccount::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?LedgerAccount $inventoryAdjustmentAccount = null;
+
+    #[ORM\ManyToOne(targetEntity: LedgerAccount::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?LedgerAccount $purchasePriceVarianceAccount = null;
+
+    /** Purchase orders at or above this value (in the default currency) need approval; null disables approvals. */
+    #[ORM\Column(type: Types::BIGINT, nullable: true)]
+    private ?int $purchaseApprovalThresholdMinor = null;
+
     public function getId(): int
     {
         return $this->id;
@@ -99,6 +123,11 @@ class OrganizationSettings
             'accounts_payable' => $this->accountsPayableAccount,
             'project_expense' => $this->projectExpenseAccount,
             'expense_payable' => $this->expensePayableAccount,
+            'inventory' => $this->inventoryAccount,
+            'cost_of_sales' => $this->costOfSalesAccount,
+            'goods_received_not_invoiced' => $this->goodsReceivedNotInvoicedAccount,
+            'inventory_adjustment' => $this->inventoryAdjustmentAccount,
+            'purchase_price_variance' => $this->purchasePriceVarianceAccount,
         ];
     }
 
@@ -111,6 +140,26 @@ class OrganizationSettings
         $this->accountsPayableAccount = $mappings['accounts_payable'] ?? null;
         $this->projectExpenseAccount = $mappings['project_expense'] ?? null;
         $this->expensePayableAccount = $mappings['expense_payable'] ?? null;
+        $this->inventoryAccount = $mappings['inventory'] ?? null;
+        $this->costOfSalesAccount = $mappings['cost_of_sales'] ?? null;
+        $this->goodsReceivedNotInvoicedAccount = $mappings['goods_received_not_invoiced'] ?? null;
+        $this->inventoryAdjustmentAccount = $mappings['inventory_adjustment'] ?? null;
+        $this->purchasePriceVarianceAccount = $mappings['purchase_price_variance'] ?? null;
+
+        return $this;
+    }
+
+    public function getPurchaseApprovalThresholdMinor(): ?int
+    {
+        return $this->purchaseApprovalThresholdMinor;
+    }
+
+    public function setPurchaseApprovalThresholdMinor(?int $thresholdMinor): static
+    {
+        if ($thresholdMinor !== null && $thresholdMinor < 0) {
+            throw new \InvalidArgumentException('The approval threshold cannot be negative.');
+        }
+        $this->purchaseApprovalThresholdMinor = $thresholdMinor;
 
         return $this;
     }

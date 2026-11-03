@@ -28,7 +28,10 @@ use App\Repository\StockMovementRepository;
 use App\Repository\SupplierRepository;
 use App\Repository\WarehouseRepository;
 use App\Service\FinanceCatalog;
+use App\Service\InventoryValuationService;
 use App\Service\InvoiceMoney;
+use App\Service\PurchaseApprovalPolicy;
+use App\Entity\User;
 use App\Service\StockLedger;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
@@ -56,6 +59,8 @@ final class InventoryController extends AbstractController
         private readonly StockLedger $stockLedger,
         private readonly InvoiceMoney $money,
         private readonly FinanceCatalog $financeCatalog,
+        private readonly InventoryValuationService $valuation,
+        private readonly PurchaseApprovalPolicy $approvalPolicy,
     ) {
     }
 
@@ -140,6 +145,11 @@ final class InventoryController extends AbstractController
         if ($supplier === null || !$supplier->isActive()) return $this->json(['error' => 'An active supplier is required.'], JsonResponse::HTTP_NOT_FOUND);
 
         $order = new PurchaseOrder($supplier, $data['currency'], $data['items'], $data['total_minor'], $data['ordered_at']);
+        $creator = $this->getUser();
+        $order->setCreatedBy($creator instanceof User ? $this->entityManager->getReference(User::class, $creator->getId()) : null);
+        if ($this->approvalPolicy->requiresApproval($order->getCurrency(), $order->getTotalMinor())) {
+            $order->setStatus('pending_approval');
+        }
         $this->entityManager->persist($order);
         $this->entityManager->flush();
         $order->setOrderNumber(sprintf('PO-%s-%06d', $data['ordered_at']->format('Y'), $order->getId()));
@@ -167,15 +177,23 @@ final class InventoryController extends AbstractController
         if (isset($lines['error'])) return $this->json(['error' => $lines['error']], JsonResponse::HTTP_CONFLICT);
         if ($lines['items'] === []) return $this->json(['error' => 'At least one receipt line is required.'], JsonResponse::HTTP_BAD_REQUEST);
 
+        $landed = $this->parseLandedCosts($input->landed_costs);
+        if (isset($landed['error'])) return $this->json(['error' => $landed['error']], $landed['status']);
+
         try {
-            $receipt = $this->entityManager->wrapInTransaction(function () use ($order, $warehouse, $receivedAt, $input, $lines, $ordered, $received): GoodsReceipt {
+            $receipt = $this->entityManager->wrapInTransaction(function () use ($order, $warehouse, $receivedAt, $input, $lines, $ordered, $received, $landed): GoodsReceipt {
                 $receipt = new GoodsReceipt($order, $warehouse, $lines['items'], $receivedAt, $input->reference !== null ? trim($input->reference) : null);
+                $receipt->withLandedCosts($landed['costs']);
                 $this->entityManager->persist($receipt);
                 $this->entityManager->flush();
                 foreach ($lines['items'] as $line) {
                     $product = $this->productRepository->find($line['product_id']);
                     $this->stockLedger->record($product, $warehouse, 'goods_receipt', $line['quantity'], 'goods_receipt', $receipt->getId(), $receivedAt, 'Receipt for '.$order->getOrderNumber());
                     $received[$line['product_id']] = ($received[$line['product_id']] ?? 0) + $line['quantity'];
+                }
+                if ($this->valuation->isEnabled()) {
+                    $this->entityManager->flush();
+                    $this->valuation->recordReceipt($receipt, $order->getCurrency(), $this->receiptValuationLines($order, $receipt, $lines['items']));
                 }
                 $complete = true;
                 foreach ($ordered as $productId => $quantity) {
@@ -185,7 +203,7 @@ final class InventoryController extends AbstractController
                 $this->entityManager->flush();
                 return $receipt;
             });
-        } catch (\DomainException|\OverflowException|UniqueConstraintViolationException $exception) {
+        } catch (\DomainException|\OverflowException|\InvalidArgumentException|UniqueConstraintViolationException $exception) {
             return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
         }
         return $this->json($this->serializeReceipt($receipt), JsonResponse::HTTP_CREATED);
@@ -232,14 +250,19 @@ final class InventoryController extends AbstractController
         } catch (\InvalidArgumentException) {
             return $this->json(['error' => 'Movement date must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST);
         }
+        $unitCostMinor = $input->unit_cost !== null && trim($input->unit_cost) !== '' ? $this->money->parseMinor($input->unit_cost) : null;
+        if ($input->unit_cost !== null && trim($input->unit_cost) !== '' && $unitCostMinor === null) return $this->json(['error' => 'Unit cost must be a non-negative amount with at most two decimal places.'], JsonResponse::HTTP_BAD_REQUEST);
         try {
-            $movement = $this->entityManager->wrapInTransaction(function () use ($product, $warehouse, $input, $movedAt): StockMovement {
+            $movement = $this->entityManager->wrapInTransaction(function () use ($product, $warehouse, $input, $movedAt, $unitCostMinor): StockMovement {
                 $type = $input->quantity_delta > 0 ? 'adjustment_in' : 'adjustment_out';
                 $movement = $this->stockLedger->record($product, $warehouse, $type, $input->quantity_delta, 'adjustment', null, $movedAt, trim($input->reason));
                 $this->entityManager->flush();
+                if ($this->valuation->isEnabled()) {
+                    $this->valuation->recordAdjustment((int) $movement->getId(), $product, $warehouse, $input->quantity_delta, $movedAt, $unitCostMinor, $input->currency);
+                }
                 return $movement;
             });
-        } catch (\DomainException|\OverflowException $exception) {
+        } catch (\DomainException|\OverflowException|\InvalidArgumentException $exception) {
             return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
         }
         return $this->json($this->serializeMovement($movement), JsonResponse::HTTP_CREATED);
@@ -298,10 +321,14 @@ final class InventoryController extends AbstractController
             $this->entityManager->wrapInTransaction(function () use ($products, $warehouse, $movedAt, $shipment): void {
                 foreach ($products as [$product, $line]) {
                     $this->stockLedger->record($product, $warehouse, 'sales_shipment', -$line['quantity'], 'sales_shipment', $shipment->getId(), $movedAt, $line['description']);
+                    if ($this->valuation->isEnabled()) {
+                        $this->entityManager->flush();
+                        $this->valuation->recordDispatch((int) $shipment->getId(), $product, $warehouse, $line['quantity'], $movedAt);
+                    }
                 }
                 $this->entityManager->flush();
             });
-        } catch (\DomainException|\OverflowException|UniqueConstraintViolationException $exception) {
+        } catch (\DomainException|\OverflowException|\InvalidArgumentException|UniqueConstraintViolationException $exception) {
             return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
         }
         return $this->json(['shipment_id' => $id, 'warehouse_id' => $warehouse->getId(), 'dispatched_at' => $movedAt->format('Y-m-d'), 'status' => 'dispatched']);
@@ -361,14 +388,60 @@ final class InventoryController extends AbstractController
                     $delta = $input->return_type === 'customer' ? $line['quantity'] : -$line['quantity'];
                     $type = $input->return_type === 'customer' ? 'customer_return' : 'supplier_return';
                     $this->stockLedger->record($product, $warehouse, $type, $delta, 'inventory_return', $return->getId(), $returnedAt, $line['description']);
+                    if ($this->valuation->isEnabled()) {
+                        $this->entityManager->flush();
+                        if ($input->return_type === 'customer') {
+                            $this->valuation->recordCustomerReturn((int) $return->getId(), (int) $input->source_id, $product, $warehouse, $line['quantity'], $returnedAt);
+                        } else {
+                            $this->valuation->recordSupplierReturn((int) $return->getId(), $product, $warehouse, $line['quantity'], $returnedAt);
+                        }
+                    }
                 }
                 $this->entityManager->flush();
                 return $return;
             });
-        } catch (\DomainException|\OverflowException $exception) {
+        } catch (\DomainException|\OverflowException|\InvalidArgumentException $exception) {
             return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
         }
         return $this->json($this->serializeReturn($return), JsonResponse::HTTP_CREATED);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $requested
+     * @return array{costs: list<array{description: string, amount_minor: int}>}|array{error: string, status: int}
+     */
+    private function parseLandedCosts(array $requested): array
+    {
+        if ($requested === []) return ['costs' => []];
+        if (!$this->isGranted('ROLE_FINANCE')) return ['error' => 'Only finance users can record landed costs.', 'status' => JsonResponse::HTTP_FORBIDDEN];
+        $costs = [];
+        foreach ($requested as $line) {
+            $description = is_array($line) && is_string($line['description'] ?? null) ? trim($line['description']) : '';
+            $amount = is_array($line) && is_string($line['amount'] ?? null) ? $this->money->parseMinor($line['amount']) : null;
+            if ($description === '' || mb_strlen($description) > 120 || $amount === null || $amount < 1) return ['error' => 'Each landed cost needs a description (up to 120 characters) and a positive amount.', 'status' => JsonResponse::HTTP_BAD_REQUEST];
+            $costs[] = ['description' => $description, 'amount_minor' => $amount];
+        }
+        return ['costs' => $costs];
+    }
+
+    /**
+     * Goods cost per receipt line at purchase-order prices, with the receipt's landed costs allocated by line value.
+     *
+     * @param list<array{product_id: int, description: string, quantity: int}> $receivedLines
+     * @return list<array{product: Product, quantity: int, goods_minor: int, landed_minor: int}>
+     */
+    private function receiptValuationLines(PurchaseOrder $order, GoodsReceipt $receipt, array $receivedLines): array
+    {
+        $prices = [];
+        foreach ($order->getItems() as $item) $prices[$item['product_id']] = $item['unit_cost_minor'];
+        $goods = [];
+        foreach ($receivedLines as $index => $line) $goods[$index] = ($prices[$line['product_id']] ?? 0) * $line['quantity'];
+        $landed = $receipt->getLandedTotalMinor() > 0 ? $this->valuation->allocateLandedCosts($goods, $receipt->getLandedTotalMinor()) : array_fill_keys(array_keys($goods), 0);
+        $result = [];
+        foreach ($receivedLines as $index => $line) {
+            $result[] = ['product' => $this->productRepository->find($line['product_id']), 'quantity' => $line['quantity'], 'goods_minor' => $goods[$index], 'landed_minor' => $landed[$index]];
+        }
+        return $result;
     }
 
     private function warehouseData(WarehouseInput $input): array
@@ -483,12 +556,12 @@ final class InventoryController extends AbstractController
     private function serializePurchaseOrder(PurchaseOrder $order): array
     {
         $received = $this->receivedForOrder((int) $order->getId());
-        return ['id' => $order->getId(), 'order_number' => $order->getOrderNumber(), 'supplier_id' => $order->getSupplier()->getId(), 'supplier_code' => $order->getSupplier()->getCode(), 'supplier_name' => $order->getSupplier()->getName(), 'currency' => $order->getCurrency(), 'items' => array_map(fn (array $line): array => $line + ['unit_cost' => $this->money->formatMinor($line['unit_cost_minor']), 'line_total' => $this->money->formatMinor($line['line_total_minor']), 'received_quantity' => $received[$line['product_id']] ?? 0], $order->getItems()), 'total' => $this->money->formatMinor($order->getTotalMinor()), 'status' => $order->getStatus(), 'ordered_at' => $order->getOrderedAt()->format('Y-m-d')];
+        return ['id' => $order->getId(), 'order_number' => $order->getOrderNumber(), 'supplier_id' => $order->getSupplier()->getId(), 'supplier_code' => $order->getSupplier()->getCode(), 'supplier_name' => $order->getSupplier()->getName(), 'currency' => $order->getCurrency(), 'items' => array_map(fn (array $line): array => $line + ['unit_cost' => $this->money->formatMinor($line['unit_cost_minor']), 'line_total' => $this->money->formatMinor($line['line_total_minor']), 'received_quantity' => $received[$line['product_id']] ?? 0], $order->getItems()), 'total' => $this->money->formatMinor($order->getTotalMinor()), 'status' => $order->getStatus(), 'ordered_at' => $order->getOrderedAt()->format('Y-m-d'), 'created_by' => $order->getCreatedBy()?->getUserIdentifier()];
     }
 
     private function serializeReceipt(GoodsReceipt $receipt): array
     {
-        return ['id' => $receipt->getId(), 'purchase_order_id' => $receipt->getPurchaseOrder()->getId(), 'order_number' => $receipt->getPurchaseOrder()->getOrderNumber(), 'warehouse_id' => $receipt->getWarehouse()->getId(), 'warehouse_code' => $receipt->getWarehouse()->getCode(), 'reference' => $receipt->getReference(), 'received_at' => $receipt->getReceivedAt()->format('Y-m-d'), 'items' => $receipt->getItems()];
+        return ['id' => $receipt->getId(), 'purchase_order_id' => $receipt->getPurchaseOrder()->getId(), 'order_number' => $receipt->getPurchaseOrder()->getOrderNumber(), 'warehouse_id' => $receipt->getWarehouse()->getId(), 'warehouse_code' => $receipt->getWarehouse()->getCode(), 'reference' => $receipt->getReference(), 'received_at' => $receipt->getReceivedAt()->format('Y-m-d'), 'items' => $receipt->getItems(), 'landed_costs' => array_map(fn (array $cost): array => ['description' => $cost['description'], 'amount' => $this->money->formatMinor($cost['amount_minor'])], $receipt->getLandedCosts()), 'landed_total' => $this->money->formatMinor($receipt->getLandedTotalMinor())];
     }
 
     private function serializeMovement(StockMovement $movement): array

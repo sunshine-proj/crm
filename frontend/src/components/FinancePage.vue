@@ -5,7 +5,7 @@ import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 type Currency = { code: string; name: string; minor_unit: number };
 type Account = { id: number; code: string; name: string; type: string; active: boolean };
 type Period = { id: number; name: string; starts_on: string; ends_on: string; closed: boolean };
-type MappingRole = "accounts_receivable" | "revenue" | "cash" | "accounts_payable" | "project_expense" | "expense_payable";
+type MappingRole = "accounts_receivable" | "revenue" | "cash" | "accounts_payable" | "project_expense" | "expense_payable" | "inventory" | "cost_of_sales" | "goods_received_not_invoiced" | "inventory_adjustment" | "purchase_price_variance";
 type MappingResponse = { mappings: Record<MappingRole, number | null>; accounts: Account[] };
 type FinancialStatements = {
   currency: string;
@@ -16,7 +16,12 @@ type FinancialStatements = {
 };
 type Reconciliation = { reconciled: boolean; missing_count: number; missing_postings: { source_type: string; reference: string; currency: string; amount: string }[]; basis: string };
 type TaxCode = { id: number; code: string; name: string; rate_percent: string; active: boolean };
+type PurchaseOrderOption = { id: number; order_number: string; supplier_name: string; currency: string; status: string; total: string };
 type Bill = {
+  match_status?: string;
+  match_note?: string | null;
+  purchase_order_number?: string | null;
+  price_variance?: string;
   id: number;
   vendor_name: string;
   vendor_reference: string;
@@ -58,11 +63,16 @@ const mappingRoles: { key: MappingRole; label: string }[] = [
   { key: "accounts_payable", label: "Accounts payable" },
   { key: "project_expense", label: "Project expenses" },
   { key: "expense_payable", label: "Expense payable" },
+  { key: "inventory", label: "Inventory (asset)" },
+  { key: "cost_of_sales", label: "Cost of sales (expense)" },
+  { key: "goods_received_not_invoiced", label: "Goods received not invoiced (liability)" },
+  { key: "inventory_adjustment", label: "Inventory adjustments (expense)" },
+  { key: "purchase_price_variance", label: "Purchase price variance (expense)" },
 ];
 const tab = ref<Tab>("Ledger");
 const currencies = ref<Currency[]>([]);
 const accounts = ref<Account[]>([]);
-const mappings = ref<Record<MappingRole, number | null>>({ accounts_receivable: null, revenue: null, cash: null, accounts_payable: null, project_expense: null, expense_payable: null });
+const mappings = ref<Record<MappingRole, number | null>>({ accounts_receivable: null, revenue: null, cash: null, accounts_payable: null, project_expense: null, expense_payable: null, inventory: null, cost_of_sales: null, goods_received_not_invoiced: null, inventory_adjustment: null, purchase_price_variance: null });
 const financialStatements = ref<FinancialStatements | null>(null);
 const reconciliation = ref<Reconciliation | null>(null);
 const periods = ref<Period[]>([]);
@@ -101,6 +111,9 @@ const vendorName = ref("");
 const vendorReference = ref("");
 const billCurrency = ref(getOrganizationDefaultCurrency());
 const billTotal = ref("");
+const purchaseOrders = ref<PurchaseOrderOption[]>([]);
+const billPurchaseOrderId = ref<number | null>(null);
+const billOverrideReason = ref("");
 const billDate = ref("");
 const billDueDate = ref("");
 const paymentAmounts = ref<Record<number, string>>({});
@@ -158,7 +171,7 @@ async function loadFinance() {
     bills.value = loadedBills;
     mappings.value = mappingResponse.mappings;
     journalEntries.value = loadedEntries;
-    await Promise.all([loadTrialBalance(), loadArAp(), loadStatements(), loadReconciliation()]);
+    await Promise.all([loadTrialBalance(), loadArAp(), loadStatements(), loadReconciliation(), loadPurchaseOrders()]);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to load finance records.";
   } finally {
@@ -303,6 +316,8 @@ type SubledgerReconciliation = {
   reconciled: boolean;
   receivables: ControlBalance;
   payables: ControlBalance;
+  inventory: ControlBalance;
+  goods_received_not_invoiced: ControlBalance;
   missing_postings: { source_type: string; source_id: number; reference: string; expected: string }[];
   amount_mismatches: { source_type: string; source_id: number; reference: string; expected: string; posted: string }[];
   orphaned_postings: { source_type: string; source_id: number; entry_number: string | null; posted: string }[];
@@ -357,6 +372,22 @@ async function createTaxCode() {
   }
 }
 
+function pickPurchaseOrder() {
+  const order = purchaseOrders.value.find((item) => item.id === billPurchaseOrderId.value);
+  if (order) {
+    vendorName.value = order.supplier_name;
+    billCurrency.value = order.currency;
+  }
+}
+
+async function loadPurchaseOrders() {
+  try {
+    purchaseOrders.value = (await request<PurchaseOrderOption[]>("/inventory/purchase-orders")).filter((order) => ["open", "partially_received", "received"].includes(order.status));
+  } catch {
+    purchaseOrders.value = [];
+  }
+}
+
 async function createBill() {
   if (billTotal.value === "" || parseMinor(billTotal.value) === null) {
     errorMessage.value = "Enter a valid bill total with at most two decimals.";
@@ -369,6 +400,7 @@ async function createBill() {
     total: billTotal.value,
     bill_date: billDate.value,
     due_date: billDueDate.value || null,
+    ...(billPurchaseOrderId.value !== null ? { purchase_order_id: billPurchaseOrderId.value, override_reason: billOverrideReason.value.trim() || null } : {}),
   }, "Vendor bill recorded.");
   if (bill) {
     bills.value.unshift(bill);
@@ -376,6 +408,8 @@ async function createBill() {
     vendorReference.value = "";
     billTotal.value = "";
     billDueDate.value = "";
+    billPurchaseOrderId.value = null;
+    billOverrideReason.value = "";
     await loadArAp();
   }
 }
@@ -474,6 +508,7 @@ async function recordBillPayment(bill: Bill) {
       <section class="finance-section">
         <div class="finance-section-heading"><div><p class="card-kicker">Accounts payable</p><h2>Record a vendor bill</h2></div></div>
         <form class="finance-inline-form finance-bill-form" @submit.prevent="createBill">
+          <div><label for="bill-po">Purchase order (three-way match)</label><select id="bill-po" v-model.number="billPurchaseOrderId" @change="pickPurchaseOrder"><option :value="null">None (not matched)</option><option v-for="order in purchaseOrders" :key="order.id" :value="order.id">{{ order.order_number }} · {{ order.supplier_name }} · {{ order.total }} {{ order.currency }}</option></select></div><div v-if="billPurchaseOrderId !== null"><label for="bill-override">Override reason (only if the bill exceeds goods received)</label><input id="bill-override" v-model="billOverrideReason" maxlength="500" /></div>
           <div><label for="vendor-name">Vendor</label><input id="vendor-name" v-model="vendorName" maxlength="255" required /></div><div><label for="vendor-reference">Reference</label><input id="vendor-reference" v-model="vendorReference" maxlength="80" required /></div><div><label for="bill-currency">Currency</label><select id="bill-currency" v-model="billCurrency"><option v-for="currency in currencies" :key="currency.code" :value="currency.code">{{ currency.code }}</option></select></div><div><label for="bill-total">Total</label><input id="bill-total" v-model="billTotal" inputmode="decimal" placeholder="0.00" required /></div><div><label for="bill-date">Bill date</label><input id="bill-date" v-model="billDate" type="date" required /></div><div><label for="bill-due">Due date</label><input id="bill-due" v-model="billDueDate" type="date" /></div><button class="edit-button" type="submit" :disabled="isSaving">Record bill</button>
         </form>
       </section>
@@ -494,6 +529,8 @@ async function recordBillPayment(bill: Bill) {
               <tbody>
                 <tr><td>Receivables</td><td>{{ subledger.receivables.subledger }} {{ reportCurrency }}</td><td>{{ subledger.receivables.ledger ?? "No mapping" }}</td><td>{{ subledger.receivables.difference ?? "n/a" }}</td></tr>
                 <tr><td>Payables</td><td>{{ subledger.payables.subledger }} {{ reportCurrency }}</td><td>{{ subledger.payables.ledger ?? "No mapping" }}</td><td>{{ subledger.payables.difference ?? "n/a" }}</td></tr>
+                <tr><td>Inventory</td><td>{{ subledger.inventory.subledger }} {{ reportCurrency }}</td><td>{{ subledger.inventory.ledger ?? "No mapping" }}</td><td>{{ subledger.inventory.difference ?? "n/a" }}</td></tr>
+                <tr><td>Goods received not invoiced</td><td>{{ subledger.goods_received_not_invoiced.subledger }} {{ reportCurrency }}</td><td>{{ subledger.goods_received_not_invoiced.ledger ?? "No mapping" }}</td><td>{{ subledger.goods_received_not_invoiced.difference ?? "n/a" }}</td></tr>
               </tbody>
             </table>
             <p v-if="subledger.missing_postings.length" class="error">{{ subledger.missing_postings.length }} source record(s) have no journal posting:
@@ -509,7 +546,7 @@ async function recordBillPayment(bill: Bill) {
 
       <section class="finance-section">
         <div class="finance-section-heading"><div><p class="card-kicker">Vendor bills</p><h2>Payment tracking</h2></div></div>
-        <div v-if="bills.length" class="finance-bill-list"><article v-for="bill in bills" :key="bill.id"><div class="finance-bill-heading"><div><p class="card-kicker">{{ bill.vendor_reference }} · {{ bill.status }} · {{ bill.bill_date }}</p><h3>{{ bill.vendor_name }}</h3><span>{{ bill.paid_total }} paid · {{ bill.balance_due }} due · {{ bill.currency }}</span></div><strong>{{ bill.total }} {{ bill.currency }}</strong></div><form v-if="bill.balance_due !== '0.00'" class="finance-inline-form finance-payment-form" @submit.prevent="recordBillPayment(bill)"><div><label :for="`bill-payment-${bill.id}`">Payment amount</label><input :id="`bill-payment-${bill.id}`" v-model="paymentAmounts[bill.id]" inputmode="decimal" placeholder="0.00" required /></div><div><label :for="`bill-payment-date-${bill.id}`">Payment date</label><input :id="`bill-payment-date-${bill.id}`" v-model="paymentDates[bill.id]" type="date" required /></div><div><label :for="`bill-payment-ref-${bill.id}`">Reference</label><input :id="`bill-payment-ref-${bill.id}`" v-model="paymentReferences[bill.id]" maxlength="120" /></div><button class="edit-button" type="submit" :disabled="isSaving">Record payment</button></form></article></div><p v-else class="muted">No vendor bills recorded.</p>
+        <div v-if="bills.length" class="finance-bill-list"><article v-for="bill in bills" :key="bill.id"><div class="finance-bill-heading"><div><p class="card-kicker">{{ bill.vendor_reference }} · {{ bill.status }} · {{ bill.bill_date }}</p><h3>{{ bill.vendor_name }}</h3><span>{{ bill.paid_total }} paid · {{ bill.balance_due }} due · {{ bill.currency }}</span><span v-if="bill.purchase_order_number"> · {{ bill.purchase_order_number }} <em :class="bill.match_status === 'exception' ? 'finance-unbalanced' : 'finance-balanced'">{{ bill.match_status }}</em><template v-if="bill.match_note"> ({{ bill.match_note }})</template></span></div><strong>{{ bill.total }} {{ bill.currency }}</strong></div><form v-if="bill.balance_due !== '0.00'" class="finance-inline-form finance-payment-form" @submit.prevent="recordBillPayment(bill)"><div><label :for="`bill-payment-${bill.id}`">Payment amount</label><input :id="`bill-payment-${bill.id}`" v-model="paymentAmounts[bill.id]" inputmode="decimal" placeholder="0.00" required /></div><div><label :for="`bill-payment-date-${bill.id}`">Payment date</label><input :id="`bill-payment-date-${bill.id}`" v-model="paymentDates[bill.id]" type="date" required /></div><div><label :for="`bill-payment-ref-${bill.id}`">Reference</label><input :id="`bill-payment-ref-${bill.id}`" v-model="paymentReferences[bill.id]" maxlength="120" /></div><button class="edit-button" type="submit" :disabled="isSaving">Record payment</button></form></article></div><p v-else class="muted">No vendor bills recorded.</p>
       </section>
     </template>
 

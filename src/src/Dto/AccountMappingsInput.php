@@ -19,6 +19,16 @@ final class AccountMappingsInput
         public ?int $project_expense = null,
         #[Assert\Positive]
         public ?int $expense_payable = null,
+        #[Assert\Positive]
+        public ?int $inventory = null,
+        #[Assert\Positive]
+        public ?int $cost_of_sales = null,
+        #[Assert\Positive]
+        public ?int $goods_received_not_invoiced = null,
+        #[Assert\Positive]
+        public ?int $inventory_adjustment = null,
+        #[Assert\Positive]
+        public ?int $purchase_price_variance = null,
     ) {
     }
 
@@ -32,6 +42,11 @@ final class AccountMappingsInput
             'accounts_payable' => $this->accounts_payable,
             'project_expense' => $this->project_expense,
             'expense_payable' => $this->expense_payable,
+            'inventory' => $this->inventory,
+            'cost_of_sales' => $this->cost_of_sales,
+            'goods_received_not_invoiced' => $this->goods_received_not_invoiced,
+            'inventory_adjustment' => $this->inventory_adjustment,
+            'purchase_price_variance' => $this->purchase_price_variance,
         ];
     }
 }
