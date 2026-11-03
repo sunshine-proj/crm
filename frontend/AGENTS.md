@@ -23,3 +23,4 @@ Run `npm run type-check` for a focused TypeScript/Vue check, `npm run build` for
 
 - Client and project detail views use hash routes (`#/clients/<id>`, `#/projects/<id>`) parsed by `src/lib/route.ts`; sidebar sections are otherwise component switches in `App.vue`. Use `src/lib/api.ts` (`apiRequest`) for new components rather than copying another request helper.
 - Board and pipeline grouping/totals live in `src/lib/kanban.ts` and `src/lib/deals.ts` with Vitest tests; deal totals use integer minor units per currency.
+- Tax is calculated by the server; the invoice editor only previews the net total. Never compute tax, credit-note totals or invoice numbers in the browser. `lib/api.ts` provides `apiRequest` and `downloadFile` (authenticated PDF downloads).

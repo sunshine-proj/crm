@@ -11,6 +11,7 @@ import InvoicesPage from "./components/InvoicesPage.vue";
 import SalesPage from "./components/SalesPage.vue";
 import FinancePage from "./components/FinancePage.vue";
 import DealsPage from "./components/DealsPage.vue";
+import BankPage from "./components/BankPage.vue";
 import ClientDetailPage from "./components/ClientDetailPage.vue";
 import ProjectDetailPage from "./components/ProjectDetailPage.vue";
 import NotificationCenter from "./components/NotificationCenter.vue";
@@ -46,9 +47,9 @@ function openSection(section: string) {
 }
 const organizationSettingsReady = ref(false);
 const organizationSettingsError = ref("");
-const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Settings"];
+const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Bank", "Settings"];
 const isFinance = computed(() => isFinanceToken(token.value));
-const sections = computed(() => allSections.filter((section) => section !== "Finance" || isFinance.value));
+const sections = computed(() => allSections.filter((section) => (section !== "Finance" && section !== "Bank") || isFinance.value));
 const pageComponents = {
   Dashboard: DashboardPage,
   News: NewsPage,
@@ -60,6 +61,7 @@ const pageComponents = {
   Sales: SalesPage,
   Invoices: InvoicesPage,
   Finance: FinancePage,
+  Bank: BankPage,
   Inventory: InventoryPage,
   Operations: OperationsPage,
   Settings: SettingsPage,
@@ -188,6 +190,8 @@ function signOut() {
                         ? "&#8644;"
                         : section === "Finance"
                           ? "&#9636;"
+                          : section === "Bank"
+                            ? "&#8962;"
                           : section === "Inventory"
                             ? "&#9638;"
                             : section === "Operations"

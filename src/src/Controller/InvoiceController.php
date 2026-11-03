@@ -18,7 +18,11 @@ use App\Repository\TaskRepository;
 use App\Repository\UserRepository;
 use App\Repository\TimeEntryRepository;
 use App\Repository\ProjectMilestoneRepository;
+use App\Service\DocumentNumbering;
 use App\Service\InvoiceMoney;
+use App\Service\InvoiceSettlement;
+use App\Service\InvoiceTaxService;
+use App\Service\JurisdictionGate;
 use App\Service\InvoicePdfService;
 use App\Service\FinancePostingService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -46,6 +50,10 @@ final class InvoiceController extends AbstractController
 		private readonly InvoiceMoney $money,
 		private readonly InvoicePdfService $pdfService,
 		private readonly FinancePostingService $postingService,
+		private readonly InvoiceTaxService $tax,
+		private readonly DocumentNumbering $numbering,
+		private readonly JurisdictionGate $gate,
+		private readonly InvoiceSettlement $settlement,
 	) {
 	}
 
@@ -73,7 +81,7 @@ final class InvoiceController extends AbstractController
 
 		$this->entityManager->persist($invoice);
 		$this->entityManager->flush();
-		$invoice->setInvoiceNumber(sprintf('INV-%s-%06d', $invoice->getInvoiceDate()->format('Y'), $invoice->getId()));
+		$invoice->setInvoiceNumber($this->numbering->provisional('INV', $invoice->getInvoiceDate(), (int) $invoice->getId()));
 		$this->entityManager->flush();
 
 		return $this->json($this->serializeInvoice($invoice), JsonResponse::HTTP_CREATED);
@@ -150,10 +158,15 @@ final class InvoiceController extends AbstractController
 				$items,
 				$total,
 			);
+			try {
+				$this->tax->applyTo($invoice);
+			} catch (\DomainException $exception) {
+				return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+			}
 			$this->postingService->runAtomically(function () use ($invoice, $invoiceDate, $entries): void {
 				$this->entityManager->persist($invoice);
 				$this->entityManager->flush();
-				$invoice->setInvoiceNumber(sprintf('INV-%s-%06d', $invoiceDate->format('Y'), $invoice->getId()));
+				$invoice->setInvoiceNumber($this->numbering->provisional('INV', $invoiceDate, (int) $invoice->getId()));
 				foreach ($entries as $entry) {
 					$entry->setInvoice($invoice);
 				}
@@ -201,10 +214,15 @@ final class InvoiceController extends AbstractController
 				[['task_id' => null, 'description' => mb_substr('Milestone: '.$milestone->getTitle(), 0, 255), 'amount' => $this->money->formatMinor($milestone->getAmountMinor())]],
 				$milestone->getAmountMinor(),
 			);
+			try {
+				$this->tax->applyTo($invoice);
+			} catch (\DomainException $exception) {
+				return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+			}
 			$this->postingService->runAtomically(function () use ($invoice, $invoiceDate, $milestone): void {
 				$this->entityManager->persist($invoice);
 				$this->entityManager->flush();
-				$invoice->setInvoiceNumber(sprintf('INV-%s-%06d', $invoiceDate->format('Y'), $invoice->getId()));
+				$invoice->setInvoiceNumber($this->numbering->provisional('INV', $invoiceDate, (int) $invoice->getId()));
 				$milestone->markInvoiced($invoice);
 				$this->entityManager->flush();
 			});
@@ -255,18 +273,43 @@ final class InvoiceController extends AbstractController
 			return $this->json(['error' => 'Only draft invoices can be issued.'], JsonResponse::HTTP_CONFLICT);
 		}
 
+		$complianceOn = $this->numbering->isSequential() || $this->gate->taxProfile() !== null;
+		$problems = $complianceOn ? $this->gate->legalProfileProblems() : [];
+		if ($problems !== []) {
+			return $this->json(['error' => 'Complete '.implode(', ', $problems).' under Settings → Jurisdiction before issuing invoices.'], JsonResponse::HTTP_CONFLICT);
+		}
+		$roles = ['accounts_receivable', 'revenue'];
+		if ($invoice->getTaxMinor() > 0) {
+			$roles[] = 'tax_payable';
+		}
 		try {
-			$this->postingService->assertCanPost($invoice->getInvoiceDate(), ['accounts_receivable', 'revenue']);
+			$this->postingService->assertCanPost($invoice->getInvoiceDate(), $roles);
 		} catch (\DomainException $exception) {
 			return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
 		}
-		$this->postingService->runAtomically(function () use ($invoice): void {
-			$invoice->setStatus('issued');
-			$this->postingService->post('invoice_issue', (int) $invoice->getId(), $invoice->getInvoiceDate(), $invoice->getCurrency(), 'Invoice '.$invoice->getInvoiceNumber(), [
-				['role' => 'accounts_receivable', 'debit_minor' => $invoice->getTotalMinor(), 'credit_minor' => 0, 'memo' => 'Invoice receivable'],
-				['role' => 'revenue', 'debit_minor' => 0, 'credit_minor' => $invoice->getTotalMinor(), 'memo' => 'Invoice revenue'],
-			]);
-		});
+		$this->numbering->prepare('INV', $invoice->getInvoiceDate());
+		try {
+			$this->postingService->runAtomically(function () use ($invoice, $complianceOn): void {
+				if ($this->numbering->isSequential()) {
+					$invoice->setInvoiceNumber($this->numbering->allocate('INV', $invoice->getInvoiceDate()));
+				}
+				if ($complianceOn) {
+					$invoice->freezeParties($this->issuerDetails(), $this->customerDetails($invoice));
+				}
+				$invoice->setStatus('issued');
+				$label = 'Invoice '.$invoice->getInvoiceNumber();
+				$lines = [
+					['role' => 'accounts_receivable', 'debit_minor' => $invoice->getTotalMinor(), 'credit_minor' => 0, 'memo' => 'Invoice receivable'],
+					['role' => 'revenue', 'debit_minor' => 0, 'credit_minor' => $invoice->getNetMinor(), 'memo' => 'Invoice revenue'],
+				];
+				if ($invoice->getTaxMinor() > 0) {
+					$lines[] = ['role' => 'tax_payable', 'debit_minor' => 0, 'credit_minor' => $invoice->getTaxMinor(), 'memo' => 'Output tax'];
+				}
+				$this->postingService->post('invoice_issue', (int) $invoice->getId(), $invoice->getInvoiceDate(), $invoice->getCurrency(), $label, $lines);
+			});
+		} catch (\DomainException $exception) {
+			return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+		}
 
 		return $this->json($this->serializeInvoice($invoice));
 	}
@@ -349,7 +392,11 @@ final class InvoiceController extends AbstractController
 				return 'Invoice total is too large.';
 			}
 			$totalMinor += $minor;
-			$items[] = ['task_id' => $taskId, 'description' => $description, 'amount' => $this->money->formatMinor($minor)];
+			$item = ['task_id' => $taskId, 'description' => $description, 'amount' => $this->money->formatMinor($minor)];
+			if (isset($line['tax_code']) && is_string($line['tax_code']) && trim($line['tax_code']) !== '') {
+				$item['tax_code'] = strtoupper(trim($line['tax_code']));
+			}
+			$items[] = $item;
 		}
 		if ($totalMinor < 1) {
 			return 'Invoice total must be greater than zero.';
@@ -368,6 +415,11 @@ final class InvoiceController extends AbstractController
 			$items,
 			$totalMinor,
 		);
+		try {
+			$this->tax->applyTo($invoice);
+		} catch (\DomainException $exception) {
+			return $exception->getMessage();
+		}
 
 		return null;
 	}
@@ -428,7 +480,8 @@ final class InvoiceController extends AbstractController
 	/** @return array<string, mixed> */
 	private function serializeInvoice(Invoice $invoice): array
 	{
-		$paidMinor = $this->paymentRepository->sumMinorForInvoice((int) $invoice->getId());
+		$paidMinor = $this->settlement->paidMinor($invoice);
+		$creditedMinor = $this->settlement->creditedMinor($invoice);
 		return [
 			'id' => $invoice->getId(),
 			'invoice_number' => $invoice->getInvoiceNumber(),
@@ -443,12 +496,40 @@ final class InvoiceController extends AbstractController
 			'due_date' => $invoice->getDueDate()?->format('Y-m-d'),
 			'currency' => $invoice->getCurrency(),
 			'items' => $invoice->getItems(),
+			'net_total' => $this->money->formatMinor($invoice->getNetMinor()),
+			'tax_total' => $this->money->formatMinor($invoice->getTaxMinor()),
+			'tax_breakdown' => array_map(fn (array $row): array => ['tax_code' => $row['code'], 'rate_percent' => $this->money->formatMinor($row['rate_bp']), 'net' => $this->money->formatMinor($row['net_minor']), 'tax' => $this->money->formatMinor($row['tax_minor'])], $invoice->getTaxBreakdown()),
+			'tax_rounding' => $invoice->getTaxRounding(),
 			'total' => $this->money->formatMinor($invoice->getTotalMinor()),
 			'paid_total' => $this->money->formatMinor($paidMinor),
-			'balance_due' => $this->money->formatMinor(max(0, $invoice->getTotalMinor() - $paidMinor)),
+			'credited_total' => $this->money->formatMinor($creditedMinor),
+			'balance_due' => $this->money->formatMinor(max(0, $invoice->getTotalMinor() - $creditedMinor - $paidMinor)),
 			'status' => $invoice->getStatus(),
 			'created_at' => $invoice->getCreatedAt()->format(\DateTimeInterface::ATOM),
 			'updated_at' => $invoice->getUpdatedAt()->format(\DateTimeInterface::ATOM),
+		];
+	}
+
+	/** @return array<string, string|null> */
+	private function issuerDetails(): array
+	{
+		$settings = $this->gate->settings();
+
+		return [
+			'legal_name' => $settings?->getLegalName(), 'registration_number' => $settings?->getRegistrationNumber(), 'vat_number' => $settings?->getVatNumber(),
+			'address' => $settings?->getLegalAddress(), 'email' => $settings?->getContactEmail(), 'payment_instructions' => $settings?->getPaymentInstructions(),
+			'country_code' => $settings?->getCountryCode(),
+		];
+	}
+
+	/** @return array<string, string|null> */
+	private function customerDetails(Invoice $invoice): array
+	{
+		$client = $invoice->getClient();
+
+		return [
+			'name' => $client?->getLegalName() ?? $invoice->getClientName(), 'registration_number' => $client?->getRegistrationNumber(), 'vat_number' => $client?->getVatNumber(),
+			'address' => $client?->getBillingAddress(), 'country_code' => $client?->getCountryCode(),
 		];
 	}
 

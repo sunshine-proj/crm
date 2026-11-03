@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use App\Entity\JournalEntry;
+use App\Repository\CreditNoteRepository;
 use App\Repository\ExpenseReimbursementRepository;
 use App\Repository\ExpenseRepository;
 use App\Entity\InventoryValuation;
@@ -24,6 +25,7 @@ final class LedgerReconciliationService
     private const SOURCES = [
         'invoice_issue' => 'invoice',
         'customer_receipt' => 'customer_receipt',
+        'credit_note' => 'credit_note',
         'vendor_bill' => 'vendor_bill',
         'vendor_payment' => 'vendor_payment',
         'expense_approval' => 'approved_expense',
@@ -56,6 +58,7 @@ final class LedgerReconciliationService
         private readonly JournalEntryRepository $journalRepository,
         private readonly FinancePostingService $postingService,
         private readonly InventoryValuationRepository $valuationRepository,
+        private readonly CreditNoteRepository $creditNoteRepository,
     ) {
     }
 
@@ -69,6 +72,7 @@ final class LedgerReconciliationService
      *   payables: array{subledger_minor: int, ledger_minor: int|null, difference_minor: int|null},
      *   inventory: array{subledger_minor: int, ledger_minor: int|null, difference_minor: int|null},
      *   goods_received_not_invoiced: array{subledger_minor: int, ledger_minor: int|null, difference_minor: int|null},
+     *   tax_payable: array{subledger_minor: int, ledger_minor: int|null, difference_minor: int|null},
      *   reconciled: bool
      * }
      */
@@ -104,7 +108,7 @@ final class LedgerReconciliationService
         }
 
         $mappings = $this->postingService->accountMappings();
-        $arSub = $this->subledgerTotal($sources, ['invoice_issue'], ['customer_receipt']);
+        $arSub = $this->subledgerTotal($sources, ['invoice_issue'], ['customer_receipt', 'credit_note']);
         $apSub = $this->subledgerTotal($sources, ['vendor_bill'], ['vendor_payment']);
         $arLedger = $this->controlBalance($entries, $mappings['accounts_receivable'] ?? null, true);
         $apLedger = $this->controlBalance($entries, $mappings['accounts_payable'] ?? null, false);
@@ -117,6 +121,9 @@ final class LedgerReconciliationService
         $grniLedger = $this->controlBalance($entries, $mappings['goods_received_not_invoiced'] ?? null, false);
         $inventory = ['subledger_minor' => $inventorySub, 'ledger_minor' => $invLedger, 'difference_minor' => $invLedger === null ? null : $invLedger - $inventorySub];
         $grni = ['subledger_minor' => $grniSub, 'ledger_minor' => $grniLedger, 'difference_minor' => $grniLedger === null ? null : $grniLedger - $grniSub];
+        $taxSub = $this->outputTaxTotal($currency);
+        $taxLedger = $this->controlBalance($entries, $mappings['tax_payable'] ?? null, false);
+        $taxPayable = ['subledger_minor' => $taxSub, 'ledger_minor' => $taxLedger, 'difference_minor' => $taxLedger === null ? null : $taxLedger - $taxSub];
 
         return [
             'currency' => $currency,
@@ -127,10 +134,29 @@ final class LedgerReconciliationService
             'payables' => $payables,
             'inventory' => $inventory,
             'goods_received_not_invoiced' => $grni,
+            'tax_payable' => $taxPayable,
             'reconciled' => $missing === [] && $mismatches === [] && $orphaned === []
                 && $this->controlIsReconciled($receivables) && $this->controlIsReconciled($payables)
-                && $this->controlIsReconciled($inventory) && $this->controlIsReconciled($grni),
+                && $this->controlIsReconciled($inventory) && $this->controlIsReconciled($grni) && $this->controlIsReconciled($taxPayable),
         ];
+    }
+
+    /** Output tax on issued invoices less tax reversed by credit notes (VAT settlements are not tracked here). */
+    private function outputTaxTotal(string $currency): int
+    {
+        $tax = 0;
+        foreach ($this->invoiceRepository->findBy(['currency' => $currency]) as $invoice) {
+            if (in_array($invoice->getStatus(), ['issued', 'partially_paid', 'paid', 'credited'], true)) {
+                $tax += $invoice->getTaxMinor();
+            }
+        }
+        foreach ($this->creditNoteRepository->findAll() as $note) {
+            if ($note->getCurrency() === $currency) {
+                $tax -= $note->getTaxMinor();
+            }
+        }
+
+        return $tax;
     }
 
     /**
@@ -152,13 +178,18 @@ final class LedgerReconciliationService
             $sources[$type.':'.$id] = ['id' => $id, 'record_type' => self::SOURCES[$type], 'reference' => $reference, 'amount' => $amount, 'kind' => $type];
         };
         foreach ($this->invoiceRepository->findBy(['currency' => $currency]) as $invoice) {
-            if (in_array($invoice->getStatus(), ['issued', 'partially_paid', 'paid'], true)) {
+            if (in_array($invoice->getStatus(), ['issued', 'partially_paid', 'paid', 'credited'], true)) {
                 $add('invoice_issue', (int) $invoice->getId(), (string) $invoice->getInvoiceNumber(), $invoice->getTotalMinor());
             }
         }
         foreach ($this->paymentRepository->findAll() as $payment) {
             if ($payment->getInvoice()->getCurrency() === $currency) {
                 $add('customer_receipt', (int) $payment->getId(), (string) $payment->getId(), $payment->getAmountMinor());
+            }
+        }
+        foreach ($this->creditNoteRepository->findAll() as $note) {
+            if ($note->getCurrency() === $currency) {
+                $add('credit_note', (int) $note->getId(), (string) $note->getCreditNoteNumber(), $note->getTotalMinor());
             }
         }
         foreach ($this->billRepository->findBy(['currency' => $currency]) as $bill) {

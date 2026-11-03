@@ -20,7 +20,10 @@ use App\Repository\PaymentRepository;
 use App\Repository\ProductRepository;
 use App\Repository\SalesDocumentRepository;
 use App\Repository\ShipmentRepository;
+use App\Service\DocumentNumbering;
 use App\Service\InvoiceMoney;
+use App\Service\InvoiceSettlement;
+use App\Service\InvoiceTaxService;
 use App\Service\FinancePostingService;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\DBAL\LockMode;
@@ -44,6 +47,9 @@ final class SalesController extends AbstractController
         private readonly EntityManagerInterface $entityManager,
         private readonly InvoiceMoney $money,
         private readonly FinancePostingService $postingService,
+        private readonly InvoiceTaxService $tax,
+        private readonly DocumentNumbering $numbering,
+        private readonly InvoiceSettlement $settlement,
     ) {
     }
 
@@ -284,9 +290,14 @@ final class SalesController extends AbstractController
             $invoiceItems,
             $order->getTotalMinor(),
         )->setSalesOrder($order);
+        try {
+            $this->tax->applyTo($invoice);
+        } catch (\DomainException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
+        }
         $this->entityManager->persist($invoice);
         $this->entityManager->flush();
-        $invoice->setInvoiceNumber(sprintf('INV-%s-%06d', $invoiceDate->format('Y'), $invoice->getId()));
+        $invoice->setInvoiceNumber($this->numbering->provisional('INV', $invoiceDate, (int) $invoice->getId()));
         $order->setStatus('invoiced');
         $this->entityManager->flush();
 
@@ -339,15 +350,15 @@ final class SalesController extends AbstractController
                     throw new \DomainException('Only issued invoices can receive payments.');
                 }
 
-                $paidMinor = $this->paymentRepository->sumMinorForInvoice($id);
-                $balanceDue = $invoice->getTotalMinor() - $paidMinor;
+                $balanceDue = $this->settlement->balanceDueMinor($invoice);
                 if ($amountMinor > $balanceDue) {
                     throw new \DomainException('Payment exceeds the invoice balance due.');
                 }
 
                 $payment = new Payment($invoice, $amountMinor, $paidAt, $input->reference !== null ? trim($input->reference) : null);
-                $invoice->setStatus($amountMinor === $balanceDue ? 'paid' : 'partially_paid');
                 $this->entityManager->persist($payment);
+                $this->entityManager->flush();
+                $this->settlement->refreshStatus($invoice);
                 $this->entityManager->flush();
                 $this->postingService->post('customer_receipt', (int) $payment->getId(), $paidAt, $invoice->getCurrency(), 'Customer receipt for '.$invoice->getInvoiceNumber(), [
                     ['role' => 'cash', 'debit_minor' => $amountMinor, 'credit_minor' => 0, 'memo' => 'Customer receipt'],
@@ -515,6 +526,8 @@ final class SalesController extends AbstractController
             'sales_order_id' => $invoice->getSalesOrder()?->getId(),
             'client_name' => $invoice->getClientName(),
             'currency' => $invoice->getCurrency(),
+            'net_total' => $this->money->formatMinor($invoice->getNetMinor()),
+            'tax_total' => $this->money->formatMinor($invoice->getTaxMinor()),
             'total' => $this->money->formatMinor($invoice->getTotalMinor()),
             'status' => $invoice->getStatus(),
         ];

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 import { isFinanceToken } from "../lib/session";
+import InvoiceCreditNotes from "./InvoiceCreditNotes.vue";
 
 type Client = { id: number; title: string };
 type Manager = { id: number; email: string };
@@ -29,6 +30,10 @@ type Invoice = {
   currency: string;
   items: InvoiceLine[];
   total: string;
+  net_total?: string;
+  tax_total?: string;
+  tax_breakdown?: { tax_code: string | null; rate_percent: string; net: string; tax: string }[];
+  credited_total?: string;
   status: string;
   paid_total: string;
   balance_due: string;
@@ -44,6 +49,7 @@ type InvoiceInput = {
 };
 
 const currencies = ["EUR", "GBP", "USD"];
+const canSeeFinance = isFinanceToken(localStorage.getItem("crm_token"));
 const invoices = ref<Invoice[]>([]);
 const clients = ref<Client[]>([]);
 const managers = ref<Manager[]>([]);
@@ -100,6 +106,8 @@ const totalMinor = computed(() =>
   items.value.reduce((total, item) => total + (parseMinor(item.amount) ?? 0n), 0n),
 );
 const formattedTotal = computed(() => formatMinor(totalMinor.value));
+const currentInvoice = computed(() => (editingId.value === null ? null : invoices.value.find((invoice) => invoice.id === editingId.value) ?? null));
+const creditTaxCodes = computed(() => (currentInvoice.value?.tax_breakdown ?? []).map((row) => row.tax_code ?? "").filter(Boolean));
 const formSignature = computed(() => JSON.stringify({
   project_id: projectId.value,
   invoice_date: invoiceDate.value,
@@ -535,7 +543,12 @@ async function deleteInvoice() {
         <p v-if="items.every((item) => item.task_id !== null)" class="muted invoice-hint">No additional costs added.</p>
       </section>
 
-      <div class="invoice-total"><span>Total</span><strong>{{ formattedTotal }} {{ currency }}</strong></div>
+      <div class="invoice-total"><span>{{ currentInvoice?.tax_breakdown?.length ? "Net total (preview)" : "Total" }}</span><strong>{{ formattedTotal }} {{ currency }}</strong></div>
+      <section v-if="currentInvoice?.tax_breakdown?.length" class="invoice-payment-panel" aria-label="Tax">
+        <p v-for="row in currentInvoice.tax_breakdown" :key="`${row.tax_code}-${row.rate_percent}`" class="muted">{{ row.tax_code }} {{ row.rate_percent }}%: net {{ row.net }} · tax {{ row.tax }} {{ currency }}</p>
+        <div class="invoice-total"><span>Tax {{ currentInvoice.tax_total }} {{ currency }}</span><strong>Total incl. tax {{ currentInvoice.total }} {{ currency }}</strong></div>
+        <p class="muted">Tax is calculated by the server when the invoice is saved, using the signed-off jurisdiction rules.</p>
+      </section>
 
       <div class="task-form-actions invoice-form-actions">
         <button v-if="!isReadOnly" class="button article-submit" type="submit" :disabled="isSaving || isDeleting || isExporting">
@@ -553,6 +566,7 @@ async function deleteInvoice() {
           {{ isDeleting ? "Deleting..." : "Delete" }}
         </button>
       </div>
+      <InvoiceCreditNotes v-if="isReadOnly && editingId !== null && canSeeFinance && currentInvoice && currentInvoice.status !== 'draft'" :invoice-id="editingId" :status="currentInvoice.status" :tax-codes="creditTaxCodes" @changed="loadInvoices" />
       <section v-if="isReadOnly && editingId !== null" class="invoice-payment-panel">
         <div class="invoice-total"><span>Paid {{ invoices.find((invoice) => invoice.id === editingId)?.paid_total }} {{ currency }}</span><strong>Balance {{ invoices.find((invoice) => invoice.id === editingId)?.balance_due }} {{ currency }}</strong></div>
         <div v-if="['issued', 'partially_paid'].includes(invoices.find((invoice) => invoice.id === editingId)?.status ?? '')" class="sales-form-grid">

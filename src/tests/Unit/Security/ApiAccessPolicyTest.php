@@ -64,6 +64,10 @@ final class ApiAccessPolicyTest extends TestCase
         'api_finance_ar_ap',
         'api_finance_subledger_reconciliation',
         'api_invoices_issue',
+        'api_bank_accounts', 'api_bank_account_create', 'api_bank_imports', 'api_bank_import', 'api_bank_lines', 'api_bank_suggestions',
+        'api_bank_match', 'api_bank_unmatch', 'api_bank_ignore', 'api_bank_auto_match', 'api_bank_reconciliation',
+        'api_credit_notes_list', 'api_credit_notes_create', 'api_credit_notes_pdf',
+        'api_jurisdiction_overview', 'api_jurisdiction_validations', 'api_jurisdiction_legal_profile',
         'api_inventory_valuation_report', 'api_inventory_valuation_opening',
         'api_purchasing_policy_show', 'api_purchasing_approve', 'api_purchasing_reject',
         'api_operations_project_profitability',
@@ -87,6 +91,7 @@ final class ApiAccessPolicyTest extends TestCase
 
         'api_inventory_adjustment_create',
         'api_deals_delete', 'api_purchasing_policy_update',
+        'api_jurisdiction_validation_create', 'api_jurisdiction_validation_revoke', 'api_jurisdiction_standard_tax_code', 'api_jurisdiction_legal_profile_update',
         'api_records_revisions_list', 'api_records_revisions_restore',
 
         'api_operations_user_cost_rate',

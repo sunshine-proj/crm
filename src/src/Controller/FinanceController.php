@@ -33,6 +33,8 @@ use App\Repository\ExpenseReimbursementRepository;
 use App\Service\FinanceCatalog;
 use App\Service\FinancePostingService;
 use App\Service\InventoryValuationService;
+use App\Service\InvoiceSettlement;
+use App\Repository\CreditNoteRepository;
 use App\Service\LedgerReconciliationService;
 use App\Service\PurchaseMatchingService;
 use App\Repository\PurchaseOrderRepository;
@@ -69,6 +71,8 @@ final class FinanceController extends AbstractController
         private readonly PurchaseOrderRepository $purchaseOrderRepository,
         private readonly PurchaseMatchingService $matching,
         private readonly InventoryValuationService $inventoryValuation,
+        private readonly InvoiceSettlement $settlement,
+        private readonly CreditNoteRepository $creditNoteRepository,
     ) {
     }
 
@@ -648,12 +652,15 @@ final class FinanceController extends AbstractController
     {
         $missing = [];
         foreach ($this->invoiceRepository->findAll() as $invoice) {
-            if (in_array($invoice->getStatus(), ['issued', 'partially_paid', 'paid'], true)) {
+            if (in_array($invoice->getStatus(), ['issued', 'partially_paid', 'paid', 'credited'], true)) {
                 $this->appendMissingPosting($missing, 'invoice_issue', (int) $invoice->getId(), 'invoice', (string) $invoice->getInvoiceNumber(), $invoice->getCurrency(), $invoice->getTotalMinor());
             }
         }
         foreach ($this->invoicePaymentRepository->findAll() as $payment) {
             $this->appendMissingPosting($missing, 'customer_receipt', (int) $payment->getId(), 'customer_receipt', (string) $payment->getId(), $payment->getInvoice()->getCurrency(), $payment->getAmountMinor());
+        }
+        foreach ($this->creditNoteRepository->findAll() as $note) {
+            $this->appendMissingPosting($missing, 'credit_note', (int) $note->getId(), 'credit_note', (string) $note->getCreditNoteNumber(), $note->getCurrency(), $note->getTotalMinor());
         }
         foreach ($this->billRepository->findAll() as $bill) {
             $this->appendMissingPosting($missing, 'vendor_bill', (int) $bill->getId(), 'vendor_bill', $bill->getVendorReference(), $bill->getCurrency(), $bill->getTotalMinor());
@@ -757,6 +764,7 @@ final class FinanceController extends AbstractController
             'payables' => $control($result['payables']),
             'inventory' => $control($result['inventory']),
             'goods_received_not_invoiced' => $control($result['goods_received_not_invoiced']),
+            'tax_payable' => $control($result['tax_payable']),
             'missing_postings' => array_map(fn (array $row): array => ['source_type' => $row['source_type'], 'source_id' => $row['source_id'], 'reference' => $row['reference'], 'expected' => $format($row['expected_minor'])], $result['missing']),
             'amount_mismatches' => array_map(fn (array $row): array => ['source_type' => $row['source_type'], 'source_id' => $row['source_id'], 'reference' => $row['reference'], 'expected' => $format($row['expected_minor']), 'posted' => $format($row['posted_minor'])], $result['amount_mismatches']),
             'orphaned_postings' => array_map(fn (array $row): array => ['source_type' => $row['source_type'], 'source_id' => $row['source_id'], 'entry_number' => $row['entry_number'], 'posted' => $format($row['posted_minor'])], $result['orphaned']),
@@ -779,8 +787,7 @@ final class FinanceController extends AbstractController
             if (!in_array($invoice->getStatus(), ['issued', 'partially_paid'], true)) {
                 continue;
             }
-            $paid = $this->invoicePaymentRepository->sumMinorForInvoice((int) $invoice->getId());
-            $due = max(0, $invoice->getTotalMinor() - $paid);
+            $due = $this->settlement->balanceDueMinor($invoice);
             if ($due === 0) {
                 continue;
             }

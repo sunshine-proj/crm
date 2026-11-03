@@ -34,4 +34,13 @@ class PaymentRepository extends ServiceEntityRepository
             ->getQuery()
             ->getSingleScalarResult();
     }
+
+    /** @return list<Payment> receipts in the currency within the date range, newest first */
+    public function findInPeriod(string $currency, \DateTimeImmutable $from, \DateTimeImmutable $to): array
+    {
+        return $this->createQueryBuilder('payment')->join('payment.invoice', 'invoice')->addSelect('invoice')
+            ->andWhere('invoice.currency = :currency AND payment.paidAt >= :from AND payment.paidAt <= :to')
+            ->setParameter('currency', $currency)->setParameter('from', $from, \Doctrine\DBAL\Types\Types::DATE_IMMUTABLE)->setParameter('to', $to, \Doctrine\DBAL\Types\Types::DATE_IMMUTABLE)
+            ->orderBy('payment.paidAt', 'DESC')->addOrderBy('payment.id', 'DESC')->getQuery()->getResult();
+    }
 }

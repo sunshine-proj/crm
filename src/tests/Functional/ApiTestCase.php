@@ -48,7 +48,9 @@ abstract class ApiTestCase extends WebTestCase
         static::ensureKernelShutdown();
         $this->client = static::createClient();
         if ($as !== null) {
-            $this->client->loginUser($this->users[$as], 'api');
+            // Use the user as loaded by this kernel's entity manager, as the JWT user provider would.
+            $managed = static::getContainer()->get(EntityManagerInterface::class)->find(User::class, $this->users[$as]->getId());
+            $this->client->loginUser($managed, 'api');
         }
         $this->client->request($method, $uri, server: ['CONTENT_TYPE' => 'application/json'], content: $body);
         $this->lastBody = (string) $this->client->getResponse()->getContent();

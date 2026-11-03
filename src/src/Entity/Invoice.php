@@ -54,9 +54,31 @@ class Invoice
 	#[ORM\Column(length: 3)]
 	private string $currency;
 
-	/** @var list<array{task_id: int|null, description: string, amount: string}> */
+	/** @var list<array{task_id: int|null, description: string, amount: string, tax_code?: string, tax_rate_bp?: int}> amount is the net line amount */
 	#[ORM\Column(type: Types::JSON)]
 	private array $items = [];
+
+	/** Net total (before tax); totalMinor is the gross amount that is receivable. */
+	#[ORM\Column(type: Types::BIGINT, options: ['default' => 0])]
+	private int $netMinor = 0;
+
+	#[ORM\Column(type: Types::BIGINT, options: ['default' => 0])]
+	private int $taxMinor = 0;
+
+	/** @var list<array{code: string|null, rate_bp: int, net_minor: int, tax_minor: int}> */
+	#[ORM\Column(type: Types::JSON, options: ['default' => '[]'])]
+	private array $taxBreakdown = [];
+
+	#[ORM\Column(length: 16, nullable: true)]
+	private ?string $taxRounding = null;
+
+	/** @var array<string, string|null>|null seller details frozen when the invoice is issued */
+	#[ORM\Column(type: Types::JSON, nullable: true)]
+	private ?array $issuerSnapshot = null;
+
+	/** @var array<string, string|null>|null customer details frozen when the invoice is issued */
+	#[ORM\Column(type: Types::JSON, nullable: true)]
+	private ?array $customerSnapshot = null;
 
 	#[ORM\Column(type: Types::BIGINT)]
 	private int $totalMinor = 0;
@@ -203,9 +225,51 @@ class Invoice
 		$this->currency = $currency;
 		$this->items = $items;
 		$this->totalMinor = $totalMinor;
+		$this->netMinor = $totalMinor;
+		$this->taxMinor = 0;
+		$this->taxBreakdown = [];
+		$this->taxRounding = null;
 		$this->updatedAt = new \DateTimeImmutable();
 		$this->createdAt ??= $this->updatedAt;
 
 		return $this;
 	}
+
+	/**
+	 * @param list<array<string, mixed>> $items lines with their tax code and rate
+	 * @param list<array{code: string|null, rate_bp: int, net_minor: int, tax_minor: int}> $breakdown
+	 */
+	public function applyTaxation(array $items, int $netMinor, int $taxMinor, array $breakdown, ?string $rounding): static
+	{
+		if ($this->status !== 'draft') {
+			throw new \DomainException('Tax can only be recalculated on a draft invoice.');
+		}
+		$this->items = $items;
+		$this->netMinor = $netMinor;
+		$this->taxMinor = $taxMinor;
+		$this->taxBreakdown = $breakdown;
+		$this->taxRounding = $rounding;
+		$this->totalMinor = $netMinor + $taxMinor;
+
+		return $this;
+	}
+
+	/** @param array<string, string|null> $issuer @param array<string, string|null> $customer */
+	public function freezeParties(array $issuer, array $customer): static
+	{
+		$this->issuerSnapshot = $issuer;
+		$this->customerSnapshot = $customer;
+
+		return $this;
+	}
+
+	public function getNetMinor(): int { return $this->netMinor; }
+	public function getTaxMinor(): int { return $this->taxMinor; }
+	/** @return list<array{code: string|null, rate_bp: int, net_minor: int, tax_minor: int}> */
+	public function getTaxBreakdown(): array { return $this->taxBreakdown; }
+	public function getTaxRounding(): ?string { return $this->taxRounding; }
+	/** @return array<string, string|null>|null */
+	public function getIssuerSnapshot(): ?array { return $this->issuerSnapshot; }
+	/** @return array<string, string|null>|null */
+	public function getCustomerSnapshot(): ?array { return $this->customerSnapshot; }
 }

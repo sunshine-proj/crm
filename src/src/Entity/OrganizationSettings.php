@@ -83,6 +83,29 @@ class OrganizationSettings
     #[ORM\Column(type: Types::BIGINT, nullable: true)]
     private ?int $purchaseApprovalThresholdMinor = null;
 
+    #[ORM\ManyToOne(targetEntity: LedgerAccount::class)]
+    #[ORM\JoinColumn(nullable: true, onDelete: 'SET NULL')]
+    private ?LedgerAccount $taxPayableAccount = null;
+
+    /** The issuing organisation as it must appear on invoices. */
+    #[ORM\Column(length: 255, nullable: true)]
+    private ?string $legalName = null;
+
+    #[ORM\Column(length: 64, nullable: true)]
+    private ?string $registrationNumber = null;
+
+    #[ORM\Column(length: 32, nullable: true)]
+    private ?string $vatNumber = null;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $legalAddress = null;
+
+    #[ORM\Column(length: 180, nullable: true)]
+    private ?string $contactEmail = null;
+
+    #[ORM\Column(type: Types::TEXT, nullable: true)]
+    private ?string $paymentInstructions = null;
+
     public function getId(): int
     {
         return $this->id;
@@ -128,6 +151,7 @@ class OrganizationSettings
             'goods_received_not_invoiced' => $this->goodsReceivedNotInvoicedAccount,
             'inventory_adjustment' => $this->inventoryAdjustmentAccount,
             'purchase_price_variance' => $this->purchasePriceVarianceAccount,
+            'tax_payable' => $this->taxPayableAccount,
         ];
     }
 
@@ -145,9 +169,29 @@ class OrganizationSettings
         $this->goodsReceivedNotInvoicedAccount = $mappings['goods_received_not_invoiced'] ?? null;
         $this->inventoryAdjustmentAccount = $mappings['inventory_adjustment'] ?? null;
         $this->purchasePriceVarianceAccount = $mappings['purchase_price_variance'] ?? null;
+        $this->taxPayableAccount = $mappings['tax_payable'] ?? null;
 
         return $this;
     }
+
+    public function setLegalProfile(?string $legalName, ?string $registrationNumber, ?string $vatNumber, ?string $legalAddress, ?string $contactEmail, ?string $paymentInstructions): static
+    {
+        $this->legalName = $legalName;
+        $this->registrationNumber = $registrationNumber;
+        $this->vatNumber = $vatNumber;
+        $this->legalAddress = $legalAddress;
+        $this->contactEmail = $contactEmail;
+        $this->paymentInstructions = $paymentInstructions;
+
+        return $this;
+    }
+
+    public function getLegalName(): ?string { return $this->legalName; }
+    public function getRegistrationNumber(): ?string { return $this->registrationNumber; }
+    public function getVatNumber(): ?string { return $this->vatNumber; }
+    public function getLegalAddress(): ?string { return $this->legalAddress; }
+    public function getContactEmail(): ?string { return $this->contactEmail; }
+    public function getPaymentInstructions(): ?string { return $this->paymentInstructions; }
 
     public function getPurchaseApprovalThresholdMinor(): ?int
     {

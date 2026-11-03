@@ -93,7 +93,15 @@ P1/P2 progress (checkboxes stay unticked where a gap remains):
 - [ ] Select and implement required bank/payment integrations and reconciliation workflows.
 - [ ] Implement foreign-exchange rates and conversion only if multi-currency reporting is required, with explicit rate sources and historical-rate rules.
 
-Configured tax codes are not applied to documents, invoices are not claimed to be legally compliant, and currencies are not converted.
+P2 progress (the software cannot validate tax law; every checkbox stays unticked until the named advisers have signed off):
+
+- **Tax calculation and rounding:** integer, basis-point tax (half-up) with two rounding methods (once per rate, or per line), line tax codes, a per-rate breakdown frozen on each invoice, output-tax posting to a mapped tax-payable account, and tax reversed by credit notes. It is **off for a country until an administrator records a named adviser's tax sign-off** (including the rounding method) in Settings → Jurisdiction. Seed standard rates (LV 21%, LT 21%, EE 24%, DE 19%, GB 20%) are unverified starting values. Not done: input VAT on purchases, VAT settlement/returns, reduced rates and exemptions beyond manually created tax codes, reverse charge, and the tax-in-local-currency rule.
+- **Numbering, corrections and document output:** a numbering sign-off turns on gapless `INV-<CC>-<year>-nnnnnn` / `CN-<CC>-<year>-nnnnnn` numbers allocated at issue under a row lock (verified with 8 concurrent issues, including the first of a year). Issued invoices are never edited; credit notes are the correction path (capped by the balance still owed and per-rate net). PDFs show the frozen seller and customer details, tax breakdown and payment instructions. Not done: e-invoicing formats (XRechnung, Peppol), customer-credit/refund flows, debit notes, and any claim that the output is compliant.
+- **Bank workflow:** selected and implemented as provider-agnostic **statement import** (camt.053 and CSV) with exact-amount matching to recorded receipts and vendor payments, reference-based auto-match, ignore-with-reason, and a period report of unmatched items either way; see [docs/PAYMENTS_AND_BANKING.md](docs/PAYMENTS_AND_BANKING.md). Not done: bank feeds/open banking, payment initiation, card or direct-debit providers, posting of bank fees, and a ledger-cash-versus-bank-balance comparison.
+- **Foreign exchange:** deliberately not implemented; the decision and what would trigger it are in [docs/ACCOUNTING_TREATMENT.md](docs/ACCOUNTING_TREATMENT.md).
+- **Verification:** the new migrations apply, reverse and re-apply on PostgreSQL 16 without schema drift; `scripts/verify-jurisdiction-e2e.sh` (sign-offs, tax, numbering under concurrency, credit note, settlement, bank import and matching), `verify-ledger-e2e.sh` and `verify-inventory-e2e.sh` pass on fresh databases. Backend: 146 tests, measured line coverage 58.5% (3546/6061). Frontend: 28 Vitest tests.
+
+Without a recorded sign-off, invoices are untaxed and keep ID-based numbers. Invoices are never claimed to be legally compliant, and currencies are not converted.
 
 ### Later — Validate demand before expanding ERP scope
 

@@ -5,7 +5,7 @@ import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 type Currency = { code: string; name: string; minor_unit: number };
 type Account = { id: number; code: string; name: string; type: string; active: boolean };
 type Period = { id: number; name: string; starts_on: string; ends_on: string; closed: boolean };
-type MappingRole = "accounts_receivable" | "revenue" | "cash" | "accounts_payable" | "project_expense" | "expense_payable" | "inventory" | "cost_of_sales" | "goods_received_not_invoiced" | "inventory_adjustment" | "purchase_price_variance";
+type MappingRole = "accounts_receivable" | "revenue" | "cash" | "accounts_payable" | "project_expense" | "expense_payable" | "inventory" | "cost_of_sales" | "goods_received_not_invoiced" | "inventory_adjustment" | "purchase_price_variance" | "tax_payable";
 type MappingResponse = { mappings: Record<MappingRole, number | null>; accounts: Account[] };
 type FinancialStatements = {
   currency: string;
@@ -68,11 +68,12 @@ const mappingRoles: { key: MappingRole; label: string }[] = [
   { key: "goods_received_not_invoiced", label: "Goods received not invoiced (liability)" },
   { key: "inventory_adjustment", label: "Inventory adjustments (expense)" },
   { key: "purchase_price_variance", label: "Purchase price variance (expense)" },
+  { key: "tax_payable", label: "Tax payable (liability)" },
 ];
 const tab = ref<Tab>("Ledger");
 const currencies = ref<Currency[]>([]);
 const accounts = ref<Account[]>([]);
-const mappings = ref<Record<MappingRole, number | null>>({ accounts_receivable: null, revenue: null, cash: null, accounts_payable: null, project_expense: null, expense_payable: null, inventory: null, cost_of_sales: null, goods_received_not_invoiced: null, inventory_adjustment: null, purchase_price_variance: null });
+const mappings = ref<Record<MappingRole, number | null>>({ accounts_receivable: null, revenue: null, cash: null, accounts_payable: null, project_expense: null, expense_payable: null, inventory: null, cost_of_sales: null, goods_received_not_invoiced: null, inventory_adjustment: null, purchase_price_variance: null, tax_payable: null });
 const financialStatements = ref<FinancialStatements | null>(null);
 const reconciliation = ref<Reconciliation | null>(null);
 const periods = ref<Period[]>([]);
@@ -318,6 +319,7 @@ type SubledgerReconciliation = {
   payables: ControlBalance;
   inventory: ControlBalance;
   goods_received_not_invoiced: ControlBalance;
+  tax_payable: ControlBalance;
   missing_postings: { source_type: string; source_id: number; reference: string; expected: string }[];
   amount_mismatches: { source_type: string; source_id: number; reference: string; expected: string; posted: string }[];
   orphaned_postings: { source_type: string; source_id: number; entry_number: string | null; posted: string }[];
@@ -530,6 +532,7 @@ async function recordBillPayment(bill: Bill) {
                 <tr><td>Receivables</td><td>{{ subledger.receivables.subledger }} {{ reportCurrency }}</td><td>{{ subledger.receivables.ledger ?? "No mapping" }}</td><td>{{ subledger.receivables.difference ?? "n/a" }}</td></tr>
                 <tr><td>Payables</td><td>{{ subledger.payables.subledger }} {{ reportCurrency }}</td><td>{{ subledger.payables.ledger ?? "No mapping" }}</td><td>{{ subledger.payables.difference ?? "n/a" }}</td></tr>
                 <tr><td>Inventory</td><td>{{ subledger.inventory.subledger }} {{ reportCurrency }}</td><td>{{ subledger.inventory.ledger ?? "No mapping" }}</td><td>{{ subledger.inventory.difference ?? "n/a" }}</td></tr>
+                <tr><td>Tax payable (output tax)</td><td>{{ subledger.tax_payable.subledger }} {{ reportCurrency }}</td><td>{{ subledger.tax_payable.ledger ?? "No mapping" }}</td><td>{{ subledger.tax_payable.difference ?? "n/a" }}</td></tr>
                 <tr><td>Goods received not invoiced</td><td>{{ subledger.goods_received_not_invoiced.subledger }} {{ reportCurrency }}</td><td>{{ subledger.goods_received_not_invoiced.ledger ?? "No mapping" }}</td><td>{{ subledger.goods_received_not_invoiced.difference ?? "n/a" }}</td></tr>
               </tbody>
             </table>

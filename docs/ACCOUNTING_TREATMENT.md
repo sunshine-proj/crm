@@ -52,6 +52,41 @@ Rules implemented:
 | Supplier return (valuation on) | Dr Goods received not invoiced, Cr Inventory — average cost | If the bill was already paid, the accrual goes negative until a supplier credit is recorded (not implemented). |
 | Stock adjustment (valuation on) | Loss: Dr Inventory adjustment, Cr Inventory. Gain: the reverse | |
 
+## Output tax, credit notes and numbering (jurisdiction-gated)
+
+These behaviours exist in code but **run only while an adviser's sign-off is on record** for the organisation's country
+(Settings → Jurisdiction). Without it, invoices are untaxed and numbered `INV-<year>-<id>` exactly as before.
+
+| Event | Journal posting | Notes |
+| --- | --- | --- |
+| Invoice issued (tax sign-off active) | Dr Accounts receivable (gross), Cr Revenue (net), Cr Tax payable (tax) | Tax is computed on the server in integer minor units with the sign-off's rounding method; rates are snapshotted on the invoice. |
+| Credit note (against an issued invoice) | Dr Revenue (net), Dr Tax payable (tax), Cr Accounts receivable (gross) | Uses the invoice's own tax codes and rates; reduces the receivable. |
+| Purchases | none for input tax | Input VAT on vendor bills is not tracked. |
+| VAT settlement with the authority | none | Paying or reclaiming tax is not modelled. |
+
+- **Credit notes** are the only way to correct an issued invoice. A credit note cannot exceed the balance still owed
+  (refunding money already received is not supported), nor, per tax code, the net amount invoiced. The invoice becomes
+  `paid` or `credited` once receipts plus credit notes settle it.
+- **Numbering:** with a numbering sign-off, invoices get `INV-<CC>-<year>-<6 digits>` and credit notes
+  `CN-<CC>-<year>-<6 digits>` at issue, from a row-locked counter inside the issuing transaction, so a failed issue
+  consumes no number and concurrent issues never duplicate or skip one. Drafts show `DRAFT-<id>` and never enter the
+  sequence. Legacy numbers keep their format, so the two cannot collide.
+- **Legal identity:** once either sign-off is active, issuing requires the organisation's legal name and address (and
+  VAT number when tax is on). Seller and customer details are frozen on each document at issue.
+- **Seed data:** standard VAT rates for LV 21%, LT 21%, EE 24%, DE 19% and GB 20% are starting values for the adviser
+  to confirm; reduced rates, exemptions and reverse charge are configured as extra tax codes and chosen per line through
+  the API (the invoice editor applies the standard code automatically).
+
+## Foreign exchange: decision
+
+**No FX conversion or revaluation is implemented, deliberately.** Every pool, document, report and control account is
+single-currency (EUR, GBP or USD) and the application refuses to mix currencies. The cases that would require FX are
+consolidated multi-currency reporting, tax amounts in the local currency on foreign-currency invoices (some
+jurisdictions require this), and revaluation of foreign-currency receivables, payables and bank balances. If any of these
+applies to your organisation, it needs a rate source (for example ECB reference rates), a historical-rate rule, and
+realised/unrealised gain accounts — a separate, scoped piece of work. Record the decision with your accountant in
+`docs/COMPLIANCE_SCOPE.md`.
+
 ## Purchasing controls
 
 - **Approval:** with a threshold set (administrators), purchase orders at or above it in the default currency, and any
@@ -73,9 +108,9 @@ PostgreSQL (receipt → dispatch → bill → reconciliation).
 
 1. Costing method and its jurisdictional acceptance (above).
 2. **Revenue timing** — invoice issue vs delivery — per jurisdiction and contract type.
-3. **Credit notes** reversing revenue/AR (and supplier credits against the accrual) for returns and corrections.
-4. **Tax**: VAT/sales-tax accounts, input-tax on purchases, rounding. Nothing is posted today.
-5. **Multi-currency**: valuation, bills and sales are single-currency per pool/document with no FX.
+3. **Supplier credits** against the goods-received-not-invoiced accrual, and credit notes that also reverse the cost of goods for returned stock (customer credit notes exist for revenue, tax and receivable only).
+4. **Tax**: input tax on purchases, VAT settlement, reduced rates and exemptions per country. Output tax on invoices exists behind the sign-off gate.
+5. **Multi-currency**: see the foreign-exchange decision above.
 6. **Landed costs after receipt** (late freight invoices) and allocation by weight/volume instead of value.
 7. **Period-end**: stock counts, write-downs to net realisable value and cut-off are not handled.
 

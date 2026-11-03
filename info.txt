@@ -165,6 +165,57 @@ Supplier returns leave stock at average cost, not the original receipt cost.
 
 
 
+I've built the mechanisms for all four P2 items, but none of them is validated for any country. The tax and numbering rules are turned off until a named adviser's sign-off is recorded. The backend suite (146 tests) and the frontend suite (28 tests) pass. Three end-to-end scripts also pass on fresh PostgreSQL databases, and the new migrations apply, reverse and re-apply there.
+
+I left every P2 checkbox unticked in README.md, because the first two items need a qualified adviser's confirmation in each of LV, LT, EE, DE and GB. The software can't supply that.
+
+Tax and sign-offs
+
+Under Settings → Jurisdiction, an administrator records, per country and scope (tax or numbering), the adviser's name, firm, the opinion they relied on, the date, and for tax the rounding method they confirmed. Sign-offs can be revoked with a reason.
+Until a sign-off exists for the organisation's country, invoices behave exactly as before: no tax, and ID-based numbers.
+The sign-off only stores the claim; the application cannot check it.
+Once tax is on, tax is computed on the server in integer minor units. Two rounding methods are available: once per rate, or per line.
+Each invoice stores its tax breakdown. Output tax posts to a new tax-payable account.
+The reference rates (LV 21%, LT 21%, EE 24%, DE 19%, GB 20%) are unverified starting values for your adviser to confirm.
+Numbering and corrections
+
+With a numbering sign-off, invoices and credit notes get gapless numbers from a locked counter, for example INV-LV-2026-000001. A failed issue consumes no number.
+I ran eight parallel issues on PostgreSQL, including the first issue of a year. The numbers came out consecutive with no gaps or duplicates.
+Issued invoices are never edited. Credit notes are the correction path.
+A credit note can't exceed what is still owed, and can't exceed the net invoiced per tax code. Refunding money already received isn't supported.
+Invoice and credit-note PDFs now show frozen seller and customer details, the tax breakdown and payment instructions. Issuing needs the organisation's legal name and address once either sign-off is on.
+Bank workflow
+
+I chose provider-agnostic statement import, camt.053 XML and CSV, because it needs no bank credentials and works across all five countries.
+Lines are matched by exact amount and currency to recorded receipts and vendor payments. A matching reference in the bank text lets auto-match pair them.
+Lines with no book record, such as bank fees, are ignored with a recorded reason.
+A period report lists unmatched items on both sides.
+Re-importing a file, or importing overlapping statements, doesn't duplicate transactions.
+A statement whose balances don't add up is rejected, as is XML with entity declarations.
+Nothing connects to a bank or posts to the ledger from here.
+Foreign exchange. Left out on purpose. Everything stays single-currency. The decision and what would trigger it are in docs/ACCOUNTING_TREATMENT.md.
+
+Not done
+
+Input VAT and VAT returns
+Reduced rates and reverse charge beyond manually created tax codes
+E-invoicing formats such as XRechnung and Peppol
+Open banking and payment providers
+Posting bank fees
+Comparing the ledger cash balance with the bank balance
+Backend line coverage is 58.5%. Nothing is committed.
+
+Please check: docs/PAYMENTS_AND_BANKING.md and docs/COMPLIANCE_SCOPE.md end with decisions that are yours to make, such as which banks and formats you use and whether you need open-banking feeds or card payments.
+
+
+
+===================================================
+
+
+
+
+
+
 
 
 

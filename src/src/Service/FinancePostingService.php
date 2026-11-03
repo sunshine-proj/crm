@@ -118,6 +118,7 @@ final class FinancePostingService
                 'goods_received_not_invoiced',
                 'inventory_adjustment',
                 'purchase_price_variance',
+                'tax_payable',
             ], null);
         }
 
@@ -171,6 +172,7 @@ final class FinancePostingService
             'goods_received_not_invoiced' => 'liability',
             'inventory_adjustment' => 'expense',
             'purchase_price_variance' => 'expense',
+            'tax_payable' => 'liability',
         ];
         $mappings = [];
         foreach ($expectedTypes as $role => $expectedType) {

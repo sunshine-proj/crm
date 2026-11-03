@@ -29,6 +29,8 @@ final class AccountMappingsInput
         public ?int $inventory_adjustment = null,
         #[Assert\Positive]
         public ?int $purchase_price_variance = null,
+        #[Assert\Positive]
+        public ?int $tax_payable = null,
     ) {
     }
 
@@ -47,6 +49,7 @@ final class AccountMappingsInput
             'goods_received_not_invoiced' => $this->goods_received_not_invoiced,
             'inventory_adjustment' => $this->inventory_adjustment,
             'purchase_price_variance' => $this->purchase_price_variance,
+            'tax_payable' => $this->tax_payable,
         ];
     }
 }

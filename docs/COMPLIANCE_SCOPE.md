@@ -27,3 +27,20 @@ ORG-2, ORG-5, FN-6, FN-13).
   Assign them with `php bin/console app:user:roles <email> ROLE_FINANCE`.
 
 Record the sign-off for each row, then implement the validated rules as separate, tested changes.
+
+## How the software uses your answers (jurisdiction gate)
+
+Rows 3 and 4 above are not just paperwork: in Settings → Jurisdiction an administrator records, per country and scope
+(tax, numbering), **who** confirmed the rules, **what** they relied on, **when**, and for tax **which rounding method**
+they confirmed. Until a sign-off exists for the organisation's country:
+
+- invoices are not taxed and keep the ID-based numbers (`INV-<year>-<id>`);
+- credit notes are numbered `CN-<year>-<id>`.
+
+While it exists, tax is calculated on the server and numbers come from a gapless sequence. Revoking a sign-off switches
+the behaviour off again for new documents; issued documents keep what they were issued with. The application records the
+claim and cannot verify it, and it never states that any document is legally compliant.
+
+Seed reference data in the catalog (all unvalidated): LV PVN 21%, LT PVM 21%, EE KM 24%, DE USt 19%, GB VAT 20%.
+Reduced rates, exemptions, reverse charge, e-invoicing formats (for example XRechnung in Germany or Peppol), the
+tax-amount-in-local-currency rule, and statutory reporting remain open for the adviser of each country.
