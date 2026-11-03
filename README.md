@@ -15,21 +15,57 @@ Project Operations supports currency-scoped project budgets and billable hourly 
 
 The Inventory workspace supports warehouses, suppliers, product-based purchase orders, partial goods receipts, movement-derived stock balances, count adjustments, explicit dispatch of sales shipments, and bounded customer/supplier returns. Stock movements are append-only and quantity-only; dispatches and receipts do not automatically post to the general ledger. Stock valuation, transfers, bins, lots, and serial tracking are not implemented yet.
 
-Stage 1 is not complete: organization/tenant scoping, deals and pipelines, structured legal/account data for clients, dedicated client/project detail routes and schedule views, full change/version recovery, and offline storage and synchronization remain roadmap requirements. Task due status is visible in the app, but outbound reminders/escalations are not implemented. See [NOTES.md](NOTES.md) for the staged roadmap and current implementation gaps.
+Stage 1 is not complete: organization/tenant scoping, deals and pipelines, structured legal/account data for clients, dedicated client/project detail routes, full change/version recovery, and offline storage and synchronization remain roadmap requirements. The project-management overview includes a project/task timetable, but project-level schedule views and a separate Kanban board view for tasks are not implemented. Task due status is visible in the app, but outbound reminders/escalations are not implemented. See [NOTES.md](NOTES.md) for the staged roadmap and current implementation gaps.
 
 ## Remaining Work, Prioritized for ERP Use
 
-| Priority | Remaining work | Why it matters |
-|---|---|---|
-| **P0 — Before production or multi-organization use** | Initial deployment is one organization per installation; initial countries are Latvia, Lithuania, Estonia, Germany, and the UK. Settings now captures country, default currency, and a 10-year retention period, with audited settings history and restore. Do not serve multiple organizations: tenant isolation is not implemented. Country tax/accounting profiles remain unverified, finance roles remain unchanged, and the accepted encrypted off-host daily backup policy (35-day retention, quarterly restore tests, 24-hour RPO/RTO) is not automated or verified. General business-record recovery and measured automated test coverage are not yet in place. | Country selection is not legal or tax compliance. Retention start rules, finance-specific access, backup implementation and restore verification, and jurisdiction review remain production blockers. |
-| **P1 — Connect finance** | Implemented: mapped accrual postings for invoice issue/receipt, vendor bills/payments, approved expenses/reimbursements; opening-balance entries, reversals, reasoned period close/reopen, operational statements, and source-record posting checks. Remaining: verify reconciliation against ledger amounts and payment/external bank records, cover sales/inventory accounting, complete authorization/audit controls, and add backend integration coverage. | This establishes a connected operational ledger, not audited or statutory accounting. Postings require active mappings and open periods; tax and bank reconciliation are not implemented. |
-| **P1 — Complete the CRM and delivery loop** | Implemented: client/project search, task assignment and due/overdue status, same-project task dependencies, milestone tracking, inline client/project context, and a project-management timetable with status and overdue summaries. Remaining: structured client legal/account data, dedicated detail routes, reminder delivery/escalation, and broader auditable change/version history. | Schedule visibility and status summaries are in place; complete account records and a unified client/project workspace still need product design and delivery. |
-| **P1 — Link project costs to billing** | Implemented: timesheet approval, per-user cost-rate and project billing-rate snapshots, expense categories and partial manual reimbursements with ledger links, single-currency budget/profitability summaries, and draft invoices from approved time or completed priced milestones. Remaining: richer period-filtered project financial reporting, time-entry correction policies, and broader tests/permissions review. | Provides operational cost and billing visibility only; it is not payroll, tax accounting, FX conversion, or statutory project accounting. |
-| **P1/P2 — Make inventory financially meaningful** | When inventory is material to the business, implement a validated stock-costing method, landed costs, GL postings for receipts/dispatches/returns, and purchasing controls such as PO approvals and supplier-invoice matching. | Current inventory is quantity-only and is not a valued accounting asset. |
-| **P2 — Add jurisdiction-specific finance operations** | After confirming requirements, implement country-specific tax calculation, compliant invoice numbering and correction flows, bank/payment integrations and reconciliation, and FX where needed. | Configured tax codes are not applied, invoice output is not claimed to be legally compliant, and currencies are not converted. |
-| **Later — Validate demand first** | Consider manufacturing, MRP, payroll, advanced planning, BI, and other broad ERP modules only when supported by user and market research. | These are later-stage, market-dependent capabilities, not prerequisites for a coherent CRM and project-focused ERP. |
+### P0 — Before production or multi-organization use
 
-**Recommended next milestone:** add and run backend integration tests against the new migrations and end-to-end posting flows, then verify the source-record reconciliation against the posted ledger.
+- [ ] Confirm the initial deployment countries, legal/accounting scope, retention triggers, and applicable retention periods with qualified domain experts.
+- [ ] Keep deployments limited to one organization until organization ownership and per-organization authorization are implemented and tested; do not enable multi-organization use before then.
+- [ ] Automate encrypted off-host daily backups of the database and uploaded business documents, with 35-day retention; test restores quarterly and verify the 24-hour RPO/RTO.
+- [ ] Define and implement recovery/versioning for business records, beyond the existing settings-history restore.
+- [ ] Complete a least-privilege authorization and audit review across financial and operational resources. Finance write routes and reimbursement-history access have initial role/resource checks; add regression tests for allowed and denied access.
+- [ ] Apply and verify the pending finance/project schema migrations, then run backend integration tests for end-to-end ledger postings, payment concurrency, and source-to-ledger reconciliation.
+- [ ] Establish measured automated test coverage for production-critical calculations, authorization, migrations, and lifecycle transitions.
+
+Country selection, retention settings, and operational finance reports do not by themselves establish legal compliance or production readiness.
+
+### P1 — Complete core CRM, project delivery, and finance workflows
+
+- [ ] Add structured, searchable client legal and account details, with appropriate privacy and access controls.
+- [ ] Add dedicated client and project detail routes that bring together contacts, activity, schedule, tasks, budget, time, expenses, and related invoices.
+- [ ] Add a separate project-management window/view where users can see and manage tasks on a Kanban board, alongside the existing timetable overview.
+- [ ] Implement deal and sales-pipeline management.
+- [ ] Add task and project reminder/escalation delivery, with user-configurable timing and delivery behavior.
+- [ ] Define and implement auditable change/version history for important client, project, task, and commercial-record changes.
+- [ ] Add period-filtered project financial reporting and define correction/approval rules for submitted or approved time entries.
+- [ ] Reconcile operational AR/AP balances to their source records and posted ledger amounts; add external bank statement reconciliation when a bank workflow is selected.
+- [ ] Define and test accounting treatment for sales and inventory transactions, where required.
+
+These workflows extend the existing project timetable, approvals, operational ledger, and project cost/billing foundations; they do not imply statutory accounting, payroll, or tax compliance.
+
+### P1/P2 — Make inventory financially meaningful
+
+- [ ] Select and validate an inventory costing method before reporting stock value.
+- [ ] Implement landed-cost handling and general-ledger postings for receipts, dispatches, and returns.
+- [ ] Add purchasing controls such as purchase-order approvals and supplier-invoice matching.
+
+Inventory currently tracks quantities and movements only; it is not a valued accounting asset.
+
+### P2 — Add jurisdiction-specific finance operations
+
+- [ ] For each supported country, confirm and implement validated tax calculation, rates, rounding, and required accounting configuration.
+- [ ] Implement jurisdiction-compliant invoice numbering, corrections, and document output before claiming tax or invoicing compliance.
+- [ ] Select and implement required bank/payment integrations and reconciliation workflows.
+- [ ] Implement foreign-exchange rates and conversion only if multi-currency reporting is required, with explicit rate sources and historical-rate rules.
+
+Configured tax codes are not applied to documents, invoices are not claimed to be legally compliant, and currencies are not converted.
+
+### Later — Validate demand before expanding ERP scope
+
+- [ ] Confirm user demand and scope before starting manufacturing/MRP, payroll, advanced planning, BI, or other broad ERP modules.
+- [ ] Decide whether offline storage and synchronization are required, then define conflict resolution, data ownership, and security behavior before implementation.
 
 The two new finance/project schema migrations have not been applied in this workspace. Frontend build/type-check and unit tests pass; backend validation is limited to PHP syntax checks because Composer/PHPUnit dependencies are unavailable here. See [PRD.md](PRD.md) and [NOTES.md](NOTES.md) for detailed scope and limitations.
 
