@@ -72,6 +72,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/account-mappings', name: 'account_mappings', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function accountMappings(): JsonResponse
     {
         return $this->json([
@@ -95,6 +96,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/accounts', name: 'accounts_list', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function accounts(): JsonResponse
     {
         return $this->json(array_map(fn (LedgerAccount $account): array => $this->serializeAccount($account), $this->accountRepository->findBy([], ['code' => 'ASC'])));
@@ -143,6 +145,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/periods', name: 'periods_list', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function periods(): JsonResponse
     {
         $periods = $this->periodRepository->findBy([], ['startsOn' => 'ASC']);
@@ -215,6 +218,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/journal-entries', name: 'journal_list', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function journalEntries(Request $request): JsonResponse
     {
         $filters = $this->parseReportFilters($request);
@@ -333,6 +337,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/tax-codes', name: 'tax_list', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function taxCodes(): JsonResponse
     {
         return $this->json(array_map(fn (TaxCode $taxCode): array => $this->serializeTaxCode($taxCode), $this->taxCodeRepository->findBy([], ['code' => 'ASC'])));
@@ -356,6 +361,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/payables', name: 'payables_list', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function payables(): JsonResponse
     {
         return $this->json(array_map(fn (PayableBill $bill): array => $this->serializePayable($bill), $this->billRepository->findRecent()));
@@ -447,6 +453,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/reports/trial-balance', name: 'trial_balance', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function trialBalance(Request $request): JsonResponse
     {
         $filters = $this->parseReportFilters($request);
@@ -492,6 +499,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/reports/financial-statements', name: 'financial_statements', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function financialStatements(Request $request): JsonResponse
     {
         $filters = $this->parseReportFilters($request);
@@ -588,6 +596,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/reports/reconciliation', name: 'reconciliation', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function reconciliation(): JsonResponse
     {
         $missing = [];
@@ -679,6 +688,7 @@ final class FinanceController extends AbstractController
     }
 
     #[Route('/reports/receivables-payables', name: 'ar_ap', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function receivablesPayables(Request $request): JsonResponse
     {
         $currency = $request->query->get('currency');

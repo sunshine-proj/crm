@@ -19,6 +19,10 @@ RUN apt update && apt install -y \
 # oniguruma-dev \
 # icu-dev \
 
+# pcov provides fast code coverage for `composer test:coverage`; it is inert unless pcov.enabled=1.
+RUN pecl install pcov && docker-php-ext-enable pcov \
+    && echo 'pcov.enabled=0' > /usr/local/etc/php/conf.d/zz-pcov.ini
+
 RUN docker-php-ext-install \
     pdo_pgsql \
     pgsql \

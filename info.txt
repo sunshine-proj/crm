@@ -1,0 +1,58 @@
+
+
+I did part of P0. None of the seven items is closed, and I couldn't run any of the new PHP code. This workspace has no Composer vendor/ directory and no PHP image, so the PHP changes are only syntax-checked (php -l). The frontend build passes and the 15 Vitest tests pass, including two new ones.
+
+Authorization (now admin-only, as you chose)
+
+Every finance route except the currency list now requires the administrator role. That covers ledger, journals, periods, tax codes, payables and reports.
+Four other areas are admin-only too:
+invoice issue
+customer payments, both list and create
+stock adjustments and product price writes
+project profitability
+Time-entry cost snapshots are hidden from non-admins.
+ApiAccessPolicyTest.php pins the required role of every API route. A new route fails the test until someone classifies it.
+On the frontend, session.ts reads the role from the JWT, so non-admins no longer see the Finance menu or trigger the payments and profitability calls that would now return 403. This only hides controls; the API enforces access.
+I did not tighten warehouse and supplier setup, purchase orders, receipts, dispatch, returns or invoice draft edits. They are still open to any signed-in user. I also did not review audit logging or add per-client or per-project access.
+Single organization
+
+SingleOrganizationGuardTest.php checks that a second settings row can't be stored. Business records still have no organization ownership, so multi-organization use stays unsupported.
+Backups
+
+The scripts in docker/backup/ do an encrypted daily dump of the database and uploaded documents to an off-host remote. They prune sets older than 35 days, and a separate script restores into a scratch database.
+The service is a compose backup profile, so a normal docker compose up is unaffected.
+docs/BACKUP.md has the setup steps and the quarterly restore-test log.
+It is not operational until you configure an off-host remote and record a passing restore test. I haven't run the scripts.
+Coverage tooling
+
+npm run test:coverage works. The report only covers src/lib, where it shows about 92% of statements.
+composer test:coverage and the pcov line in the PHP Dockerfile need the PHP image rebuilt. No backend coverage figure exists yet.
+Not started
+
+Confirming the legal and accounting scope with domain experts.
+Business-record versioning and recovery.
+Applying the pending migrations and running end-to-end ledger, payment-concurrency and reconciliation tests. This needs a working Docker environment.
+The README P0 section now has a progress note listing these gaps; nothing is ticked. I didn't commit anything.
+
+Please check: the 403s that non-admins now get on those routes. If finance staff who aren't administrators need the ledger or payments, we need a finance role, which is the other option you passed over.
+
+
+===================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

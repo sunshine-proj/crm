@@ -219,6 +219,7 @@ final class InventoryController extends AbstractController
     }
 
     #[Route('/adjustments', name: 'adjustment_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function adjustStock(#[MapRequestPayload] StockAdjustmentInput $input): JsonResponse
     {
         $product = $input->product_id !== null ? $this->productRepository->find($input->product_id) : null;

@@ -77,6 +77,34 @@ services:
       "
       # cp /opt/app-audit /etc/logrotate.d/app-audit;
   
+  # Encrypted off-host daily backups (database + uploaded documents). Not started by default:
+  # `docker compose --profile backup up -d backup` after setting BACKUP_AGE_RECIPIENT and BACKUP_REMOTE
+  # (plus rclone remote settings). See docs/BACKUP.md.
+  backup:
+    profiles: ["backup"]
+    build:
+      context: ./docker/backup
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: app
+      PGPASSWORD: secret
+      PGDATABASE: app
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      BACKUP_REMOTE: ${BACKUP_REMOTE:-}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-35}
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-02}
+      RCLONE_CONFIG: /config/rclone.conf
+    volumes:
+      - ./src/var/project-documents:/data/project-documents:ro
+      - ./storage/backup-status:/var/lib/backup
+      - ${BACKUP_RCLONE_CONFIG:-./docker/backup/rclone.conf}:/config/rclone.conf:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app
+
   rabbitmq:
     image: "rabbitmq:3-management"
     container_name: rabbitmq

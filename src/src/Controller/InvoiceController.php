@@ -244,6 +244,7 @@ final class InvoiceController extends AbstractController
 	}
 
 	#[Route('/{id<\d+>}/issue', name: 'issue', methods: ['POST'])]
+	#[IsGranted('ROLE_ADMIN')]
 	public function issue(int $id): JsonResponse
 	{
 		$invoice = $this->invoiceRepository->find($id);

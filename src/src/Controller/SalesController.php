@@ -55,6 +55,7 @@ final class SalesController extends AbstractController
     }
 
     #[Route('/products', name: 'products_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createProduct(#[MapRequestPayload] ProductInput $input): JsonResponse
     {
         $data = $this->validatedProduct($input);
@@ -74,6 +75,7 @@ final class SalesController extends AbstractController
     }
 
     #[Route('/products/{id<\d+>}', name: 'products_update', methods: ['PUT', 'PATCH'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function updateProduct(int $id, #[MapRequestPayload] ProductInput $input): JsonResponse
     {
         $product = $this->productRepository->find($id);
@@ -292,6 +294,7 @@ final class SalesController extends AbstractController
     }
 
     #[Route('/invoices/{id<\d+>}/payments', name: 'payments_list', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function payments(int $id): JsonResponse
     {
         $invoice = $this->invoiceRepository->find($id);
@@ -302,6 +305,7 @@ final class SalesController extends AbstractController
     }
 
     #[Route('/invoices/{id<\d+>}/payments', name: 'payments_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createPayment(int $id, #[MapRequestPayload] PaymentInput $input): JsonResponse
     {
         $amountMinor = $input->amount !== null ? $this->money->parseMinor($input->amount) : null;

@@ -29,6 +29,14 @@ Stage 1 is not complete: organization/tenant scoping, deals and pipelines, struc
 - [ ] Apply and verify the pending finance/project schema migrations, then run backend integration tests for end-to-end ledger postings, payment concurrency, and source-to-ledger reconciliation.
 - [ ] Establish measured automated test coverage for production-critical calculations, authorization, migrations, and lifecycle transitions.
 
+P0 progress (none of these items is closed; each remaining gap is listed):
+
+- **Single organization:** `SingleOrganizationGuardTest` pins the one-row `organization_settings` rule. There is still no tenant ownership on business records, so multi-organization use stays unsupported.
+- **Backups:** `docker/backup/` and the opt-in `backup` compose profile implement encrypted off-host daily backups with 35-day pruning and a restore-test script; see [docs/BACKUP.md](docs/BACKUP.md). Not operational until an off-host remote is configured and a restore test is recorded.
+- **Authorization:** ledger/finance routes (except the currency list), invoice issue, customer payments, stock adjustments, product price writes, project profitability, and time-entry cost snapshots are now administrator-only; `ApiAccessPolicyTest` pins the role of every API route. Inventory master data (warehouses, suppliers), purchase orders, receipts, dispatch and returns, and invoice draft edits remain open to any authenticated user pending a role decision, and record-level (per-client/project) access is not implemented. Audit-log coverage was not reviewed. The Finance menu is hidden for non-administrators (UI hint only).
+- **Coverage tooling:** `npm run test:coverage` (Vitest, `src/lib` only) and `composer test:coverage` (PHPUnit with pcov, needs a rebuilt PHP image). No backend coverage figure has been measured.
+- **Not started:** legal/accounting scope confirmation, business-record versioning, and applying/verifying the pending migrations with end-to-end ledger, payment-concurrency and reconciliation tests. The new PHP tests have only been syntax-checked here because Composer dependencies and the PHP image are unavailable.
+
 Country selection, retention settings, and operational finance reports do not by themselves establish legal compliance or production readiness.
 
 ### P1 — Complete core CRM, project delivery, and finance workflows

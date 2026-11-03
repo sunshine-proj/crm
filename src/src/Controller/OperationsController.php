@@ -157,6 +157,7 @@ final class OperationsController extends AbstractController
     }
 
     #[Route('/projects/{id<\d+>}/profitability', name: 'project_profitability', methods: ['GET'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function projectProfitability(int $id, Request $request): JsonResponse
     {
         $project = $this->projectRepository->find($id);
@@ -443,7 +444,9 @@ final class OperationsController extends AbstractController
 
     private function serializeTimeEntry(TimeEntry $entry): array
     {
-        return ['id' => $entry->getId(), 'project_id' => $entry->getProject()->getId(), 'project_title' => $entry->getProject()->getTitle(), 'task_id' => $entry->getTask()?->getId(), 'task_title' => $entry->getTask()?->getTitle(), 'user_id' => $entry->getUser()->getId(), 'user_email' => $entry->getUser()->getUserIdentifier(), 'work_date' => $entry->getWorkDate()->format('Y-m-d'), 'duration_minutes' => $entry->getDurationMinutes(), 'billable' => $entry->isBillable(), 'approval_status' => $entry->getApprovalStatus(), 'decided_by' => $entry->getDecidedBy()?->getUserIdentifier(), 'decided_at' => $entry->getDecidedAt()?->format(\DateTimeInterface::ATOM), 'decision_comment' => $entry->getDecisionComment(), 'cost_amount' => $entry->getCostMinor() !== null ? $this->money->formatMinor($entry->getCostMinor()) : null, 'cost_currency' => $entry->getCostCurrency(), 'billing_amount' => $entry->getBillingAmountMinor() !== null ? $this->money->formatMinor($entry->getBillingAmountMinor()) : null, 'billing_currency' => $entry->getBillingCurrency(), 'invoice_id' => $entry->getInvoice()?->getId(), 'description' => $entry->getDescription()];
+        $canSeeCost = $this->isGranted('ROLE_ADMIN');
+
+        return ['id' => $entry->getId(), 'project_id' => $entry->getProject()->getId(), 'project_title' => $entry->getProject()->getTitle(), 'task_id' => $entry->getTask()?->getId(), 'task_title' => $entry->getTask()?->getTitle(), 'user_id' => $entry->getUser()->getId(), 'user_email' => $entry->getUser()->getUserIdentifier(), 'work_date' => $entry->getWorkDate()->format('Y-m-d'), 'duration_minutes' => $entry->getDurationMinutes(), 'billable' => $entry->isBillable(), 'approval_status' => $entry->getApprovalStatus(), 'decided_by' => $entry->getDecidedBy()?->getUserIdentifier(), 'decided_at' => $entry->getDecidedAt()?->format(\DateTimeInterface::ATOM), 'decision_comment' => $entry->getDecisionComment(), 'cost_amount' => $canSeeCost && $entry->getCostMinor() !== null ? $this->money->formatMinor($entry->getCostMinor()) : null, 'cost_currency' => $canSeeCost ? $entry->getCostCurrency() : null, 'billing_amount' => $entry->getBillingAmountMinor() !== null ? $this->money->formatMinor($entry->getBillingAmountMinor()) : null, 'billing_currency' => $entry->getBillingCurrency(), 'invoice_id' => $entry->getInvoice()?->getId(), 'description' => $entry->getDescription()];
     }
 
     private function serializeExpense(Expense $expense, bool $withApprovals): array

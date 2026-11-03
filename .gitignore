@@ -54,3 +54,10 @@
 /frontend/dist
 /frontend/node_modules
 /storage
+
+# Test coverage reports
+/frontend/coverage/
+/src/coverage/
+/src/.phpunit.cache/
+/storage/backups/
+docker/backup/rclone.conf

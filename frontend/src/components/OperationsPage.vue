@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
+import { isAdminToken } from "../lib/session";
 
 type Project = { id: number; title: string; client_title: string | null; manager_email: string | null; budget_amount: string | null; budget_currency: string | null; billing_currency: string | null };
 type Task = { id: number; title: string; project_id: number | null };
@@ -79,7 +80,7 @@ async function loadTimeEntries() {
 }
 
 async function loadProfitability() {
-  if (timeProjectId.value === null) {
+  if (timeProjectId.value === null || !isAdminToken(localStorage.getItem("crm_token"))) {
     profitability.value = null;
     return;
   }

@@ -17,4 +17,4 @@ This directory is the CRM single-page application, built with Vue 3, Vue Single-
 
 ## Verification
 
-Run `npm run type-check` for a focused TypeScript/Vue check, `npm run build` for type-checking plus a production build, and `npm test` for the Vitest suite. `npm run dev` starts the Vite development server. No lint script is currently defined in `package.json`.
+Run `npm run type-check` for a focused TypeScript/Vue check, `npm run build` for type-checking plus a production build, `npm test` for the Vitest suite, and `npm run test:coverage` for a coverage report (currently limited to `src/lib`). Role checks in the UI (`src/lib/session.ts`) only hide controls; the API enforces access. `npm run dev` starts the Vite development server. No lint script is currently defined in `package.json`.
