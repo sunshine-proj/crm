@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { isAdminToken } from "./lib/session";
+import { isFinanceToken } from "./lib/session";
 import DashboardPage from "./components/DashboardPage.vue";
 import NewsPage from "./components/NewsPage.vue";
 import ClientsPage from "./components/ClientsPage.vue";
@@ -30,8 +30,8 @@ const activeSection = ref("Dashboard");
 const organizationSettingsReady = ref(false);
 const organizationSettingsError = ref("");
 const allSections = ["Dashboard", "News", "Clients", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Settings"];
-const isAdmin = computed(() => isAdminToken(token.value));
-const sections = computed(() => allSections.filter((section) => section !== "Finance" || isAdmin.value));
+const isFinance = computed(() => isFinanceToken(token.value));
+const sections = computed(() => allSections.filter((section) => section !== "Finance" || isFinance.value));
 const pageComponents = {
   Dashboard: DashboardPage,
   News: NewsPage,

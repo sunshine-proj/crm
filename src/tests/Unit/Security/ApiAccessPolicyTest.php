@@ -4,6 +4,7 @@ namespace App\Tests\Unit\Security;
 
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Core\Role\RoleHierarchy;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 
 /**
@@ -42,22 +43,47 @@ final class ApiAccessPolicyTest extends TestCase
         'api_tasks_dependencies_update', 'api_tasks_update', 'api_tasks_delete',
     ];
 
+    /** Routes that require ROLE_FINANCE (administrators inherit it). */
+    private const FINANCE_ROUTES = [
+        'api_finance_account_mappings',
+        'api_finance_accounts_list',
+        'api_finance_periods_list',
+        'api_finance_journal_list',
+        'api_finance_journal_create',
+        'api_finance_tax_list',
+        'api_finance_payables_list',
+        'api_finance_payables_create',
+        'api_finance_payables_payment',
+        'api_finance_trial_balance',
+        'api_finance_financial_statements',
+        'api_finance_reconciliation',
+        'api_finance_ar_ap',
+        'api_invoices_issue',
+        'api_operations_project_profitability',
+        'api_operations_expense_reimbursements_create',
+        'api_sales_products_create',
+        'api_sales_products_update',
+        'api_sales_payments_list',
+        'api_sales_payments_create',
+    ];
+
     /** Routes that require ROLE_ADMIN. */
     private const ADMIN_ROUTES = [
         'api_client_contacts_create', 'api_client_contacts_update', 'api_client_contacts_delete',
         'api_clients_create', 'api_clients_update', 'api_clients_delete',
-        'api_finance_account_mappings', 'api_finance_account_mappings_update',
-        'api_finance_accounts_list', 'api_finance_accounts_create', 'api_finance_accounts_update',
-        'api_finance_periods_list', 'api_finance_periods_create', 'api_finance_periods_close', 'api_finance_periods_reopen',
-        'api_finance_journal_list', 'api_finance_journal_create', 'api_finance_opening_balance', 'api_finance_journal_reverse',
-        'api_finance_tax_list', 'api_finance_tax_create',
-        'api_finance_payables_list', 'api_finance_payables_create', 'api_finance_payables_payment',
-        'api_finance_trial_balance', 'api_finance_financial_statements', 'api_finance_reconciliation', 'api_finance_ar_ap',
+        'api_finance_account_mappings_update',
+        'api_finance_accounts_create', 'api_finance_accounts_update',
+        'api_finance_periods_create', 'api_finance_periods_close', 'api_finance_periods_reopen',
+        'api_finance_opening_balance', 'api_finance_journal_reverse',
+        'api_finance_tax_create',
+
+
         'api_inventory_adjustment_create',
-        'api_invoices_issue',
-        'api_operations_user_cost_rate', 'api_operations_project_profitability', 'api_operations_expense_reimbursements_create',
+        'api_records_revisions_list', 'api_records_revisions_restore',
+
+        'api_operations_user_cost_rate',
         'api_organization_settings_update', 'api_organization_settings_restore',
-        'api_sales_products_create', 'api_sales_products_update', 'api_sales_payments_list', 'api_sales_payments_create',
+
     ];
 
     /** Routes whose authorization is an ownership check inside the controller. */
@@ -71,28 +97,49 @@ final class ApiAccessPolicyTest extends TestCase
     public function test_every_api_route_is_classified_and_declares_the_expected_role(): void
     {
         $routes = $this->declaredRoutes();
-        $classified = [...self::USER_ROUTES, ...self::ADMIN_ROUTES, ...self::RECORD_LEVEL, ...self::PUBLIC_ROUTES];
+        $classified = [...self::USER_ROUTES, ...self::FINANCE_ROUTES, ...self::ADMIN_ROUTES, ...self::RECORD_LEVEL, ...self::PUBLIC_ROUTES];
 
         self::assertSame([], array_values(array_diff(array_keys($routes), $classified)), 'Unclassified route: add it to the access policy.');
         self::assertSame([], array_values(array_diff($classified, array_keys($routes))), 'Policy lists a route that no longer exists.');
         self::assertSame(array_unique($classified), $classified, 'A route is classified twice.');
 
+        foreach (self::FINANCE_ROUTES as $name) {
+            self::assertContains('ROLE_FINANCE', $routes[$name], sprintf('%s must require ROLE_FINANCE.', $name));
+        }
         foreach (self::ADMIN_ROUTES as $name) {
             self::assertContains('ROLE_ADMIN', $routes[$name], sprintf('%s must require ROLE_ADMIN.', $name));
         }
         foreach (self::USER_ROUTES as $name) {
             self::assertContains('ROLE_USER', $routes[$name], sprintf('%s must require at least ROLE_USER.', $name));
             self::assertNotContains('ROLE_ADMIN', $routes[$name], sprintf('%s is documented as open to all users.', $name));
+            self::assertNotContains('ROLE_FINANCE', $routes[$name], sprintf('%s is documented as open to all users.', $name));
         }
     }
 
-    public function test_finance_ledger_routes_other_than_currency_list_are_admin_only(): void
+    public function test_finance_ledger_routes_other_than_currency_list_need_a_finance_or_admin_role(): void
     {
         foreach ($this->declaredRoutes() as $name => $roles) {
             if (str_starts_with($name, 'api_finance_') && $name !== 'api_finance_currencies') {
-                self::assertContains('ROLE_ADMIN', $roles, sprintf('%s exposes ledger data.', $name));
+                self::assertNotSame([], array_intersect($roles, ['ROLE_FINANCE', 'ROLE_ADMIN']), sprintf('%s exposes ledger data.', $name));
             }
         }
+    }
+
+    public function test_configuration_and_period_control_stay_administrator_only(): void
+    {
+        $routes = $this->declaredRoutes();
+        foreach (['api_finance_account_mappings_update', 'api_finance_periods_close', 'api_finance_periods_reopen', 'api_finance_journal_reverse', 'api_finance_opening_balance', 'api_operations_user_cost_rate'] as $name) {
+            self::assertContains('ROLE_ADMIN', $routes[$name], $name);
+        }
+    }
+
+    public function test_role_hierarchy_lets_administrators_act_as_finance_but_not_the_reverse(): void
+    {
+        $hierarchy = new RoleHierarchy(['ROLE_FINANCE' => ['ROLE_USER'], 'ROLE_ADMIN' => ['ROLE_FINANCE', 'ROLE_USER']]);
+
+        self::assertContains('ROLE_FINANCE', $hierarchy->getReachableRoleNames(['ROLE_ADMIN']));
+        self::assertNotContains('ROLE_ADMIN', $hierarchy->getReachableRoleNames(['ROLE_FINANCE']));
+        self::assertContains('ROLE_USER', $hierarchy->getReachableRoleNames(['ROLE_FINANCE']));
     }
 
     /** @return array<string, list<string>> route name => roles required by class and method attributes */
@@ -102,14 +149,14 @@ final class ApiAccessPolicyTest extends TestCase
         foreach (glob(dirname(__DIR__, 3).'/src/Controller/*Controller.php') ?: [] as $file) {
             $class = new \ReflectionClass('App\\Controller\\'.basename($file, '.php'));
             $classRoute = $class->getAttributes(Route::class)[0] ?? null;
-            $prefix = $classRoute?->newInstance()->getName() ?? '';
+            $prefix = $classRoute?->newInstance()->name ?? '';
             $classRoles = $this->roles($class->getAttributes(IsGranted::class));
             foreach ($class->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
                 $routeAttribute = $method->getAttributes(Route::class)[0] ?? null;
                 if ($routeAttribute === null) {
                     continue;
                 }
-                $name = $prefix.$routeAttribute->newInstance()->getName();
+                $name = $prefix.$routeAttribute->newInstance()->name;
                 $routes[$name] = [...$classRoles, ...$this->roles($method->getAttributes(IsGranted::class))];
             }
         }

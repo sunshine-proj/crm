@@ -157,7 +157,7 @@ final class OperationsController extends AbstractController
     }
 
     #[Route('/projects/{id<\d+>}/profitability', name: 'project_profitability', methods: ['GET'])]
-    #[IsGranted('ROLE_ADMIN')]
+    #[IsGranted('ROLE_FINANCE')]
     public function projectProfitability(int $id, Request $request): JsonResponse
     {
         $project = $this->projectRepository->find($id);
@@ -223,7 +223,7 @@ final class OperationsController extends AbstractController
         $projectId = $this->parseOptionalId($request->query->get('project_id'));
         if (isset($projectId['error'])) return $this->json(['error' => $projectId['error']], JsonResponse::HTTP_BAD_REQUEST);
         $currentUser = $this->getUser();
-        $isAdmin = $currentUser instanceof User && in_array('ROLE_ADMIN', $currentUser->getRoles(), true);
+        $isAdmin = $currentUser instanceof User && $this->isGranted('ROLE_FINANCE');
         $items = $this->expenseRepository->findFiltered($projectId['id'], $status);
         if (!$isAdmin && $currentUser instanceof User) $items = array_values(array_filter($items, static fn (Expense $expense): bool => $expense->getSubmitter()->getId() === $currentUser->getId()));
         return $this->json(array_map(fn (Expense $expense): array => $this->serializeExpense($expense, true), $items));
@@ -313,18 +313,18 @@ final class OperationsController extends AbstractController
         if ($expense === null) return $this->json(['error' => 'Expense not found.'], JsonResponse::HTTP_NOT_FOUND);
         $actor = $this->getUser();
         if (!$actor instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
-        $isAdmin = in_array('ROLE_ADMIN', $actor->getRoles(), true);
+        $isAdmin = $this->isGranted('ROLE_FINANCE');
         $isSubmitter = $expense->getSubmitter()->getId() === $actor->getId();
         $isProjectManager = $expense->getProject()->getManager()?->getId() === $actor->getId();
         if (!$isAdmin && !$isSubmitter && !$isProjectManager) {
-            return $this->json(['error' => 'Only an administrator, the expense submitter, or the project manager may view reimbursements.'], JsonResponse::HTTP_FORBIDDEN);
+            return $this->json(['error' => 'Only an administrator, finance user, the expense submitter, or the project manager may view reimbursements.'], JsonResponse::HTTP_FORBIDDEN);
         }
 
         return $this->json(array_map(fn (ExpenseReimbursement $item): array => $this->serializeReimbursement($item), $this->reimbursementRepository->findForExpense($id)));
     }
 
     #[Route('/expenses/{id<\d+>}/reimbursements', name: 'expense_reimbursements_create', methods: ['POST'])]
-    #[IsGranted('ROLE_ADMIN')]
+    #[IsGranted('ROLE_FINANCE')]
     public function reimburseExpense(int $id, #[MapRequestPayload] ExpenseReimbursementInput $input): JsonResponse
     {
         $expense = $this->expenseRepository->find($id);
@@ -444,7 +444,7 @@ final class OperationsController extends AbstractController
 
     private function serializeTimeEntry(TimeEntry $entry): array
     {
-        $canSeeCost = $this->isGranted('ROLE_ADMIN');
+        $canSeeCost = $this->isGranted('ROLE_FINANCE');
 
         return ['id' => $entry->getId(), 'project_id' => $entry->getProject()->getId(), 'project_title' => $entry->getProject()->getTitle(), 'task_id' => $entry->getTask()?->getId(), 'task_title' => $entry->getTask()?->getTitle(), 'user_id' => $entry->getUser()->getId(), 'user_email' => $entry->getUser()->getUserIdentifier(), 'work_date' => $entry->getWorkDate()->format('Y-m-d'), 'duration_minutes' => $entry->getDurationMinutes(), 'billable' => $entry->isBillable(), 'approval_status' => $entry->getApprovalStatus(), 'decided_by' => $entry->getDecidedBy()?->getUserIdentifier(), 'decided_at' => $entry->getDecidedAt()?->format(\DateTimeInterface::ATOM), 'decision_comment' => $entry->getDecisionComment(), 'cost_amount' => $canSeeCost && $entry->getCostMinor() !== null ? $this->money->formatMinor($entry->getCostMinor()) : null, 'cost_currency' => $canSeeCost ? $entry->getCostCurrency() : null, 'billing_amount' => $entry->getBillingAmountMinor() !== null ? $this->money->formatMinor($entry->getBillingAmountMinor()) : null, 'billing_currency' => $entry->getBillingCurrency(), 'invoice_id' => $entry->getInvoice()?->getId(), 'description' => $entry->getDescription()];
     }

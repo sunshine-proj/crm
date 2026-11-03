@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
-import { isAdminToken } from "../lib/session";
+import { isFinanceToken } from "../lib/session";
 
 type Client = { id: number; title: string };
 type Manager = { id: number; email: string };
@@ -230,7 +230,7 @@ function editInvoice(invoice: Invoice) {
 }
 
 async function loadPayments(invoiceId: number) {
-  if (!isAdminToken(localStorage.getItem("crm_token"))) {
+  if (!isFinanceToken(localStorage.getItem("crm_token"))) {
     payments.value = [];
     return;
   }

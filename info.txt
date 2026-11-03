@@ -37,11 +37,56 @@ The README P0 section now has a progress note listing these gaps; nothing is tic
 Please check: the 403s that non-admins now get on those routes. If finance staff who aren't administrators need the ledger or payments, we need a finance role, which is the other option you passed over.
 
 
+
 ===================================================
 
 
 
 
+
+All the P0 items that can be done in code are done, except real multi-organization isolation. The backend suite passes: 58 tests, 486 assertions, run in the local karamele/php-fpm image after installing Composer dependencies. The frontend suite passes too: 19 Vitest tests, plus a clean build.
+
+Finance role
+
+There are now three roles: ROLE_USER, ROLE_FINANCE, and ROLE_ADMIN, which includes finance.
+Finance users get the ledger, payables and reports, invoice issue, customer payments, reimbursements, profitability and cost visibility.
+Admins alone configure accounts, mappings and periods, post opening balances and reversals, manage cost rates and stock adjustments, edit clients and settings, and restore records.
+Grant roles with php bin/console app:user:roles <email> ROLE_FINANCE.
+HTTP-level allow/deny tests check each role.
+The Finance menu shows for finance and admin users.
+Record versioning and recovery
+
+Creates, updates and deletes of clients, contacts, projects, milestones, tasks, products, suppliers and warehouses go into an append-only record_revision table (new migration).
+Admins can list revisions, roll a record back, or recreate a deleted one. A recreated record gets a new ID.
+Settings has a new "Record history" panel for this.
+Rows removed by database cascades, such as a client's projects, are not captured.
+Invoices, journals, payments and stock movements are deliberately excluded, since they are corrected through their own workflows.
+I checked it over HTTP on PostgreSQL: update, rollback, and delete-then-recreate all worked.
+Migrations and ledger verification
+
+All 19 migrations applied to a fresh PostgreSQL 16 database.
+scripts/verify-ledger-e2e.sh passed there. It issues an invoice, fires 10 concurrent receipts of 30.00 against a 100.00 invoice, and exactly 3 were accepted. Reconciliation shows no missing postings and the trial balance balances.
+doctrine:schema:validate still reports index-name drift between the migrations and the entity mappings. It existed before this work and doesn't involve the new table. I left it alone.
+Nothing was applied to a deployed database.
+Coverage
+
+Measured backend line coverage is 26.8% (1037 of 3876 lines), and most controllers are still untested. That is far from "production-critical areas covered", so I did not tick that item.
+Not done
+
+Legal and accounting scope: docs/COMPLIANCE_SCOPE.md is a sign-off worksheet. It needs answers from your accountant and lawyer.
+Multi-organization isolation: this is a separate project touching every entity, repository and endpoint. Untested, it would give false security. I kept the one-organization guard.
+Backups: the scripts have not been run against a real off-host remote, and no restore test is recorded.
+Access still open to any signed-in user:
+warehouse and supplier setup
+purchase orders, receipts, dispatch and returns
+per-client and per-project access
+audit-log coverage
+Dependencies: I added symfony/browser-kit and css-selector as dev dependencies. Composer also reported 2 security advisories that I didn't look into.
+I left the README P0 checkboxes unticked; the note under them lists what remains for each item.
+
+
+
+===================================================
 
 
 

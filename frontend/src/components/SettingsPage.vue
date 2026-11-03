@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { setOrganizationDefaultCurrency } from "../lib/organizationSettings";
+import RecordHistoryPanel from "./RecordHistoryPanel.vue";
 
 type Country = { code: string; name: string; default_currency: string };
 type Currency = { code: string; name: string };
@@ -241,6 +242,8 @@ function formatDate(value: string): string {
           </li>
         </ol>
       </section>
+
+      <RecordHistoryPanel v-if="settings.can_manage" />
     </template>
   </div>
 </template>

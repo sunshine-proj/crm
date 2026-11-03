@@ -16,3 +16,8 @@ export function rolesFromToken(token: string | null): string[] {
 export function isAdminToken(token: string | null): boolean {
   return rolesFromToken(token).includes("ROLE_ADMIN");
 }
+
+export function isFinanceToken(token: string | null): boolean {
+  const roles = rolesFromToken(token);
+  return roles.includes("ROLE_FINANCE") || roles.includes("ROLE_ADMIN");
+}
