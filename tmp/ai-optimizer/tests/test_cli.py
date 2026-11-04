@@ -10,12 +10,18 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner, Result
 
-from ai_optimizer import __version__, services
+from ai_optimizer import __version__, cli, services
 from ai_optimizer.cli import app
 from tests.conftest import PYTHON_NAME
 
 Writer = Callable[[Path, str, str], Path]
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`aiopt trust` needs a TTY; CliRunner has none, so pretend one exists."""
+    monkeypatch.setattr(cli, "_stdin_is_tty", lambda: True)
 
 
 def aiopt(project_dir: Path | None, *args: str, input: str | None = None) -> Result:
@@ -377,3 +383,14 @@ def test_commands_run_from_a_subdirectory(
     assert result.exit_code == 0
     assert (project_dir / ".ai-optimizer/cache/project-info.json").is_file()
     assert not (project_dir / "src/shop/.ai-optimizer").exists()
+
+
+def test_trust_refuses_without_a_terminal(
+    project_dir: Path, write: Writer, allow_python: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    add_task(project_dir, write, "hello", "print('x')\n")
+    monkeypatch.setattr(cli, "_stdin_is_tty", lambda: False)
+    result = aiopt(project_dir, "trust", input="y\n")
+    assert result.exit_code == 4 and "interactive terminal" in result.stderr
+    assert aiopt(project_dir, "--json", "trust", input="y\n").exit_code == 4
+    assert aiopt(project_dir, "task", "run", "hello").exit_code == 4

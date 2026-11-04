@@ -30,6 +30,8 @@ DEFAULT_EXCLUDES = [
     "build/",
     "*.egg-info/",
     ".idea/",
+    ".claude/",
+    ".codex/",
     ".vscode/",
 ]
 

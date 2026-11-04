@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,8 @@ from ai_optimizer import __version__, services
 from ai_optimizer.core.errors import AIOptError, TrustError
 from ai_optimizer.core.log import configure_logging, get_logger
 from ai_optimizer.core.project import Project, find_project_root, load_project
+from ai_optimizer.integrations import adapters as integrations
+from ai_optimizer.integrations import hooks
 
 log = get_logger("cli")
 
@@ -30,12 +33,18 @@ cache_app = typer.Typer(help="Index cache commands.", no_args_is_help=True)
 context_app = typer.Typer(help="Context search and package generation.", no_args_is_help=True)
 profile_app = typer.Typer(help="Context profile commands.", no_args_is_help=True)
 task_app = typer.Typer(help="Task registry and execution.", no_args_is_help=True)
+integrations_app = typer.Typer(help="Install agent integrations.", no_args_is_help=True)
+mcp_app = typer.Typer(help="MCP server.", no_args_is_help=True)
+hook_app = typer.Typer(help="Assistant hook entry points.", no_args_is_help=True, hidden=True)
 app.add_typer(config_app, name="config")
 app.add_typer(project_app, name="project")
 app.add_typer(cache_app, name="cache")
 app.add_typer(context_app, name="context")
 app.add_typer(profile_app, name="profile")
 app.add_typer(task_app, name="task")
+app.add_typer(integrations_app, name="integrations")
+app.add_typer(mcp_app, name="mcp")
+app.add_typer(hook_app, name="hook", hidden=True)
 
 
 @dataclass(slots=True)
@@ -140,6 +149,10 @@ def init_command(
     _emit(ctx, result, "\n".join(lines))
 
 
+def _stdin_is_tty() -> bool:
+    return sys.stdin.isatty()
+
+
 @app.command("trust")
 @guarded
 def trust_command(
@@ -154,6 +167,11 @@ def trust_command(
         result = services.revoke_trust(project)
         _emit(ctx, result, "Trust revoked." if result["revoked"] else "Project was not trusted.")
         return
+    if not _stdin_is_tty():
+        raise TrustError(
+            "`aiopt trust` needs an interactive terminal so that a person reviews and confirms. "
+            "Run it yourself in a terminal (for example the VS Code integrated terminal)."
+        )
     summary = services.trust_summary(project)
     typer.echo(f"Project: {summary['root']}", err=True)
     if not summary["tasks"]:
@@ -388,6 +406,100 @@ def task_run(
     _emit(ctx, report, "\n".join(lines), essential=True)
     if report["status"] != "passed":
         raise typer.Exit(3)
+
+
+# --- integrations ------------------------------------------------------------------------
+
+
+def _render_install(report: Any, verb: str) -> str:
+    prefix = "[dry run] " if report.dry_run else ""
+    lines = [f"{prefix}{verb} {report.provider}:"]
+    for change in report.changes:
+        detail = f" ({change.detail})" if change.detail else ""
+        lines.append(f"  {change.status:<9} {change.path}{detail}")
+    lines += [f"Note: {note}" for note in report.notes]
+    return "\n".join(lines)
+
+
+@integrations_app.command("list")
+@guarded
+def integrations_list(ctx: typer.Context) -> None:
+    """Show available integrations and which are installed."""
+    state = _state(ctx)
+    root = state.project_dir.resolve() if state.project_dir else find_project_root(Path.cwd())
+    rows = integrations.status(root)
+    lines = [
+        f"{row['provider']:<9} {'installed' if row['installed'] else 'not installed':<14} "
+        f"{row['description']}"
+        for row in rows
+    ]
+    _emit(ctx, {"integrations": rows}, "\n".join(lines))
+
+
+@integrations_app.command("install")
+@guarded
+def integrations_install(
+    ctx: typer.Context,
+    provider: Annotated[str, typer.Argument(help="claude, copilot or codex.")],
+    command: Annotated[
+        str, typer.Option(help="Executable the editor should launch (use an absolute path).")
+    ] = "aiopt",
+    mcp: Annotated[bool, typer.Option("--mcp/--no-mcp", help="Register the MCP server.")] = True,
+    hooks: Annotated[
+        bool, typer.Option("--with-hooks", help="Claude Code: add a SessionStart status hook.")
+    ] = False,
+    permissions: Annotated[
+        bool,
+        typer.Option("--permissions/--no-permissions", help="Claude Code: add permission rules."),
+    ] = True,
+    force: Annotated[
+        bool, typer.Option(help="Replace files and servers not managed by aiopt.")
+    ] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show changes without writing.")
+    ] = False,
+) -> None:
+    """Install skills, instructions and MCP configuration for an assistant."""
+    state = _state(ctx)
+    root = state.project_dir.resolve() if state.project_dir else find_project_root(Path.cwd())
+    options = integrations.InstallOptions(
+        command=command, mcp=mcp, hooks=hooks, permissions=permissions, force=force, dry_run=dry_run
+    )
+    report = integrations.install(root, provider, options)
+    _emit(ctx, report.to_dict(), _render_install(report, "Installed"))
+
+
+@integrations_app.command("uninstall")
+@guarded
+def integrations_uninstall(
+    ctx: typer.Context,
+    provider: Annotated[str, typer.Argument(help="claude, copilot or codex.")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show changes without writing.")
+    ] = False,
+) -> None:
+    """Remove what `install` added. Files you changed yourself are left in place."""
+    state = _state(ctx)
+    root = state.project_dir.resolve() if state.project_dir else find_project_root(Path.cwd())
+    report = integrations.uninstall(root, provider, dry_run=dry_run)
+    _emit(ctx, report.to_dict(), _render_install(report, "Uninstalled"))
+
+
+@mcp_app.command("serve")
+@guarded
+def mcp_serve(ctx: typer.Context) -> None:
+    """Run the MCP server over stdio. Normally started by your editor, not by hand."""
+    from ai_optimizer.integrations import mcp_server
+
+    mcp_server.serve(_state(ctx).project_dir)
+
+
+@hook_app.command("session-start")
+def hook_session_start(ctx: typer.Context) -> None:
+    """Print a short session status for Claude Code (empty when not set up)."""
+    summary = hooks.session_start_summary(_state(ctx).project_dir)
+    if summary:
+        typer.echo(summary)
 
 
 # --- metrics -----------------------------------------------------------------------------

@@ -10,7 +10,7 @@ Skills provide standardized workflows that can be used by different AI coding as
 
 The implementation must avoid duplicating business logic between agents. Skills invoke shared AI Optimizer CLI commands (preferred) or MCP tools, and contain only workflow guidance.
 
-Skills are delivered in Phase 4 (see `PRD.md`). They depend on commands defined in the PRD CLI specification.
+The four MVP skills are implemented. They ship inside the package (`src/ai_optimizer/integrations/skills/`) and are installed into a project with `aiopt integrations install <provider>`. They depend only on commands defined in the PRD CLI specification.
 
 ## 2. Skill Design Principles
 
@@ -128,7 +128,7 @@ Skill names use the `aiopt-` prefix to avoid collisions with assistants' built-i
 Shared skill directory:
 
 ```text
-skills/
+src/ai_optimizer/integrations/skills/
 ├── aiopt-analyze/
 │   └── SKILL.md
 ├── aiopt-context/
@@ -164,7 +164,15 @@ Skills with side effects (any future skill that modifies files) should be config
 
 ### Installation and adapters
 
-`aiopt integrations install <provider>` copies or links the shared skills into the location the provider expects (for example `.claude/skills/` for Claude Code). Invocation syntax such as slash commands is provider-specific and is not part of the skill definition.
+`aiopt integrations install <provider>` copies the shared skills, with an ownership marker, to where the provider looks:
+
+| Provider | Skills location | Notes |
+| --- | --- | --- |
+| Claude Code (CLI and VS Code extension) | `.claude/skills/` | Also writes instructions, permission rules and MCP configuration |
+| GitHub Copilot (VS Code) | `.github/skills/` | Skipped when `.claude/skills/` already holds them, because VS Code reads both locations |
+| Codex | none | Receives the shared instructions in `AGENTS.md` and the MCP server instead |
+
+Invocation syntax such as slash commands is provider-specific and is not part of the skill definition. Files without the ownership marker are never overwritten unless `--force` is given.
 
 If a provider requires a different format, use thin adapter files that reference the shared workflow, never duplicated workflow logic.
 
@@ -219,10 +227,10 @@ Provider adapters should additionally configure provider permissions where suppo
 
 ## 9. Testing Skills
 
-- **Structural tests:** every skill has valid frontmatter (`name`, `description`), a name matching its directory, and a failure-handling section.
+- **Structural tests (implemented in `tests/test_integrations.py`):** every skill has valid frontmatter (`name`, `description`), a name matching its directory, and a failure-handling section.
 - **Reference tests:** every `aiopt` command and MCP tool named in a skill exists in the CLI or MCP tool list.
 - **Adapter tests:** adapters contain no workflow logic beyond references to shared skills.
-- **Behavior evals (Phase 4/5):** a small set of prompts checks that an assistant selects the intended skill and calls the intended commands. Results feed the Phase 0 benchmark comparison.
+- **Behavior evals (not yet implemented):** a small set of prompts checks that an assistant selects the intended skill and calls the intended commands. Results feed the Phase 0 benchmark comparison.
 
 ## 10. Future Extensibility
 

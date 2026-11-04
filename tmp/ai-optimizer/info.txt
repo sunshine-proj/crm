@@ -44,7 +44,50 @@ The first index is a baseline, so the code-review profile doesn't list the whole
 I also updated the README (quick start and ticked checklist), PRD, AGENTS.md, and added docs/usage.md. I haven't run aiopt on this repository itself, so there's no .ai-optimizer/ here. Phase 4 (Claude Code skills, aiopt integrations install, the MCP server) is the natural next step.
 
 
+
 ===========================================================
+
+
+
+
+Phase 4 is done: the Claude Code, GitHub Copilot (VS Code) and Codex adapters, the MCP server, and the four shared skills are implemented. All 299 tests pass, ruff is clean and strict mypy passes. I checked the built wheel contains the skills, and ran the real CLI in a throwaway project (install, hook, uninstall).
+
+What you can now do
+
+pipx install 'ai-optimizer[mcp]'        # stable absolute path that VS Code can launch
+aiopt integrations install claude --dry-run     # preview, then run again without --dry-run
+aiopt integrations install copilot
+aiopt integrations install codex
+Provider	What gets installed
+claude	4 skills in .claude/skills/, an instruction block, permission rules in .claude/settings.json, the MCP server in .mcp.json, and an optional SessionStart status hook (--with-hooks)
+copilot	Instructions in .github/copilot-instructions.md, skills in .github/skills/, and the server in .vscode/mcp.json
+codex	An instruction block in AGENTS.md, and the server in .codex/config.toml
+MCP tools: aiopt mcp serve runs the 9 tools. They call the same service functions as the CLI, so trust, allowlist and timeout rules are identical.
+Idempotent and reversible: repeat installs change nothing, and uninstall restores the files it touched exactly. This is tested byte-for-byte.
+Existing config is protected: your own files, existing server entries, and JSON files with comments are never overwritten or rewritten. They're reported as skipped, with the manual snippet.
+One source of truth: instructions and skills are written once and placed per provider. If CLAUDE.md imports AGENTS.md, the block goes in AGENTS.md, and Codex shares it.
+Findings along the way
+MCP SDK hides tool errors. It reduces exceptions to "Error executing tool", so an agent would never see "project not trusted, ask the user to run aiopt trust". Expected errors are now passed through verbatim.
+aiopt trust needed hardening. A Claude Code deny rule only matches the command text, so aiopt --json trust would slip past it. aiopt trust now refuses to run without an interactive terminal, so run it yourself in the VS Code integrated terminal.
+Assistant config files were being indexed and polluting search, so .claude/ and .codex/ are now excluded by default.
+Permission rules were checked against the current docs. I used a documentation-checking subagent for the Claude Code formats, and web searches for the VS Code and Codex ones. Allow rules cover read-mostly commands and the exact command aiopt task run validate. aiopt trust is denied. Other task runs, --allow-destructive and MCP run_task still prompt.
+All ten deliberate breakages of safety behavior (for example, overwriting unmanaged files or letting MCP run destructive tasks) are caught by the tests.
+
+What to know
+Not tested against live Claude Code, Copilot or Codex. I verified the file formats against their docs and tested everything on our side, including a real stdio MCP session. After installing, check /mcp and /skills in Claude Code, and the tools list in Copilot's Agent mode.
+MCP SDK version: it's tested against mcp 2.x. A fallback for 1.x exists but is untested.
+Assistant-side permission rules are your real control. The trust record is a file in ~/.local/state, so an agent that can write there could still bypass the trust prompt.
+Phase 0 is still open. The benchmark that tests whether assistants actually benefit is the main remaining question about the project's value.
+I also updated docs/usage.md (including VS Code notes), SKILLS.md, README.md and the PRD. Phase 5 (reports, provider-usage import, optional semantic search) or the Phase 0 benchmark are the natural next steps.
+
+
+
+===========================================================
+
+
+
+
+
 
 
 

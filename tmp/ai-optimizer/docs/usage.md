@@ -14,6 +14,8 @@
 | `aiopt task list` / `show NAME` / `run NAME [--allow-destructive]` | Task registry and execution |
 | `aiopt trust [--revoke]` | Review and trust (or untrust) a project's tasks |
 | `aiopt metrics` | Local statistics |
+| `aiopt integrations list` / `install PROVIDER` / `uninstall PROVIDER` | Manage assistant integrations (`claude`, `copilot`, `codex`) |
+| `aiopt mcp serve` | Run the MCP server over stdio (started by your editor) |
 
 Global options: `--project-dir PATH`, `--json`, `-v/--verbose`, `-q/--quiet`, `--version`.
 
@@ -127,4 +129,45 @@ A repository's task files are untrusted input.
 
 - Allowed tools run with your user's privileges and are **not sandboxed**. Filesystem boundaries are enforced for AI Optimizer's own file access (indexing, outputs, working directories), not for what an allowed program does. Allowlisting a tool such as `pytest` means trusting the project's test code. Use a container or VM for untrusted repositories.
 - Secret redaction is best effort.
-- `aiopt trust` asks for confirmation interactively, but an AI agent with shell access could still pipe an answer. Restrict agent permissions in the assistant itself (for example, do not auto-approve `aiopt trust`).
+- `aiopt trust` refuses to run without an interactive terminal and has no bypass flag, so an assistant's non-interactive shell cannot grant trust. It is not a defence against an agent that can edit files in your home directory (the trust record is `trust.json` in your state directory). Keep the assistant's own permission system on, and run `aiopt trust` yourself, for example in the VS Code integrated terminal.
+
+## Agent integrations
+
+`aiopt integrations install <provider>` adds the files an assistant needs. Every run is idempotent, `--dry-run` previews it, and `aiopt integrations uninstall <provider>` removes exactly what was added (files you changed are left alone). JSON files containing comments are never rewritten; the command reports the snippet to add by hand instead.
+
+| Provider | Writes |
+| --- | --- |
+| `claude` | `.claude/skills/aiopt-*/SKILL.md`; an instruction block in `CLAUDE.md` (or `AGENTS.md` if `CLAUDE.md` imports it); permission rules in `.claude/settings.json`; the server in `.mcp.json`; with `--with-hooks`, a `SessionStart` status hook |
+| `copilot` | `.github/copilot-instructions.md` block; `.github/skills/aiopt-*` (skipped if `.claude/skills` has them, since VS Code reads both); the server in `.vscode/mcp.json` |
+| `codex` | an instruction block in `AGENTS.md`; the server in `.codex/config.toml` |
+
+Options: `--command PATH` (executable the editor launches), `--no-mcp`, `--no-permissions` (Claude), `--with-hooks` (Claude), `--force`, `--dry-run`.
+
+### VS Code on Linux
+
+Editors start tools with their own environment, which often lacks a virtualenv's `bin/`. Install once where it is always on `PATH`:
+
+```sh
+pipx install 'ai-optimizer[mcp]'     # or: uv tool install 'ai-optimizer[mcp]'
+aiopt integrations install claude
+```
+
+If you use a virtualenv instead, pass the absolute path: `aiopt integrations install claude --command "$(which aiopt)"`. The installer warns when the command is not on `PATH`.
+
+After installing, in VS Code:
+
+- **Claude Code extension:** run `/mcp` to approve the project server and `/skills` to confirm the four skills. The extension reads the same `.claude/settings.json` as the CLI. Allow rules from a committed settings file apply only after you trust the workspace; the `aiopt trust` deny rule applies immediately.
+- **GitHub Copilot:** open Chat in Agent mode and check the tools list for `aiopt`. VS Code asks you to trust the MCP server on first start.
+- Run `aiopt trust` yourself in the integrated terminal when the assistant reports that the project is not trusted.
+
+### Permission rules written for Claude Code
+
+Allowed without prompting: `aiopt context search|build`, `cache status|update`, `analyze`, `project info`, `profile list|show`, `task list|show`, `metrics`, the exact command `aiopt task run validate`, and the read-mostly MCP tools. Denied: `aiopt trust`. Everything else, including `aiopt task run <other>`, `cache clear`, `init`, `--allow-destructive` and the MCP `run_task` tool, still prompts. Review them in `.claude/settings.json`; `--no-permissions` skips them.
+
+### MCP tools
+
+`get_project_info`, `analyze_project`, `search_context`, `get_context_profile`, `build_context`, `get_cache_status`, `refresh_cache`, `list_tasks`, `run_task`. They call the same service functions as the CLI, so trust, allowlist and timeout rules are identical. There is no destructive option and no way to trust a project through MCP. Results are compact: passing task steps return no output and failing steps return only the last 2,000 characters; the full report is written to `.ai-optimizer/reports/`.
+
+### Session hook
+
+With `--with-hooks`, Claude Code runs `aiopt hook session-start` when a session starts. It prints two lines (index size, cache freshness, trust state) and never refreshes the cache. It prints nothing in projects without `.ai-optimizer/`.

@@ -2,7 +2,7 @@
 
 **Version:** 0.2
 
-**Status:** Draft — revised specification. The MVP (Phases 1–3) is implemented in package version 0.1.0.
+**Status:** Draft — revised specification. The MVP (Phases 1–3) and the agent integrations (Phase 4) are implemented in package version 0.1.0.
 
 **Document roles:** This document is authoritative for scope, requirements, architecture and phase acceptance criteria. `README.md` tracks implementation progress as a checklist. `AGENTS.md` defines development rules. `SKILLS.md` defines agent skills.
 
@@ -637,7 +637,12 @@ Decisions made during implementation:
 - Allowlist entries are keyed by executable name, resolved through the user's `PATH`. Path-based commands (`./x`, `/usr/bin/x`) are rejected. Inline-code flags (`-c`, `-e`) on interpreters are always rejected.
 - The first index of a project is a baseline: it does not populate the "changed files" used by the `refactoring` and `code-review` profiles.
 - Package relevance scores are scaled to 0–1 per query (plus a small base) so profile `kind_weights` can reorder weak matches. They are relative values, not raw BM25.
-- `aiopt trust` always asks for interactive confirmation and has no bypass flag. This slows accidental or scripted trust but does not stop an agent that can pipe input; keep the agent's own permission system as the real control.
+- `aiopt trust` requires an interactive terminal and has no bypass flag, so an agent's non-interactive shell cannot grant trust, including through global-option forms such as `aiopt --json trust` that a text permission rule would miss. It is still not a security boundary against an agent that can write the user's state directory directly; the assistant's own permission system remains the real control.
+- Skills live inside the package (`src/ai_optimizer/integrations/skills/`) so installed wheels contain them. Adapters copy them with an ownership marker, never overwrite unmarked files without `--force`, never rewrite JSON that contains comments, and uninstall restores the files they touched.
+- Instructions are written once and inserted as a delimited block into `AGENTS.md` (Codex, and Claude Code when `CLAUDE.md` imports it), `CLAUDE.md`, or `.github/copilot-instructions.md`.
+- Claude Code permission rules auto-allow read-mostly commands and the exact command `aiopt task run validate`; they deny `aiopt trust`. `aiopt task run <other>` and any use of `--allow-destructive` still prompt.
+- MCP tools return compact results (counts and samples, failing-step output tails only) and expose no destructive option and no trust operation. Expected errors are surfaced to the model verbatim because the SDK otherwise hides exception text.
+- The MCP server is tested against `mcp` 2.x (`MCPServer`); a fallback import for 1.x (`FastMCP`) exists but is untested.
 - `--output` for context packages must stay inside the project directory.
 
 Open questions:

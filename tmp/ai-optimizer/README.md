@@ -6,7 +6,7 @@ The CLI and Python core are the primary MVP (Phases 1–3). Provider integration
 
 ## Installation and Quick Start
 
-**Status:** the MVP (Phases 1–3) is implemented. Agent integrations and the MCP server (Phase 4) are not started.
+**Status:** the MVP (Phases 1–3) and the agent integrations (Phase 4: Claude Code, GitHub Copilot in VS Code, Codex, MCP server) are implemented. Phase 5 extensions and the Phase 0 benchmark are not started.
 
 Requires Python 3.12+.
 
@@ -26,6 +26,13 @@ aiopt context build --task "Implement password reset" --max-tokens 4000
 aiopt trust                                  # review the tasks, then confirm
 aiopt task run validate                      # allowlisted, timed, reported
 aiopt metrics                                # local statistics (token figures are estimates)
+```
+
+Connect an assistant (Claude Code, GitHub Copilot in VS Code, or Codex):
+
+```sh
+pipx install 'ai-optimizer[mcp]'             # a stable absolute path that editors can launch
+aiopt integrations install claude --dry-run  # preview, then run again without --dry-run
 ```
 
 Add `--json` to any command for machine-readable output. See [docs/usage.md](docs/usage.md) for the command
@@ -67,9 +74,8 @@ ai-optimizer/
 │       ├── cache/
 │       ├── context/
 │       ├── tasks/
-│       ├── integrations/
+│       ├── integrations/      # adapters, MCP server, skills/
 │       └── metrics/
-├── skills/          # shared skill definitions (Phase 4)
 ├── tests/
 ├── docs/
 └── examples/
@@ -156,12 +162,12 @@ Complete these steps in order. Keep each step independently testable and avoid s
 
 ### Phase 4 — Agent Integrations
 
-- [ ] Stabilize core service interfaces so integrations reuse core behavior rather than duplicate it.
-- [ ] Add the four shared MVP skills (`aiopt-analyze`, `aiopt-context`, `aiopt-validate`, `aiopt-refresh`) with structural and reference tests.
-- [ ] Add the Claude Code adapter (instructions, skills, hooks) and `aiopt integrations install claude`.
-- [ ] Expose selected core operations through an optional MCP server (`aiopt mcp serve`), applying the same trust and allowlist rules as the CLI and refusing destructive tasks.
-- [ ] Add GitHub Copilot and Codex adapters once the first adapter is stable.
-- [ ] Test integrations as adapters and verify the core remains usable without provider SDKs, credentials, or network access.
+- [x] Stabilize core service interfaces so integrations reuse core behavior rather than duplicate it.
+- [x] Add the four shared MVP skills (`aiopt-analyze`, `aiopt-context`, `aiopt-validate`, `aiopt-refresh`) with structural and reference tests.
+- [x] Add the Claude Code adapter (instructions, skills, hooks) and `aiopt integrations install claude`.
+- [x] Expose selected core operations through an optional MCP server (`aiopt mcp serve`), applying the same trust and allowlist rules as the CLI and refusing destructive tasks.
+- [x] Add GitHub Copilot and Codex adapters once the first adapter is stable.
+- [x] Test integrations as adapters and verify the core remains usable without provider SDKs, credentials, or network access.
 
 ### Phase 5 — Metrics and Optional Extensions
 
