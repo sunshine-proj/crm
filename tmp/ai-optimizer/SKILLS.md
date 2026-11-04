@@ -1,14 +1,16 @@
 # AI Optimizer — Agent Skills Specification
 
-**Version:** 1.0
+**Version:** 0.2
 
 ## 1. Purpose
 
-This document defines reusable AI agent skills for interacting with AI Optimizer.
+This document defines reusable agent skills for interacting with AI Optimizer.
 
 Skills provide standardized workflows that can be used by different AI coding assistants.
 
-The implementation should avoid duplicating business logic between agents. Skills should invoke shared AI Optimizer CLI commands or MCP tools whenever possible.
+The implementation must avoid duplicating business logic between agents. Skills invoke shared AI Optimizer CLI commands (preferred) or MCP tools, and contain only workflow guidance.
+
+Skills are delivered in Phase 4 (see `PRD.md`). They depend on commands defined in the PRD CLI specification.
 
 ## 2. Skill Design Principles
 
@@ -19,319 +21,210 @@ Every skill should:
 - Avoid unnecessary project exploration.
 - Load only relevant context.
 - Prefer deterministic local operations.
-- Produce predictable outputs.
+- Produce predictable, concise outputs.
 - Handle errors explicitly.
 - Avoid unnecessary AI interactions.
 
-Skills should support progressive disclosure: agents should load detailed instructions only when the corresponding skill is needed.
+Skills support progressive disclosure: only the short `description` is always loaded; detailed instructions load when the skill is used. The `description` determines when an assistant selects the skill, so it must state what the skill does and when to use it.
 
-## 3. Initial Skills
+## 3. MVP Skills
 
-### Skill 1: `project-analysis`
+These four skills are the initial release. They wrap deterministic AI Optimizer commands.
+
+### Skill 1: `aiopt-analyze`
 
 **Purpose:** Analyze a project and generate or update its metadata.
 
-**Example invocation:**
-
-```text
-/project-analysis
-```
-
 **Workflow:**
 
-1. Identify the project root.
-2. Check existing AI Optimizer configuration.
-3. Run project analysis.
-4. Update metadata cache.
-5. Review generated project information.
-6. Report detected frameworks, dependencies, and structure.
+1. Check that `.ai-optimizer/` exists; if not, see the failure handling in section 6.
+2. Run `aiopt analyze`.
+3. Run `aiopt project info` and report the detected languages, frameworks, dependencies and structure.
 
-**CLI:**
+**CLI:** `aiopt analyze`, `aiopt project info`
 
-```sh
-aiopt analyze
-```
+**MCP:** `analyze_project`, `get_project_info`
 
-**Output:**
+**Output:** project metadata, project map and dependency information.
 
-- Project metadata
-- Project map
-- Dependency information
-- Analysis report
-
-### Skill 2: `project-context`
+### Skill 2: `aiopt-context`
 
 **Purpose:** Retrieve relevant project knowledge for a development task.
 
-**Example:**
-
-```text
-/project-context "Implement password reset"
-```
+**Example:** `aiopt-context "Implement password reset"`
 
 **Workflow:**
 
-1. Understand the requested task.
-2. Identify the relevant project area.
-3. Search indexed project information.
-4. Retrieve relevant documentation.
-5. Identify coding conventions.
-6. Prepare a compact context package.
-7. Present the relevant files and information.
+1. Derive a short search query from the requested task.
+2. Run `aiopt context search` and review the bounded, ranked results.
+3. If a full package is needed, run `aiopt context build --task "<task>"` (optionally with `--profile` and `--max-tokens`).
+4. Read only the files the package points to.
 
-**CLI:**
+**CLI:** `aiopt context search`, `aiopt context build`
 
-```sh
-aiopt context search "password reset"
-aiopt context build --task "Implement password reset"
-```
+**MCP:** `search_context`, `build_context`, `get_context_profile`
 
-**Output:**
+**Output:** relevant files, project metadata, dependencies, coding conventions and available validation commands.
 
-- Relevant files
-- Architecture information
-- Dependencies
-- Coding conventions
-- Suggested validation commands
-
-### Skill 3: `validate-project`
+### Skill 3: `aiopt-validate`
 
 **Purpose:** Run project validation using deterministic local operations.
 
-**Example invocation:**
+**Workflow:**
 
-```text
-/validate-project
-```
+1. Run `aiopt task list` to confirm the configured `validate` task exists.
+2. Run `aiopt task run validate`.
+3. Summarize failures and warnings from the structured report.
+
+The skill runs only configured tasks. The agent must not choose, assemble or run validation commands itself, and must not repeat successful validation unless files changed afterwards.
+
+**CLI:** `aiopt task list`, `aiopt task run validate`
+
+**MCP:** `list_tasks`, `run_task`
+
+**Output:** lint, type-check, test and (when configured) build results from the execution report.
+
+### Skill 4: `aiopt-refresh`
+
+**Purpose:** Update cached project knowledge after significant project changes.
 
 **Workflow:**
 
-1. Inspect available validation tasks.
-2. Identify applicable validation commands.
-3. Execute the configured validation workflow.
-4. Collect errors and warnings.
-5. Generate a validation report.
-6. Summarize results.
+1. Run `aiopt cache status`.
+2. If the cache is stale, run `aiopt cache update`.
+3. Report added, changed and removed files.
 
-**CLI:**
+Normal retrieval commands already warn about or refresh a stale cache according to `cache.auto_refresh`, so this skill is needed mainly after large changes such as branch switches.
 
-```sh
-aiopt task run validate
-```
+**CLI:** `aiopt cache status`, `aiopt cache update`
 
-**Output:**
+**MCP:** `get_cache_status`, `refresh_cache`
 
-- Lint results
-- Type-checking results
-- Test results
-- Build results, when configured
-- Validation report
-
-The agent should not independently repeat successful validation commands unless necessary.
-
-### Skill 4: `fix-bug`
-
-**Purpose:** Provide a standardized workflow for investigating and fixing software defects.
-
-**Example:**
-
-```text
-/fix-bug "Login fails after token refresh"
-```
-
-**Workflow:**
-
-1. Analyze the reported problem.
-2. Retrieve relevant project context.
-3. Identify affected modules.
-4. Inspect the relevant source code.
-5. Determine the probable root cause.
-6. Implement the smallest appropriate correction.
-7. Add or update tests.
-8. Run relevant validation tasks.
-9. Report changes and remaining issues.
-
-The skill should use AI reasoning for diagnosis and implementation, while delegating deterministic operations to AI Optimizer.
-
-### Skill 5: `code-review`
-
-**Purpose:** Perform focused code reviews.
-
-**Example invocation:**
-
-```text
-/code-review
-```
-
-**Workflow:**
-
-1. Identify changed files.
-2. Retrieve related architecture information.
-3. Inspect relevant tests.
-4. Review changes for correctness.
-5. Identify potential security issues.
-6. Identify performance problems.
-7. Check consistency with project conventions.
-8. Produce findings prioritized by severity.
-
-**Review categories:**
-
-- Correctness
-- Security
-- Performance
-- Maintainability
-- Test coverage
-- Architecture consistency
-
-**Output:**
-
-A structured review report containing findings, affected files, severity, and recommended corrections.
-
-### Skill 6: `refactor`
-
-**Purpose:** Perform controlled refactoring using existing project conventions.
-
-**Example:**
-
-```text
-/refactor "Refactor authentication services"
-```
-
-**Workflow:**
-
-1. Analyze the requested scope.
-2. Retrieve relevant architecture context.
-3. Identify dependencies and affected modules.
-4. Establish existing behavior through tests.
-5. Propose a refactoring approach.
-6. Implement changes incrementally.
-7. Preserve existing functionality.
-8. Run relevant tests and validation.
-9. Summarize changes.
-
-Large or potentially breaking refactoring operations should be approved before execution.
-
-### Skill 7: `dependency-analysis`
-
-**Purpose:** Analyze project dependencies without unnecessary AI exploration.
-
-**Example invocation:**
-
-```text
-/dependency-analysis
-```
-
-**Workflow:**
-
-1. Identify the package manager.
-2. Inspect dependency manifests.
-3. Collect installed dependency information where available.
-4. Detect duplicate or potentially unused dependencies.
-5. Identify version inconsistencies.
-6. Generate a dependency report.
-
-The skill must distinguish confirmed findings from potential issues. It must not automatically remove dependencies.
-
-### Skill 8: `context-refresh`
-
-**Purpose:** Update cached project knowledge when relevant project changes occur.
-
-**Example invocation:**
-
-```text
-/context-refresh
-```
-
-**Workflow:**
-
-1. Check cache status.
-2. Identify changed files.
-3. Determine affected metadata.
-4. Update file indexes incrementally.
-5. Invalidate outdated cache entries.
-6. Regenerate affected deterministic metadata.
-7. Report the update.
-
-AI-generated architecture summaries should not be regenerated unnecessarily.
+**Output:** a short summary of the update.
 
 ## 4. Future Skills
 
-The following skills may be introduced after the MVP.
+These skills are outside the MVP. The first four are general coding workflows that are mostly prompt guidance, so they should be added only if Phase 0 and Phase 5 measurements show they improve results.
 
-| Skill | Purpose |
-| --- | --- |
-| `api-analysis` | Analyze API routes, endpoints, and schemas |
-| `database-analysis` | Analyze database schemas and migrations |
-| `security-analysis` | Identify security-related code issues |
-| `test-generation` | Generate tests for selected modules |
-| `documentation` | Generate or update technical documentation |
-| `performance-analysis` | Investigate performance bottlenecks |
-| `context-optimization` | Improve context selection and retrieval |
-| `token-analysis` | Analyze AI context and usage statistics |
+| Skill | Purpose | Prerequisite |
+| --- | --- | --- |
+| `aiopt-fix-bug` | Standard workflow to investigate and fix defects using retrieved context and `aiopt-validate` | MVP skills proven |
+| `aiopt-review` | Focused review of changed files, using the `code-review` profile | MVP skills proven |
+| `aiopt-refactor` | Controlled refactoring; large or breaking changes need approval; user-invoked only | MVP skills proven |
+| `aiopt-dependencies` | Dependency report; separates confirmed findings from potential issues; never removes dependencies | New `aiopt deps` command and FR in the PRD |
+| `api-analysis` | Analyze API routes, endpoints and schemas | API discovery in Phase 5 |
+| `database-analysis` | Analyze database schemas and migrations | Schema discovery in Phase 5 |
+| `security-analysis` | Identify security-related code issues | — |
+| `test-generation` | Generate tests for selected modules | — |
+| `documentation` | Generate or update technical documentation | — |
+| `performance-analysis` | Investigate performance bottlenecks | — |
+| `context-optimization` | Improve context selection and retrieval | Phase 5 metrics |
+| `token-analysis` | Analyze context and usage statistics | Phase 5 metrics |
+
+Skill names use the `aiopt-` prefix to avoid collisions with assistants' built-in skills and commands (for example `code-review`).
 
 ## 5. Skill Implementation Structure
 
-Recommended shared skill directory:
+Shared skill directory:
 
 ```text
 skills/
-├── project-analysis/
+├── aiopt-analyze/
 │   └── SKILL.md
-├── project-context/
+├── aiopt-context/
 │   └── SKILL.md
-├── validate-project/
+├── aiopt-validate/
 │   └── SKILL.md
-├── fix-bug/
-│   └── SKILL.md
-├── code-review/
-│   └── SKILL.md
-├── refactor/
-│   └── SKILL.md
-├── dependency-analysis/
-│   └── SKILL.md
-└── context-refresh/
+└── aiopt-refresh/
     └── SKILL.md
 ```
 
-Provider-specific integrations should reference these shared skill definitions where compatible.
+### SKILL.md template
 
-If a provider requires a different skill format, use thin adapter files rather than duplicating the actual workflow logic.
+```markdown
+---
+name: aiopt-context
+description: Retrieve relevant project files, conventions and validation commands for a development task using AI Optimizer. Use before exploring an unfamiliar part of the codebase.
+---
+
+# Purpose
+One sentence.
+
+# Workflow
+Numbered steps that call `aiopt` commands.
+
+# Failure handling
+What to do if `aiopt` is missing, the project is uninitialized or untrusted, or the cache is stale.
+
+# Output
+The concise result to report.
+```
+
+Skills with side effects (any future skill that modifies files) should be configured as user-invoked only where the provider supports it.
+
+### Installation and adapters
+
+`aiopt integrations install <provider>` copies or links the shared skills into the location the provider expects (for example `.claude/skills/` for Claude Code). Invocation syntax such as slash commands is provider-specific and is not part of the skill definition.
+
+If a provider requires a different format, use thin adapter files that reference the shared workflow, never duplicated workflow logic.
 
 ## 6. Skill Execution Strategy
 
-Skills should follow this priority:
+Skills follow this priority:
 
 1. Use existing cached project information.
 2. Retrieve only relevant context.
 3. Delegate deterministic operations to local tools.
 4. Use AI reasoning only where necessary.
 5. Validate the resulting changes.
-6. Return a concise structured report.
+6. Return a concise report.
+
+### Failure handling
+
+Every skill handles these cases and does not fall back to unrestricted exploration or direct command execution:
+
+| Condition | Behavior |
+| --- | --- |
+| `aiopt` not installed, or version too old | Tell the user how to install or upgrade; stop |
+| `.ai-optimizer/` missing | Suggest `aiopt init`; do not create it without user approval |
+| Project not trusted (exit code 4) | Ask the user to review the configuration and run `aiopt trust`; do not attempt it autonomously |
+| Cache stale or corrupt | Run `aiopt cache update` (or report the rebuild); continue |
+| Task failed (exit code 3) | Report the failure from the structured report; do not rerun blindly |
 
 ## 7. Standard Skill Output
 
-Where applicable, skills should produce a consistent result:
+Skill reports are short by default. Include only the relevant items:
 
-- **Task:** Description of the requested operation.
-- **Context:** Relevant project information used.
-- **Actions:** Operations performed.
-- **Results:** Execution and validation results.
-- **Files:** Files inspected or modified.
-- **Issues:** Remaining problems or warnings.
-- **Next steps:** Recommended follow-up actions.
+- **Task:** the requested operation.
+- **Results:** execution and validation results.
+- **Issues:** remaining problems or warnings.
+- **Next steps:** recommended follow-up actions.
+
+Use `--json` command output when another tool or skill consumes the result. Include inspected or modified files only when that information is needed.
 
 ## 8. Security Requirements
 
-Skills must:
+Skills are instructions to a model. They guide behavior but do not enforce it. Enforcement comes from the AI Optimizer task executor (trust, allowlist, timeouts) and from the provider's own permission system.
 
-- Respect project-level permissions.
-- Never bypass AI Optimizer execution restrictions.
-- Never execute arbitrary untrusted commands.
-- Avoid exposing secrets.
-- Request approval for potentially destructive operations.
-- Avoid modifying files outside the intended project scope.
+Skills must instruct the agent to:
 
-## 9. Future Extensibility
+- Run project commands only through `aiopt task run`.
+- Never bypass or work around AI Optimizer execution restrictions.
+- Never attempt to run `aiopt trust` or `--allow-destructive` without explicit user approval.
+- Avoid exposing secrets in reports or messages.
+- Request approval before potentially destructive operations.
+- Stay within the intended project scope.
+
+Provider adapters should additionally configure provider permissions where supported, for example allowing `aiopt` commands while keeping other shell commands subject to the provider's approval flow.
+
+## 9. Testing Skills
+
+- **Structural tests:** every skill has valid frontmatter (`name`, `description`), a name matching its directory, and a failure-handling section.
+- **Reference tests:** every `aiopt` command and MCP tool named in a skill exists in the CLI or MCP tool list.
+- **Adapter tests:** adapters contain no workflow logic beyond references to shared skills.
+- **Behavior evals (Phase 4/5):** a small set of prompts checks that an assistant selects the intended skill and calls the intended commands. Results feed the Phase 0 benchmark comparison.
+
+## 10. Future Extensibility
 
 The skill system should allow new skills to be added without modifying the core framework.
 

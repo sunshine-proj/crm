@@ -62,8 +62,13 @@ Use:
 - Execution timeouts
 - Controlled working directories
 - Clear permission boundaries
+- An explicit trust step (`aiopt trust`) before a repository's tasks may run; trust records and the command allowlist live outside the repository
+- Scrubbed environments for child processes
+- `yaml.safe_load` only
 
 Never expose secrets through generated context reports or logs.
+
+Treat task and profile files from a repository as untrusted input. Filesystem boundaries are enforced for the framework's own file access; child processes are not sandboxed, so do not claim otherwise in code or documentation. See `PRD.md` section 7 for the full security model.
 
 ## Technology Stack
 
@@ -73,17 +78,19 @@ Initial technology choices:
 | --- | --- |
 | Language | Python 3.12+ |
 | CLI | Typer |
-| Configuration | YAML |
-| Metadata database | SQLite |
+| Configuration | YAML (PyYAML, `safe_load` only) |
+| Metadata database | SQLite (FTS5 for keyword search) |
 | File hashing | SHA-256 |
-| File monitoring | Watchdog |
 | Data validation | Pydantic |
 | Testing | Pytest |
+| Linting / typing (dev) | Ruff, mypy |
 | Packaging | `pyproject.toml` |
 | Reports | JSON / Markdown |
+| MCP (optional extra) | Python MCP SDK |
 | Optional semantic search | ChromaDB |
+| File monitoring (post-MVP, optional) | Watchdog |
 
-Avoid introducing unnecessary dependencies.
+Avoid introducing unnecessary dependencies. Watchdog is not part of the MVP.
 
 Semantic search and vector databases should remain optional until keyword-based retrieval demonstrates insufficient results.
 
@@ -101,6 +108,16 @@ Contains shared application functionality:
 - Error handling
 - Shared data models
 
+### Intelligence
+
+Responsible for:
+
+- Project structure analysis
+- Language, framework, and package manager detection
+- Dependency analysis
+- Development command detection (read from manifests, never executed)
+- Project metadata generation
+
 ### Cache
 
 Responsible for:
@@ -115,7 +132,6 @@ Responsible for:
 
 Responsible for:
 
-- Project analysis
 - Context retrieval
 - Context profiles
 - Context package generation
@@ -141,7 +157,7 @@ Responsible for:
 - MCP interface
 - Other future integrations
 
-Provider-specific code must not leak into the core modules.
+Provider-specific code must not leak into the core modules. Dependencies point one way: `integrations` and the CLI call the core service layer; no other module imports from `integrations`. Expose capabilities as plain service functions so the CLI, MCP server, and future interfaces share one implementation.
 
 ### Metrics
 
@@ -152,6 +168,8 @@ Responsible for:
 - Operation statistics
 - Provider-reported usage where available
 - Optimization reporting
+
+Token estimation uses a provider-neutral heuristic (characters ÷ 4) and records the method in every report. Do not add provider tokenizers to the core.
 
 Never present estimated token savings as actual provider billing savings.
 
@@ -169,6 +187,18 @@ Never present estimated token savings as actual provider billing savings.
 - Keep filesystem operations testable.
 - Use `pathlib` for filesystem operations.
 - Use `subprocess.run` with argument arrays rather than `shell=True`.
+- Code must pass Ruff (lint and format) and mypy.
+
+### Commands
+
+Once `pyproject.toml` exists, these are the standard commands. Update this list if tooling changes.
+
+```sh
+pytest                 # run tests
+ruff check .           # lint
+ruff format .          # format
+mypy src               # type check
+```
 
 ## Testing Requirements
 
@@ -190,7 +220,7 @@ Tests must not modify the user's actual project or execute destructive commands.
 
 Before implementing a feature:
 
-1. Read `PRD.md`.
+1. Read the relevant sections of `PRD.md` (the requirement, the security model if execution or file access is involved, and the current phase's acceptance criteria). Do not load the whole document unless needed.
 2. Review the existing architecture.
 3. Check whether similar functionality already exists.
 4. Identify affected modules.
@@ -222,6 +252,8 @@ A feature is complete when:
 
 - Its requirements are implemented.
 - Automated tests pass.
+- Ruff and mypy pass.
+- The phase's acceptance criteria in `PRD.md` are met, where applicable.
 - Relevant error conditions are handled.
 - Security implications are considered.
 - Documentation is updated.
