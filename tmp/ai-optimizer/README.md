@@ -4,6 +4,39 @@ AI Optimizer is a provider-independent, local-first toolkit that helps AI coding
 
 The CLI and Python core are the primary MVP (Phases 1–3). Provider integrations and MCP (Phase 4) expose core capabilities without moving business logic into provider-specific modules. The MVP does not make LLM calls, modify code automatically, or require a vector database.
 
+## Installation and Quick Start
+
+**Status:** the MVP (Phases 1–3) is implemented. Agent integrations and the MCP server (Phase 4) are not started.
+
+Requires Python 3.12+.
+
+```sh
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Then, inside the project you want to optimize:
+
+```sh
+aiopt init                                   # create .ai-optimizer/ and detect a validate task
+aiopt analyze                                # project-map.json, dependencies.json, project-info.json
+aiopt cache update                           # incremental SHA-256 index (rerun is near-instant)
+aiopt context search "authentication"        # ranked, bounded keyword search
+aiopt context build --task "Implement password reset" --max-tokens 4000
+aiopt trust                                  # review the tasks, then confirm
+aiopt task run validate                      # allowlisted, timed, reported
+aiopt metrics                                # local statistics (token figures are estimates)
+```
+
+Add `--json` to any command for machine-readable output. See [docs/usage.md](docs/usage.md) for the command
+reference, configuration, and the task security model.
+
+Development:
+
+```sh
+pytest && ruff check . && mypy
+```
+
 ## Document Responsibilities
 
 | File | Purpose |
@@ -13,6 +46,7 @@ The CLI and Python core are the primary MVP (Phases 1–3). Provider integration
 | `AGENTS.md` | Development instructions, architectural principles, coding standards, and rules for AI coding agents |
 | `CLAUDE.md` | Imports `AGENTS.md` for Claude Code |
 | `SKILLS.md` | Definition of reusable agent skills, their workflows, and failure handling |
+| `docs/usage.md` | Command reference, configuration, and the task security model |
 
 Scope and requirements live in `PRD.md`. This file only tracks progress against them.
 
@@ -90,35 +124,35 @@ Complete these steps in order. Keep each step independently testable and avoid s
 
 ### Phase 1 — Foundation and Project Discovery
 
-- [ ] Initialize the Python package, `pyproject.toml`, `src/` layout, test setup, and Ruff/mypy configuration.
-- [ ] Add the Typer CLI entry point with global options (`--project-dir`, `--json`, `-v`, `-q`), exit codes, and consistent logging and error handling.
-- [ ] Define and validate project configuration with Pydantic and safe YAML loading, including defaults, schema version, and excluded paths.
-- [ ] Implement `aiopt init` and `aiopt config validate`.
-- [ ] Discover the project root and common project files without modifying the target project (outside `.ai-optimizer/`).
-- [ ] Generate deterministic project, dependency, and structure metadata as JSON (Python and JavaScript/TypeScript).
-- [ ] Expose functionality through a service layer that the CLI calls.
-- [ ] Add unit and CLI tests using temporary project directories; document installation and the first `aiopt analyze` workflow.
+- [x] Initialize the Python package, `pyproject.toml`, `src/` layout, test setup, and Ruff/mypy configuration.
+- [x] Add the Typer CLI entry point with global options (`--project-dir`, `--json`, `-v`, `-q`), exit codes, and consistent logging and error handling.
+- [x] Define and validate project configuration with Pydantic and safe YAML loading, including defaults, schema version, and excluded paths.
+- [x] Implement `aiopt init` and `aiopt config validate`.
+- [x] Discover the project root and common project files without modifying the target project (outside `.ai-optimizer/`).
+- [x] Generate deterministic project, dependency, and structure metadata as JSON (Python and JavaScript/TypeScript).
+- [x] Expose functionality through a service layer that the CLI calls.
+- [x] Add unit and CLI tests using temporary project directories; document installation and the first `aiopt analyze` workflow.
 
 ### Phase 2 — Local Cache and Context Retrieval
 
-- [ ] Create the versioned SQLite schema (WAL mode) and file index; honor `.gitignore`, exclusions, and the default sensitive-file list.
-- [ ] Implement size/mtime pre-checks with SHA-256 incremental updates, rename and deletion detection, cache invalidation, and recoverable (transactional) indexing.
-- [ ] Handle a corrupt or incompatible cache by reporting and rebuilding.
-- [ ] Add cache status, update, and clear commands, with tests for unchanged, changed, added, renamed, and removed files.
-- [ ] Implement FTS5 keyword search returning bounded, relevance-ranked results with source paths and excerpts.
-- [ ] Add configurable YAML context profiles and validate malformed or unknown profile settings.
-- [ ] Build context packages for a profile and/or task with size budgets; support Markdown and JSON output; test contents and limits.
-- [ ] Record minimal local metrics (indexed files, rehashed versus skipped, package sizes).
+- [x] Create the versioned SQLite schema (WAL mode) and file index; honor `.gitignore`, exclusions, and the default sensitive-file list.
+- [x] Implement size/mtime pre-checks with SHA-256 incremental updates, rename and deletion detection, cache invalidation, and recoverable (transactional) indexing.
+- [x] Handle a corrupt or incompatible cache by reporting and rebuilding.
+- [x] Add cache status, update, and clear commands, with tests for unchanged, changed, added, renamed, and removed files.
+- [x] Implement FTS5 keyword search returning bounded, relevance-ranked results with source paths and excerpts.
+- [x] Add configurable YAML context profiles and validate malformed or unknown profile settings.
+- [x] Build context packages for a profile and/or task with size budgets; support Markdown and JSON output; test contents and limits.
+- [x] Record minimal local metrics (indexed files, rehashed versus skipped, package sizes).
 
 ### Phase 3 — Safe Task Automation
 
-- [ ] Define and validate YAML task definitions: steps, `depends_on` ordering (cycle rejection), timeouts, failure behavior, and the `destructive` flag.
-- [ ] Implement `aiopt trust` with out-of-repository trust records bound to configuration hashes.
-- [ ] Implement the user-level command allowlist; deny shells and general-purpose interpreters by default.
-- [ ] Execute argument arrays only, in a controlled working directory, with a scrubbed environment and process-tree timeouts.
-- [ ] Require `--allow-destructive` for destructive operations; test rejected commands and timeout behavior.
-- [ ] Capture exit codes and redacted output in structured execution reports; add a reusable validation task.
-- [ ] Document task permissions and residual risk (child processes are not sandboxed); test working-directory and path containment for aiopt's own file access.
+- [x] Define and validate YAML task definitions: steps, `depends_on` ordering (cycle rejection), timeouts, failure behavior, and the `destructive` flag.
+- [x] Implement `aiopt trust` with out-of-repository trust records bound to configuration hashes.
+- [x] Implement the user-level command allowlist; deny shells and general-purpose interpreters by default.
+- [x] Execute argument arrays only, in a controlled working directory, with a scrubbed environment and process-tree timeouts.
+- [x] Require `--allow-destructive` for destructive operations; test rejected commands and timeout behavior.
+- [x] Capture exit codes and redacted output in structured execution reports; add a reusable validation task.
+- [x] Document task permissions and residual risk (child processes are not sandboxed); test working-directory and path containment for aiopt's own file access.
 
 ### Phase 4 — Agent Integrations
 

@@ -1,0 +1,56 @@
+
+I've implemented the MVP (Phases 1–3 of the PRD). All 217 tests pass, ruff is clean, and strict mypy reports no issues on the 35 source files.
+
+I treated "the app" as the MVP the PRD defines. Phase 4 (agent integrations, MCP server, skills installation) and Phase 5 are not started. Phase 0 (the benchmark) needs real assistant sessions, which I can't run, so it's still open.
+
+What works
+You can set it up and use it like this:
+
+
+pip install -e ".[dev]"
+aiopt init && aiopt analyze && aiopt cache update
+aiopt context search "authentication"
+aiopt context build --task "Implement password reset" --max-tokens 4000
+aiopt trust && aiopt task run validate
+aiopt metrics
+Project analysis: produces the three JSON metadata files. Repeated runs are byte-identical. It supports Python and JavaScript/TypeScript manifests, and Makefile targets.
+Cache: incremental SQLite index. A no-change update rehashes 0 files. It detects renames, recovers from an interrupted update, and rebuilds a corrupt cache automatically.
+Search and context packages: FTS5/BM25 search, profiles, and token-budgeted Markdown or JSON packages.
+Tasks: run only after you've reviewed and trusted the project, and each step is checked against an allowlist.
+Metrics: estimated token figures are always labeled as estimates.
+Performance on 10,000 synthetic files beat the PRD's provisional targets:
+
+Operation	Result
+Initial index	0.85 s
+No-change update	0.17 s
+Search	0.17 s
+Context package	0.18 s
+Testing
+I broke six security-critical behaviors on purpose (shell denylist, trust check, process-tree kill, rehash skipping, sensitive-file filter, working-directory containment). The tests caught every one.
+That check and the tests turned up five bugs, now fixed. The main one: the analysis output differed between runs because the tool's own directory was being counted.
+The tests ran entirely in temporary directories. Your real ~/.config and ~/.local/state were not touched.
+What to know before relying on it
+Allowed tools are not sandboxed. Running pytest means running the project's test code, so use a container for repositories you don't trust. This is documented in docs/usage.md.
+aiopt trust can be answered by a script. It asks for interactive confirmation and has no bypass flag. An AI agent with shell access could still pipe an answer, so don't auto-approve that command in the assistant.
+The core premise is still untested. Whether assistants actually use this output instead of their own search is exactly what Phase 0 is for.
+Only Linux was tested. Windows is best-effort.
+Search quality depends on keywords. --task extracts keywords with no LLM. In small corpora, BM25 scores are near zero, so I scale package scores per query so profile weights can reorder results.
+Decisions I made
+I recorded these in PRD §14:
+
+The default allowlist covers Python tools only (pytest, ruff, mypy). npm and make must be added by you, because package scripts and Makefile targets run repository-defined code.
+The first index is a baseline, so the code-review profile doesn't list the whole repo as changed.
+--output must stay inside the project directory.
+I also updated the README (quick start and ticked checklist), PRD, AGENTS.md, and added docs/usage.md. I haven't run aiopt on this repository itself, so there's no .ai-optimizer/ here. Phase 4 (Claude Code skills, aiopt integrations install, the MCP server) is the natural next step.
+
+
+===========================================================
+
+
+
+
+
+
+
+
+

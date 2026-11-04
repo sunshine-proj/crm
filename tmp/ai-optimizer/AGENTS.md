@@ -194,6 +194,7 @@ Never present estimated token savings as actual provider billing savings.
 Once `pyproject.toml` exists, these are the standard commands. Update this list if tooling changes.
 
 ```sh
+pip install -e ".[dev]"  # install with development tools
 pytest                 # run tests
 ruff check .           # lint
 ruff format .          # format

@@ -2,7 +2,7 @@
 
 **Version:** 0.2
 
-**Status:** Draft — revised specification
+**Status:** Draft — revised specification. The MVP (Phases 1–3) is implemented in package version 0.1.0.
 
 **Document roles:** This document is authoritative for scope, requirements, architecture and phase acceptance criteria. `README.md` tracks implementation progress as a checklist. `AGENTS.md` defines development rules. `SKILLS.md` defines agent skills.
 
@@ -631,10 +631,18 @@ Assumptions made in this revision:
 - Token estimation uses a characters-divided-by-four heuristic.
 - Windows support is best effort.
 
+Decisions made during implementation:
+
+- The user-level allowlist ships with defaults for Python tooling only (`pytest`, `ruff`, `mypy`, and `python -m pytest|ruff|mypy`). Anything else, including `npm` and `make`, must be added by the user, because package scripts and Makefile targets run repository-defined code.
+- Allowlist entries are keyed by executable name, resolved through the user's `PATH`. Path-based commands (`./x`, `/usr/bin/x`) are rejected. Inline-code flags (`-c`, `-e`) on interpreters are always rejected.
+- The first index of a project is a baseline: it does not populate the "changed files" used by the `refactoring` and `code-review` profiles.
+- Package relevance scores are scaled to 0–1 per query (plus a small base) so profile `kind_weights` can reorder weak matches. They are relative values, not raw BM25.
+- `aiopt trust` always asks for interactive confirmation and has no bypass flag. This slows accidental or scripted trust but does not stop an agent that can pipe input; keep the agent's own permission system as the real control.
+- `--output` for context packages must stay inside the project directory.
+
 Open questions:
 
 - How will agent behavior (tool calls, files read) be measured in Phase 0 across providers?
-- Should the user-level allowlist ship with defaults for common tools, or start empty?
 - How should the system detect and handle monorepos with multiple projects?
 
 ## 15. Product Direction
