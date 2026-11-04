@@ -61,3 +61,6 @@
 /src/.phpunit.cache/
 /storage/backups/
 docker/backup/rclone.conf
+
+/.env
+/.env.dev
