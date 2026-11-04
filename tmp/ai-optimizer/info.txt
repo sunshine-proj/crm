@@ -87,6 +87,44 @@ I also updated docs/usage.md (including VS Code notes), SKILLS.md, README.md and
 
 
 
+The measurement tooling is implemented: Phase 0 (protocol and retrieval baseline) and Phase 5 (reports and usage import). All 350 tests pass, ruff is clean and strict mypy reports no issues.
+
+I haven't run the assistant A/B comparison itself. It needs real Claude Code sessions with and without the integration, so whether assistants actually spend fewer tokens or tool calls with aiopt is still unmeasured.
+
+What was added
+aiopt bench run SPEC scores retrieval on labeled cases, using recall@k, MRR and size comparisons against honest baselines (whole repo, files matching a query term, top-k files read in full). --min-recall makes it exit 3 when below a threshold, so it works as a CI gate. Benchmark runs don't touch your real metrics.
+aiopt usage import claude reads real token and tool-call counts from Claude Code session logs. It stores counts and tool names only, never message content.
+aiopt usage label and aiopt usage report compare labeled groups such as baseline and aiopt. They warn when a group has fewer than 5 sessions.
+aiopt report combines local metrics, the latest benchmark and imported usage, with every figure tagged by source (estimate or provider-reported).
+docs/benchmark.md covers how to write cases and a step-by-step A/B protocol. It also says to write your decision rule before running anything.
+What the testing found
+Usage is repeated across the lines of one API message. Without deduplicating by message id, tokens would be overcounted several-fold. I checked the parser against the real log of this session (91 messages at the time, matching an independent count).
+Subagent usage lives in separate files. The importer was silently ignoring it, which would make a delegating session look cheaper than it was. It now merges those logs.
+Adoption detection was too loose. echo aiopt and grep aiopt would have counted as aiopt use. Only commands that actually run the executable, or an aiopt MCP tool call, count now.
+I mutation-tested the safeguards: double-counting, loose adoption detection, hidden labels, a dropped small-sample warning, and ignoring depth in recall. All are caught. (My mutation check for "benchmark pollutes metrics" initially hit the wrong function. I re-ran it correctly and the test does catch it.)
+
+Benchmark results on this repo
+I wrote 16 cases before seeing any results. On 70 files: search recall@5 is 84%, and 13 of 16 cases found all expected files.
+
+The package does not beat plain search. At equal depth (about 15 items) the package reaches 94% against 97% for plain search. Its value has to come from bundling conventions, dependencies and validation commands, which only the A/B comparison can show.
+Results move with the corpus. Adding two files shifted MRR from 0.66 to 0.61 and package recall from 100% to 94%.
+One genuine weakness. Documentation is capped at 5 items per package, so a skill file lost its slot to the new guide. I left it unfixed on purpose, because tuning against a 16-case benchmark would overfit it. This is recorded in the docs.
+This is one small repo, and I wrote both the code and the cases, so treat the numbers as a baseline, not a general claim.
+
+Notes
+I ran aiopt init and the benchmark on this repository, which created .ai-optimizer/ with config, a validate task, and bench/self.yaml. The cache and reports are gitignored. I did not run aiopt trust.
+Only Claude Code is supported for usage import. Token counts include cached input and describe activity, not your bill.
+Next steps
+Run the A/B protocol on 5 or more tasks, 3 or more runs per arm, interleaved. The usage commands do the bookkeeping, and the result will tell you whether this project is worth building further. Semantic search stays on hold until the benchmark shows keyword search isn't enough, and so far it is mostly fine.
+
+
+
+
+===========================================================
+
+
+
+
 
 
 

@@ -16,6 +16,9 @@
 | `aiopt metrics` | Local statistics |
 | `aiopt integrations list` / `install PROVIDER` / `uninstall PROVIDER` | Manage assistant integrations (`claude`, `copilot`, `codex`) |
 | `aiopt mcp serve` | Run the MCP server over stdio (started by your editor) |
+| `aiopt bench run SPEC [--k N] [--min-recall X] [--cases]` | Score retrieval on labeled cases (exit 3 below a threshold) |
+| `aiopt usage import claude [--path P] [--label L] [--since T]` / `list` / `label ID LABEL` / `report` | Provider-reported usage from Claude Code session logs |
+| `aiopt report [--format md\|json] [--output PATH]` | Combined report; every figure is tagged with its source |
 
 Global options: `--project-dir PATH`, `--json`, `-v/--verbose`, `-q/--quiet`, `--version`.
 
@@ -171,3 +174,7 @@ Allowed without prompting: `aiopt context search|build`, `cache status|update`, 
 ### Session hook
 
 With `--with-hooks`, Claude Code runs `aiopt hook session-start` when a session starts. It prints two lines (index size, cache freshness, trust state) and never refreshes the cache. It prints nothing in projects without `.ai-optimizer/`.
+
+## Measuring results
+
+`aiopt bench`, `aiopt usage` and `aiopt report` measure whether the tool helps. Token figures from `aiopt metrics`, `bench` and context packages are estimates (characters ÷ 4); figures from `aiopt usage` are provider-reported and kept separate. See [benchmark.md](benchmark.md) for how to write cases, run an A/B comparison with real assistant sessions, and read the results.

@@ -6,7 +6,9 @@ of their own.
 
 from __future__ import annotations
 
+import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,7 @@ from ai_optimizer.cache.db import open_existing
 from ai_optimizer.cache.indexer import last_changed_files, pending_changes, update_index
 from ai_optimizer.cache.status import cache_status as _cache_status
 from ai_optimizer.cache.status import clear_cache
+from ai_optimizer.context.benchmark import load_spec, score_paths, summarize
 from ai_optimizer.context.package import PackageInputs, build_package
 from ai_optimizer.context.profiles import (
     BUILTIN_PROFILES,
@@ -43,8 +46,11 @@ from ai_optimizer.intelligence.analyzer import (
     load_project_info,
     write_project_data,
 )
-from ai_optimizer.metrics.estimate import estimate_tokens
-from ai_optimizer.metrics.store import record_event, summarize
+from ai_optimizer.metrics import usage as usage_store
+from ai_optimizer.metrics.estimate import estimate_tokens, estimate_tokens_from_bytes
+from ai_optimizer.metrics.report import build_report
+from ai_optimizer.metrics.store import record_event
+from ai_optimizer.metrics.store import summarize as summarize_metrics
 from ai_optimizer.tasks import trust as trust_store
 from ai_optimizer.tasks.executor import execute_task, prepare_task, write_report
 from ai_optimizer.tasks.models import TaskDefinition, get_task, load_tasks
@@ -233,18 +239,16 @@ def search_context(project: Project, query: str, limit: int | None = None) -> di
     }
 
 
-def build_context(
+def _compose_context(
     project: Project,
     *,
-    task: str | None = None,
-    profile_name: str | None = None,
-    max_tokens: int | None = None,
-    fmt: str = "md",
-    output: Path | None = None,
-) -> dict[str, Any]:
-    """Build a context package for a task and/or profile."""
+    task: str | None,
+    profile_name: str | None,
+    max_tokens: int | None,
+    fmt: str,
+) -> tuple[dict[str, Any], str]:
+    """Build a package and its rendered text without writing files or recording metrics."""
     profile = get_profile(project.paths, profile_name) if profile_name else None
-    output_file = _resolve_output(project, output)
     warnings = ensure_cache(project)
     info = load_project_info(project.paths) or analyze_project(project)["project"]
     deps_doc = load_dependencies(project.paths) or {"dependencies": []}
@@ -266,6 +270,23 @@ def build_context(
     finally:
         conn.close()
     package["warnings"] = [*warnings, *package["warnings"]]
+    return package, text
+
+
+def build_context(
+    project: Project,
+    *,
+    task: str | None = None,
+    profile_name: str | None = None,
+    max_tokens: int | None = None,
+    fmt: str = "md",
+    output: Path | None = None,
+) -> dict[str, Any]:
+    """Build a context package for a task and/or profile."""
+    output_file = resolve_output(project, output) if output is not None else None
+    package, text = _compose_context(
+        project, task=task, profile_name=profile_name, max_tokens=max_tokens, fmt=fmt
+    )
     if output_file is not None:
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_text(text, encoding="utf-8")
@@ -286,9 +307,8 @@ def build_context(
     }
 
 
-def _resolve_output(project: Project, output: Path | None) -> Path | None:
-    if output is None:
-        return None
+def resolve_output(project: Project, output: Path) -> Path:
+    """Resolve an output path, which must stay inside the project directory."""
     target = output if output.is_absolute() else project.root / output
     if not is_within(project.root, target.parent) or not is_within(project.root, target):
         raise PermissionDeniedError("--output must be inside the project directory.")
@@ -417,4 +437,129 @@ def revoke_trust(project: Project) -> dict[str, Any]:
 
 
 def metrics_report(project: Project) -> dict[str, Any]:
-    return summarize(project.paths)
+    return summarize_metrics(project.paths)
+
+
+# --- benchmark, usage and report ----------------------------------------------------------
+
+BENCH_LATEST = "bench-latest.json"
+BENCH_CANDIDATES = 50
+
+
+def bench_run(
+    project: Project, spec_path: Path, *, k: int | None = None, save: bool = True
+) -> dict[str, Any]:
+    """Score retrieval on labeled cases and compare context sizes with explicit baselines.
+
+    Does not record operational metrics, so benchmark runs never skew real usage statistics.
+    """
+    spec = load_spec(spec_path if spec_path.is_absolute() else project.root / spec_path)
+    depth = k or spec.k
+    ensure_cache(project)
+    conn = open_existing(project.paths.db_file)
+    try:
+        corpus = [
+            (row["path"], int(row["size"]), str(row["content"]).lower())
+            for row in conn.execute(
+                "SELECT f.path, f.size, file_fts.content AS content FROM files f "
+                "JOIN file_fts ON file_fts.rowid = f.id WHERE f.status = 'indexed'"
+            )
+        ]
+        sizes = {path: size for path, size, _ in corpus}
+        repo_tokens = estimate_tokens_from_bytes(sum(sizes.values()))
+        results: list[dict[str, Any]] = []
+        for case in spec.cases:
+            started = time.perf_counter()
+            terms = extract_terms(case.query)
+            hits = search_index(conn, terms, candidates=BENCH_CANDIDATES)
+            ranked = [hit.path for hit in hits]
+            search_score = score_paths(ranked, case.expect, depth)
+            package, text = _compose_context(
+                project, task=case.task or case.query, profile_name=case.profile,
+                max_tokens=None, fmt="md",
+            )  # fmt: skip
+            in_package = [f["path"] for f in package["files"] + package["documentation"]]
+            package_score = score_paths(in_package, case.expect, len(in_package) or 1)
+            # Same depth as the package, so search and package are compared like for like.
+            same_depth = score_paths(ranked, case.expect, len(in_package) or 1)
+            grep_bytes = sum(
+                size for _, size, content in corpus if any(t in content for t in terms)
+            )
+            grep_files = sum(1 for _, _, content in corpus if any(t in content for t in terms))
+            results.append(
+                {
+                    "id": case.id,
+                    "query": case.query,
+                    "search": {**search_score, "top": ranked[:depth]},
+                    "search_at_package_depth": same_depth,
+                    "package": {
+                        **package_score,
+                        "files": len(in_package),
+                        "bytes": len(text.encode("utf-8")),
+                        "estimated_tokens": estimate_tokens(text),
+                    },
+                    "baselines": {
+                        "whole_repo_tokens": repo_tokens,
+                        "grep_files": grep_files,
+                        "grep_tokens": estimate_tokens_from_bytes(grep_bytes),
+                        "top_k_read_tokens": estimate_tokens_from_bytes(
+                            sum(sizes.get(p, 0) for p in ranked[:depth])
+                        ),
+                    },
+                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
+                }
+            )
+    finally:
+        conn.close()
+    result = {
+        "spec": spec.name,
+        "k": depth,
+        "indexed_files": len(corpus),
+        "summary": summarize(results),
+        "cases": results,
+        "methodology": [
+            "Recall@k: share of expected globs matched by the top-k search results.",
+            "Package recall: share of expected globs present in the generated context package, "
+            "which holds more items than k; compare it with search recall at the same depth.",
+            "Baselines: whole repository; every indexed file containing any query term; the "
+            "top-k files read in full. Token figures are estimates (characters/4).",
+            "Scores depend on how the cases were written; they measure retrieval, not "
+            "assistant task success.",
+        ],
+    }
+    if save:
+        project.paths.reports_dir.mkdir(parents=True, exist_ok=True)
+        (project.paths.reports_dir / BENCH_LATEST).write_text(
+            json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    return result
+
+
+def usage_list(project: Project) -> dict[str, Any]:
+    sessions = usage_store.load_sessions(project.paths)
+    return {
+        "sessions": [
+            s.to_dict() for s in sorted(sessions.values(), key=lambda s: s.started_at or "")
+        ]
+    }
+
+
+def usage_label(project: Project, session: str, label: str) -> dict[str, Any]:
+    return usage_store.set_label(project.paths, session, label).to_dict()
+
+
+def usage_report(project: Project, baseline: str = "baseline") -> dict[str, Any]:
+    return usage_store.usage_report(project.paths, baseline)
+
+
+def generate_report(project: Project) -> dict[str, Any]:
+    """Combine local metrics, the latest benchmark and imported usage, keeping sources apart."""
+    latest = project.paths.reports_dir / BENCH_LATEST
+    bench = None
+    if latest.is_file():
+        try:
+            bench = json.loads(latest.read_text(encoding="utf-8"))
+            bench = {k: bench[k] for k in ("spec", "k", "summary")}
+        except (OSError, json.JSONDecodeError, KeyError):
+            bench = None
+    return build_report(metrics_report(project), bench, usage_report(project))

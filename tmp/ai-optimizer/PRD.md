@@ -2,7 +2,7 @@
 
 **Version:** 0.2
 
-**Status:** Draft — revised specification. The MVP (Phases 1–3) and the agent integrations (Phase 4) are implemented in package version 0.1.0.
+**Status:** Draft — revised specification. The MVP (Phases 1–3) the agent integrations (Phase 4) and the measurement tooling (Phase 0 protocol, Phase 5 reports and usage import) are implemented in package version 0.1.0. The assistant A/B baseline needs real sessions and is not yet recorded.
 
 **Document roles:** This document is authoritative for scope, requirements, architecture and phase acceptance criteria. `README.md` tracks implementation progress as a checklist. `AGENTS.md` defines development rules. `SKILLS.md` defines agent skills.
 
@@ -559,7 +559,7 @@ Each phase is complete only when its acceptance criteria hold. The `README.md` c
 ### Phase 0 — Validation and Baseline
 
 - Define a benchmark protocol: at least five representative tasks over at least two reference repositories.
-- Record baseline measurements without AI Optimizer: tool calls, files read, bytes read, wall time, and tokens where the assistant reports them.
+- Record baseline measurements without AI Optimizer: tool calls, files read, bytes read, wall time, and tokens where the assistant reports them. The method is documented in `docs/benchmark.md`; `aiopt bench` and `aiopt usage` implement the bookkeeping.
 
 **Acceptance:** the protocol is documented and the baseline is reproducible. Target numbers in section 7 are confirmed or revised.
 
@@ -642,12 +642,15 @@ Decisions made during implementation:
 - Instructions are written once and inserted as a delimited block into `AGENTS.md` (Codex, and Claude Code when `CLAUDE.md` imports it), `CLAUDE.md`, or `.github/copilot-instructions.md`.
 - Claude Code permission rules auto-allow read-mostly commands and the exact command `aiopt task run validate`; they deny `aiopt trust`. `aiopt task run <other>` and any use of `--allow-destructive` still prompt.
 - MCP tools return compact results (counts and samples, failing-step output tails only) and expose no destructive option and no trust operation. Expected errors are surfaced to the model verbatim because the SDK otherwise hides exception text.
+- Measurement keeps three evidence types apart: operational metrics (local, estimated), the retrieval benchmark (local, labeled cases, estimated sizes) and provider-reported usage (imported from session logs). Reports tag every figure with its source and never sum provider-reported cache and non-cache tokens or convert them to cost.
+- Provider usage is imported from Claude Code transcripts (counts and tool names only, subagent logs merged, each API message counted once) and stored in `.ai-optimizer/reports/usage.json`. `aiopt` use is detected only when a command actually invokes the executable or an `aiopt` MCP tool is called, so adoption is not overstated.
+- On this repository's 16-case self-benchmark (70 files), search recall@5 was 84%; package recall was 94% against 97% for plain search at the same depth, so the package does not improve recall over search and its value must be shown by the assistant A/B comparison. Scores shifted between runs when two files were added, and the documentation lane (capped at 5 items) displaced a skill file. Results from one small, self-authored benchmark are a baseline, not evidence of general quality, and retrieval was not tuned to it.
 - The MCP server is tested against `mcp` 2.x (`MCPServer`); a fallback import for 1.x (`FastMCP`) exists but is untested.
 - `--output` for context packages must stay inside the project directory.
 
 Open questions:
 
-- How will agent behavior (tool calls, files read) be measured in Phase 0 across providers?
+- Usage importers exist only for Claude Code. How will agent behavior be measured for Copilot and Codex, which keep no comparable local logs?
 - How should the system detect and handle monorepos with multiple projects?
 
 ## 15. Product Direction

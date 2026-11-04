@@ -1,0 +1,54 @@
+# Labeled retrieval cases for this repository.
+# Written before looking at any results. Each case is a question a developer might ask and
+# the file(s) that answer it. Globs are matched against project-relative paths.
+name: ai-optimizer-self
+k: 5
+cases:
+  - id: incremental-hashing
+    query: how does the index decide which files need rehashing
+    expect: ["src/ai_optimizer/cache/indexer.py"]
+  - id: sqlite-schema
+    query: where is the sqlite schema and migration handled
+    expect: ["src/ai_optimizer/cache/db.py"]
+  - id: gitignore-matching
+    query: gitignore pattern matching and negation rules
+    expect: ["src/ai_optimizer/core/globs.py"]
+  - id: secret-redaction
+    query: redact secrets and api keys from output
+    expect: ["src/ai_optimizer/core/redact.py"]
+  - id: command-allowlist
+    query: which commands are allowed or denied for task execution
+    expect: ["src/ai_optimizer/tasks/permissions.py"]
+  - id: timeout-kill
+    query: kill child processes when a task times out
+    expect: ["src/ai_optimizer/tasks/executor.py"]
+  - id: trust-fingerprint
+    query: how is project trust recorded and invalidated
+    expect: ["src/ai_optimizer/tasks/trust.py"]
+  - id: token-budget
+    query: fit the context package to a token budget
+    expect: ["src/ai_optimizer/context/package.py"]
+  - id: mcp-tools
+    query: MCP server tool definitions
+    expect: ["src/ai_optimizer/integrations/mcp_server.py"]
+  - id: claude-permissions
+    query: permission rules written to claude settings
+    expect: ["src/ai_optimizer/integrations/adapters.py"]
+  - id: pyproject-dependencies
+    query: parse dependencies from pyproject toml
+    expect: ["src/ai_optimizer/intelligence/manifests.py"]
+  - id: builtin-profiles
+    query: built in context profiles like frontend and backend
+    expect: ["src/ai_optimizer/context/profiles.py"]
+  - id: exit-codes
+    query: what exit code is used when the project is not trusted
+    expect: ["src/ai_optimizer/core/errors.py", "docs/usage.md"]
+  - id: transcript-usage
+    query: import token usage from claude code session transcripts
+    expect: ["src/ai_optimizer/integrations/claude_usage.py"]
+  - id: skill-validate
+    query: skill that runs the validate task and handles untrusted projects
+    expect: ["src/ai_optimizer/integrations/skills/aiopt-validate/SKILL.md"]
+  - id: sensitive-files
+    query: which files are treated as sensitive and never indexed
+    expect: ["src/ai_optimizer/core/files.py"]

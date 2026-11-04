@@ -13,11 +13,12 @@ from typing import Annotated, Any, cast
 import typer
 
 from ai_optimizer import __version__, services
-from ai_optimizer.core.errors import AIOptError, TrustError
+from ai_optimizer.core.errors import AIOptError, ConfigError, TrustError
 from ai_optimizer.core.log import configure_logging, get_logger
 from ai_optimizer.core.project import Project, find_project_root, load_project
 from ai_optimizer.integrations import adapters as integrations
-from ai_optimizer.integrations import hooks
+from ai_optimizer.integrations import claude_usage, hooks
+from ai_optimizer.metrics.report import render_markdown as report_markdown
 
 log = get_logger("cli")
 
@@ -36,6 +37,10 @@ task_app = typer.Typer(help="Task registry and execution.", no_args_is_help=True
 integrations_app = typer.Typer(help="Install agent integrations.", no_args_is_help=True)
 mcp_app = typer.Typer(help="MCP server.", no_args_is_help=True)
 hook_app = typer.Typer(help="Assistant hook entry points.", no_args_is_help=True, hidden=True)
+bench_app = typer.Typer(help="Retrieval benchmark.", no_args_is_help=True)
+usage_app = typer.Typer(
+    help="Provider-reported usage from assistant sessions.", no_args_is_help=True
+)
 app.add_typer(config_app, name="config")
 app.add_typer(project_app, name="project")
 app.add_typer(cache_app, name="cache")
@@ -44,6 +49,8 @@ app.add_typer(profile_app, name="profile")
 app.add_typer(task_app, name="task")
 app.add_typer(integrations_app, name="integrations")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(bench_app, name="bench")
+app.add_typer(usage_app, name="usage")
 app.add_typer(hook_app, name="hook", hidden=True)
 
 
@@ -500,6 +507,173 @@ def hook_session_start(ctx: typer.Context) -> None:
     summary = hooks.session_start_summary(_state(ctx).project_dir)
     if summary:
         typer.echo(summary)
+
+
+# --- benchmark, usage and report ----------------------------------------------------------
+
+
+def _pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value * 100:.0f}%"
+
+
+@bench_app.command("run")
+@guarded
+def bench_run(
+    ctx: typer.Context,
+    spec: Annotated[Path, typer.Argument(help="Benchmark YAML file.")],
+    k: Annotated[int | None, typer.Option(help="Override the depth k from the spec.")] = None,
+    min_recall: Annotated[
+        float | None,
+        typer.Option(help="Fail (exit 3) if mean search recall@k is below this (0-1)."),
+    ] = None,
+    min_package_recall: Annotated[
+        float | None, typer.Option(help="Fail (exit 3) if mean package recall is below this (0-1).")
+    ] = None,
+    save: Annotated[
+        bool, typer.Option("--save/--no-save", help="Keep the result for `aiopt report`.")
+    ] = True,
+    verbose_cases: Annotated[bool, typer.Option("--cases", help="List every case.")] = False,
+) -> None:
+    """Score retrieval against labeled cases and compare context sizes with baselines."""
+    result = services.bench_run(_project(ctx), spec, k=k, save=save)
+    summary = result["summary"]
+    s, p, r = summary["search"], summary["package"], summary["size_ratios"]
+    lines = [
+        f"Benchmark '{result['spec']}': {summary['cases']} cases over "
+        f"{result['indexed_files']} files, k={result['k']}",
+        f"Search:  recall@{result['k']} {_pct(s['mean_recall_at_k'])}, all expected found "
+        f"{_pct(s['full_hit_rate'])}, MRR {s['mrr']}",
+        f"Package: recall {_pct(p['mean_recall'])} with {p['mean_items']:.1f} items on average "
+        f"(search at that depth: {_pct(summary['search_at_package_depth']['mean_recall'])}), "
+        f"~{p['mean_estimated_tokens']:.0f} estimated tokens",
+        f"Package size vs whole repo {_pct(r['package_vs_whole_repo'])}, vs files containing a "
+        f"query term {_pct(r['package_vs_grep_hits'])}, vs top-{result['k']} files "
+        f"{_pct(r['package_vs_top_k_files'])}  (estimates)",
+    ]
+    if verbose_cases:
+        for case in result["cases"]:
+            mark = "ok " if case["search"]["hit"] else "MISS"
+            rank = case["search"]["first_rank"] or "-"
+            lines.append(f"  [{mark}] {case['id']:<28} first match at rank {rank}; package recall "
+                         f"{_pct(case['package']['recall'])}")  # fmt: skip
+            for glob in case["search"]["missed"]:
+                lines.append(f"         missed: {glob}")
+    failures = []
+    if min_recall is not None and (s["mean_recall_at_k"] or 0) < min_recall:
+        failures.append(f"search recall {_pct(s['mean_recall_at_k'])} is below {_pct(min_recall)}")
+    if min_package_recall is not None and (p["mean_recall"] or 0) < min_package_recall:
+        failures.append(
+            f"package recall {_pct(p['mean_recall'])} is below {_pct(min_package_recall)}"
+        )
+    lines += [f"FAILED: {failure}" for failure in failures]
+    _emit(ctx, {**result, "failures": failures}, "\n".join(lines), essential=True)
+    if failures:
+        raise typer.Exit(3)
+
+
+@usage_app.command("import")
+@guarded
+def usage_import(
+    ctx: typer.Context,
+    provider: Annotated[str, typer.Argument(help="Session source. Currently: claude.")],
+    path: Annotated[Path | None, typer.Option(help="Transcript file or directory.")] = None,
+    label: Annotated[str | None, typer.Option(help="Group name, e.g. baseline or aiopt.")] = None,
+    since: Annotated[
+        str | None, typer.Option(help="Only sessions starting at/after this ISO date.")
+    ] = None,
+) -> None:
+    """Import token and tool-call counts from an assistant's session logs (no content stored)."""
+    if provider != "claude":
+        raise ConfigError(f"Unsupported provider '{provider}'. Supported: claude")
+    project = _project(ctx)
+    result = claude_usage.import_claude_sessions(project.paths, path=path, label=label, since=since)
+    text = (
+        f"Imported {result['sessions_imported']} session(s) from {result['files_found']} file(s): "
+        f"{result['added']} new, {result['updated']} updated"
+        + (f", labeled '{label}'" if label else "")
+        + f".\n{result['privacy']}"
+    )
+    _emit(ctx, result, text)
+
+
+@usage_app.command("list")
+@guarded
+def usage_list_command(ctx: typer.Context) -> None:
+    """List imported sessions."""
+    result = services.usage_list(_project(ctx))
+    lines = [
+        f"{s['session_id'][:8]}  {s['label'] or '(unlabeled)':<12} {s['started_at'] or '?':<26} "
+        f"out {s['output_tokens']:>7}  tools {sum(s['tool_calls'].values()):>4}  "
+        f"aiopt {s['aiopt_calls']:>3}"
+        for s in result["sessions"]
+    ] or ["No sessions imported. Use `aiopt usage import claude`."]
+    _emit(ctx, result, "\n".join(lines))
+
+
+@usage_app.command("label")
+@guarded
+def usage_label_command(
+    ctx: typer.Context,
+    session: Annotated[str, typer.Argument(help="Session id or unique prefix.")],
+    label: Annotated[str, typer.Argument(help="Group name, e.g. baseline or aiopt.")],
+) -> None:
+    """Assign an imported session to a comparison group."""
+    result = services.usage_label(_project(ctx), session, label)
+    _emit(ctx, result, f"Session {result['session_id'][:8]} labeled '{label}'.")
+
+
+@usage_app.command("report")
+@guarded
+def usage_report_command(
+    ctx: typer.Context,
+    baseline: Annotated[
+        str, typer.Option(help="Group to compare the others against.")
+    ] = "baseline",
+) -> None:
+    """Compare provider-reported usage between labeled groups."""
+    report = services.usage_report(_project(ctx), baseline)
+    lines = [f"Source: {report['source']}"]
+    for label, group in report["groups"].items():
+        m = group["mean"]
+        lines.append(
+            f"{label:<12} n={group['sessions']:<3} mean out {m['output_tokens']:.0f}  "
+            f"in {m['input_tokens']:.0f}  "
+            f"cache-read {m['cache_read_tokens']:.0f}  tools {m['tool_calls']:.1f}  "
+            f"exploration {m['exploration_calls']:.1f}  aiopt {m['aiopt_calls']:.1f}"
+        )
+    for comparison in report["comparisons"]:
+        c = comparison["mean_change_percent"]
+        lines.append(
+            f"{comparison['group']} vs {comparison['versus']}: "
+            f"output tokens {c['output_tokens']}%, "
+            f"tool calls {c['tool_calls']}%, exploration calls {c['exploration_calls']}%"
+        )
+    lines += [f"Warning: {w}" for w in report["warnings"]] + [f"Note: {n}" for n in report["notes"]]
+    _emit(ctx, report, "\n".join(lines))
+
+
+@app.command("report")
+@guarded
+def report_command(
+    ctx: typer.Context,
+    fmt: Annotated[str, typer.Option("--format", help="md or json.")] = "md",
+    output: Annotated[Path | None, typer.Option(help="Write to a file inside the project.")] = None,
+) -> None:
+    """Optimization report combining local metrics, the latest benchmark and imported usage."""
+    if fmt not in {"md", "json"}:
+        raise ConfigError("Format must be 'md' or 'json'.")
+    project = _project(ctx)
+    report = services.generate_report(project)
+    text = (
+        json.dumps(report, indent=2, sort_keys=True) if fmt == "json" else report_markdown(report)
+    )
+    if output is not None:
+        target = services.resolve_output(project, output)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text + "\n", encoding="utf-8")
+        _emit(ctx, {"output_file": str(target)}, f"Wrote {target}.")
+    else:
+        _emit(ctx, report, text, essential=True)
 
 
 # --- metrics -----------------------------------------------------------------------------

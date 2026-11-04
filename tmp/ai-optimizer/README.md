@@ -6,7 +6,7 @@ The CLI and Python core are the primary MVP (Phases 1–3). Provider integration
 
 ## Installation and Quick Start
 
-**Status:** the MVP (Phases 1–3) and the agent integrations (Phase 4: Claude Code, GitHub Copilot in VS Code, Codex, MCP server) are implemented. Phase 5 extensions and the Phase 0 benchmark are not started.
+**Status:** the MVP (Phases 1–3), the agent integrations (Phase 4: Claude Code, GitHub Copilot in VS Code, Codex, MCP server) and the measurement tooling (Phases 0 and 5: retrieval benchmark, usage import, reports) are implemented. Whether assistants actually benefit is still unmeasured; see [docs/benchmark.md](docs/benchmark.md) for the protocol.
 
 Requires Python 3.12+.
 
@@ -33,6 +33,14 @@ Connect an assistant (Claude Code, GitHub Copilot in VS Code, or Codex):
 ```sh
 pipx install 'ai-optimizer[mcp]'             # a stable absolute path that editors can launch
 aiopt integrations install claude --dry-run  # preview, then run again without --dry-run
+```
+
+Measure whether it helps ([docs/benchmark.md](docs/benchmark.md)):
+
+```sh
+aiopt bench run .ai-optimizer/bench/self.yaml --cases   # retrieval relevance and size, on labeled cases
+aiopt usage import claude --label baseline              # provider-reported tokens from session logs
+aiopt report                                            # everything, each figure tagged with its source
 ```
 
 Add `--json` to any command for machine-readable output. See [docs/usage.md](docs/usage.md) for the command
@@ -125,8 +133,9 @@ Complete these steps in order. Keep each step independently testable and avoid s
 
 ### Phase 0 — Validation and Baseline
 
-- [ ] Define the benchmark protocol (at least five tasks, two reference repositories).
-- [ ] Record baseline measurements without AI Optimizer and confirm or revise the performance targets.
+- [x] Define the benchmark protocol ([docs/benchmark.md](docs/benchmark.md)): retrieval benchmark and assistant A/B method.
+- [x] Confirm the performance targets on a 10,000-file repository (initial index 0.85 s, no-change update 0.17 s, search 0.17 s, package 0.18 s on synthetic data) and record a retrieval baseline on this repository (search recall@5 84%; the package does not beat plain search at equal depth, see the benchmark guide).
+- [ ] Record baseline assistant behavior (tool calls, tokens) from real sessions with and without the integration. This needs your sessions; `aiopt usage import` and `aiopt usage report` do the bookkeeping.
 
 ### Phase 1 — Foundation and Project Discovery
 
@@ -171,7 +180,10 @@ Complete these steps in order. Keep each step independently testable and avoid s
 
 ### Phase 5 — Metrics and Optional Extensions
 
-- [ ] Expand local indexing, retrieval, package-size, and task-execution metrics; add `aiopt metrics` reports.
-- [ ] Label token counts as estimates (with method) and distinguish them from provider-reported usage.
-- [ ] Add optimization reports and tests that validate reported values and their source.
-- [ ] Consider provider usage import, API/database schema discovery, additional skills, and semantic retrieval only when measurements show a need; keep them optional.
+- [x] Expand local indexing, retrieval, package-size, and task-execution metrics; `aiopt metrics`.
+- [x] Label token counts as estimates (with method) and distinguish them from provider-reported usage.
+- [x] Add optimization reports (`aiopt report`) and tests that validate reported values and their source.
+- [x] Provider usage import for Claude Code (`aiopt usage import claude`).
+- [ ] API and database schema discovery; keep optional.
+- [ ] Usage importers for other assistants.
+- [ ] Semantic retrieval, only if the benchmark shows keyword retrieval is insufficient; keep optional.
