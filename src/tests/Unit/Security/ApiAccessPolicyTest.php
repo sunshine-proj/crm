@@ -48,6 +48,13 @@ final class ApiAccessPolicyTest extends TestCase
         'api_org_people', 'api_org_me', 'api_org_reporting_line',
         // Delegations: own records only; naming a deputy for someone else, listing all and revoking others' need ROLE_ADMIN inline.
         'api_delegations_list', 'api_delegations_create', 'api_delegations_revoke',
+        'api_dms_types_list',
+        // Documents: author, named readers, owner-unit heads and registry clerks decide access inline (DocumentAccess).
+        'api_dms_documents_list', 'api_dms_documents_create', 'api_dms_documents_show', 'api_dms_documents_update',
+        'api_dms_documents_delete', 'api_dms_documents_versions_upload', 'api_dms_documents_versions_file',
+        'api_dms_documents_checkout', 'api_dms_documents_checkin', 'api_dms_documents_readers',
+        'api_dms_documents_attachments_upload', 'api_dms_documents_attachments_file', 'api_dms_documents_attachments_delete',
+        'api_dms_documents_links_create', 'api_dms_documents_links_delete', 'api_dms_documents_card_pdf',
     ];
 
     /** Routes that require ROLE_FINANCE (administrators inherit it). */
@@ -85,6 +92,11 @@ final class ApiAccessPolicyTest extends TestCase
     private const INVENTORY_ROUTES = [
         'api_inventory_purchase_orders_create', 'api_inventory_goods_receipt_create',
         'api_inventory_sales_shipment_dispatch', 'api_inventory_returns_create',
+    ];
+
+    /** Registry routes that require ROLE_DMS_ADMIN (administrators inherit it). */
+    private const DMS_ADMIN_ROUTES = [
+        'api_dms_types_create', 'api_dms_types_update', 'api_dms_documents_register', 'api_dms_documents_archive',
     ];
 
     /** Routes that require ROLE_ADMIN. */
@@ -125,7 +137,7 @@ final class ApiAccessPolicyTest extends TestCase
     public function test_every_api_route_is_classified_and_declares_the_expected_role(): void
     {
         $routes = $this->declaredRoutes();
-        $classified = [...self::USER_ROUTES, ...self::FINANCE_ROUTES, ...self::INVENTORY_ROUTES, ...self::ADMIN_ROUTES, ...self::RECORD_LEVEL, ...self::PUBLIC_ROUTES];
+        $classified = [...self::USER_ROUTES, ...self::FINANCE_ROUTES, ...self::INVENTORY_ROUTES, ...self::DMS_ADMIN_ROUTES, ...self::ADMIN_ROUTES, ...self::RECORD_LEVEL, ...self::PUBLIC_ROUTES];
 
         self::assertSame([], array_values(array_diff(array_keys($routes), $classified)), 'Unclassified route: add it to the access policy.');
         self::assertSame([], array_values(array_diff($classified, array_keys($routes))), 'Policy lists a route that no longer exists.');
@@ -140,11 +152,15 @@ final class ApiAccessPolicyTest extends TestCase
         foreach (self::ADMIN_ROUTES as $name) {
             self::assertContains('ROLE_ADMIN', $routes[$name], sprintf('%s must require ROLE_ADMIN.', $name));
         }
+        foreach (self::DMS_ADMIN_ROUTES as $name) {
+            self::assertContains('ROLE_DMS_ADMIN', $routes[$name], sprintf('%s must require ROLE_DMS_ADMIN.', $name));
+        }
         foreach (self::USER_ROUTES as $name) {
             self::assertContains('ROLE_USER', $routes[$name], sprintf('%s must require at least ROLE_USER.', $name));
             self::assertNotContains('ROLE_ADMIN', $routes[$name], sprintf('%s is documented as open to all users.', $name));
             self::assertNotContains('ROLE_FINANCE', $routes[$name], sprintf('%s is documented as open to all users.', $name));
             self::assertNotContains('ROLE_INVENTORY', $routes[$name], sprintf('%s is documented as open to all users.', $name));
+            self::assertNotContains('ROLE_DMS_ADMIN', $routes[$name], sprintf('%s is documented as open to all users.', $name));
         }
     }
 
@@ -179,6 +195,9 @@ final class ApiAccessPolicyTest extends TestCase
         // Segregation of duties: whoever approves purchase orders does not also receive the goods by default.
         self::assertNotContains('ROLE_INVENTORY', $hierarchy->getReachableRoleNames(['ROLE_FINANCE']));
         self::assertNotContains('ROLE_FINANCE', $hierarchy->getReachableRoleNames(['ROLE_INVENTORY']));
+        // Registry clerks get document rights only; administrators are clerks too.
+        self::assertContains('ROLE_DMS_ADMIN', $hierarchy->getReachableRoleNames(['ROLE_ADMIN']));
+        self::assertSame(['ROLE_DMS_ADMIN', 'ROLE_USER'], $hierarchy->getReachableRoleNames(['ROLE_DMS_ADMIN']));
     }
 
     public function test_every_role_a_route_requires_can_be_assigned_from_the_console(): void

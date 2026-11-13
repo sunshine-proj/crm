@@ -106,7 +106,7 @@ Without a recorded sign-off, invoices are untaxed and keep ID-based numbers. Inv
 
 ### P2 — Document management (DMS) module
 
-Goal: a document workspace with registered, versioned documents. Employees can send documents for approval up their reporting line. Management can send documents to units and sections for acknowledgement and track who has confirmed. The model follows established DMS/ECM products (registration, versioning, routed approval with an approval sheet, acknowledgement lists, an audit trail, retention). Phase 1 (organization structure) is implemented; Phases 2-5 are not yet. The current `ProjectDocument` upload stays as it is. The DMS is a separate module that reuses its storage, MIME and size-limit rules, the in-app `Notification` mechanism, and the append-only decision history pattern used by purchase-order and expense approvals.
+Goal: a document workspace with registered, versioned documents. Employees can send documents for approval up their reporting line. Management can send documents to units and sections for acknowledgement and track who has confirmed. The model follows established DMS/ECM products (registration, versioning, routed approval with an approval sheet, acknowledgement lists, an audit trail, retention). Phases 1 (organization structure) and 2 (document registry) are implemented; Phases 3-5 are not yet. The current `ProjectDocument` upload stays as it is. The DMS is a separate module that reuses its storage, MIME and size-limit rules, the in-app `Notification` mechanism, and the append-only decision history pattern used by purchase-order and expense approvals.
 
 Decisions to confirm before building:
 
@@ -134,17 +134,33 @@ Phase 1 notes:
 - **Not yet:** user display names (people are identified by e-mail and position), bulk import of an existing org chart, and a date picker for viewing the structure on a past day (the API computes it per day internally).
 - **Verification:** backend suite 213 tests / 2,225 assertions (21 new: entity rules, `OrgChart` subordination cases, HTTP flows for access, invariants and delegations), frontend 44 tests including `lib/org.ts`, `npm run build` passes, and `scripts/verify-migrations.sh` passes on PostgreSQL 17 (29 migrations). Not applied to any deployed database.
 
-**Phase 2 — Document registry, storage and versioning**
+**Phase 2 — Document registry, storage and versioning** (done except the two open items; see notes below)
 
-- [ ] Add `DocumentType` (e.g. order, policy, instruction, memo, contract, regulation) with a registration-number pattern, required metadata fields, default approval route template, default retention period, and confidentiality level.
-- [ ] Add a `Document` entity: type, title, summary, author, owner unit, status (`draft` → `in_approval` → `approved` / `rejected` / `withdrawn` → `registered` → `in_force` → `superseded` / `archived`), registration number and date, effective date, expiry/review date, confidentiality, tags, and links to client/project/deal records.
-- [ ] Number registered documents gaplessly per type and year under a row lock, reusing the `NumberSequence` approach used for invoices.
-- [ ] Add `DocumentVersion` records holding file, content SHA-256, uploader, and change comment. Versions are immutable. Editing an approved document creates a new draft version and invalidates earlier approvals for it.
-- [ ] Add check-out/check-in locking so two people cannot overwrite each other's draft, with an admin override that is logged.
-- [ ] Add attachments (supporting files) separate from the main version, and related-document links (replaces, amends, refers to).
-- [ ] Render a PDF of each version for in-browser preview. Add a server-generated approval sheet / acknowledgement sheet PDF (`application/pdf`) with a hash and registration stamp.
-- [ ] Apply access control on the backend: author, approvers, recipients, owner-unit managers and `ROLE_DMS_ADMIN` can read; confidential documents are visible only to named readers. Flag confidential reads in the audit log. Add allowed/denied regression tests for every route.
-- [ ] Add full-text and metadata search (PostgreSQL `tsvector` over title, summary, number and extracted PDF/DOCX text) with filters by type, status, unit, author, and date range.
+- [x] Add `DocumentType` (e.g. order, policy, instruction, memo, contract, regulation) with a registration-number pattern, required metadata fields, default approval route template, default retention period, and confidentiality level. (The route template field arrives with the Phase 3 routes; types already carry the "requires approval" flag.)
+- [x] Add a `Document` entity: type, title, summary, author, owner unit, status (`draft` → `in_approval` → `approved` / `rejected` / `withdrawn` → `registered` → `in_force` → `superseded` / `archived`), registration number and date, effective date, expiry/review date, confidentiality, tags, and links to client/project/deal records.
+- [x] Number registered documents gaplessly per type and year under a row lock, reusing the `NumberSequence` approach used for invoices.
+- [x] Add `DocumentVersion` records holding file, content SHA-256, uploader, and change comment. Versions are immutable. Editing an approved document creates a new draft version and invalidates earlier approvals for it.
+- [x] Add check-out/check-in locking so two people cannot overwrite each other's draft, with an admin override that is logged.
+- [x] Add attachments (supporting files) separate from the main version, and related-document links (replaces, amends, refers to).
+- [ ] Render a PDF of each version for in-browser preview. Add a server-generated approval sheet / acknowledgement sheet PDF (`application/pdf`) with a hash and registration stamp. (Done: in-browser preview for PDF, image and text versions, and a registration card PDF with number, versions and their SHA-256, and history. Open: converting Word/Excel/OpenDocument files to PDF needs a converter such as LibreOffice in the image; the approval and acknowledgement sheets come with Phases 3 and 4.)
+- [x] Apply access control on the backend: author, approvers, recipients, owner-unit managers and `ROLE_DMS_ADMIN` can read; confidential documents are visible only to named readers. Flag confidential reads in the audit log. Add allowed/denied regression tests for every route. (Approvers and recipients join the rule in Phases 3 and 4.)
+- [ ] Add full-text and metadata search (PostgreSQL `tsvector` over title, summary, number and extracted PDF/DOCX text) with filters by type, status, unit, author, and date range. (Done: word-by-word search over number, title, summary, tags, type and text extracted from text, DOCX, XLSX and ODT files, plus every filter listed. Open: `tsvector` ranking and stemming, which would need native SQL that the application's ORM-only rule does not allow yet, and PDF text extraction, which needs a parser library.)
+
+Phase 2 notes:
+
+- **Roles and access:** the new `ROLE_DMS_ADMIN` (registry clerk; assign it with `app:user:roles`) maintains document types, registers and archives documents, and can read and manage every document. `ROLE_ADMIN` inherits it. Everyone else sees:
+  - documents they wrote;
+  - documents where they are a named reader;
+  - general drafts owned by a unit they head (or a unit below it);
+  - every registered general document.
+
+  Confidential documents are visible only to the author, named readers and clerks, and every read of one is written to the audit log. Documents a user cannot read answer `404`, so their existence is not disclosed.
+- **Lifecycle:** a draft gets versions (immutable, SHA-256, text extracted for search), attachments, links, readers and metadata while it is editable and not checked out by someone else. Registration needs a clerk, at least one version, no check-out, the type's required fields, and approval when the type requires it (approval arrives in Phase 3). It takes the next `{CODE}-{YYYY}-{SEQ:n}`-style number, and the document is `in_force` at once or `registered` until its effective date. Registered documents cannot be edited; they are archived, and unregistered drafts can be deleted with their files. A new version on an approved document returns it to draft. Six starting types are seeded by the migration (Order, Policy, Instruction, Regulation, Contract, Memo).
+- **API:** `/api/dms/types` (list for everyone, writes for clerks) and `/api/dms/documents`: list with search and filters, create, show, update, delete, `versions` (multipart upload and file download, `inline=1` preview for safe types), `checkout` (`force` for clerks), `checkin`, `register`, `archive`, `readers`, `attachments`, `links`, `card.pdf`. Every action is recorded in the document's history, including downloads.
+- **Storage:** files live in `src/var/project-documents/dms`, inside the folder the daily backup already archives (see [docs/BACKUP.md](docs/BACKUP.md)). They use the same 10 MB limit, content-detected type checks and random storage names as project documents, plus OpenDocument text. There is no virus scanning yet (Phase 5).
+- **UI:** a new **Documents** section with search and filters, a new-draft form (with optional first file), a document page (actions, details, versions with preview and download, attachments, related documents, access, history) at `#/documents/<id>`, and a **Document types** tab for clerks.
+- **Not yet:** moving an in-force document to `superseded` when a replacing document takes effect, and the scheduled `registered` → `in_force` switch on the effective date (both Phase 5); approval (Phase 3) and acknowledgement (Phase 4).
+- **Verification:** backend suite 229 tests / 2,728 assertions (16 new: entity rules, text extraction, and HTTP flows for lifecycle, numbering, visibility, confidentiality, check-out, attachments, links, deletion and validation). `scripts/verify-migrations.sh` passes on PostgreSQL 17 (30 migrations). The new `scripts/verify-dms-e2e.sh` passes against a throwaway API on PostgreSQL 17 (13 checks, including eight concurrent registrations receiving consecutive numbers); its first run found and fixed a search-escaping defect. Frontend: 49 tests, type-check and build pass. The new pages were not checked in a browser. Not applied to any deployed database.
 
 **Phase 3 — Approval workflow (by subordination)**
 

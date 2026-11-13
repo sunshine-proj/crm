@@ -5,6 +5,7 @@ describe("detail routes", () => {
   it("parses client and project detail hashes", () => {
     expect(parseDetailRoute("#/clients/12")).toEqual({ kind: "client", id: 12 });
     expect(parseDetailRoute("#/projects/5")).toEqual({ kind: "project", id: 5 });
+    expect(parseDetailRoute("#/documents/7")).toEqual({ kind: "document", id: 7 });
   });
 
   it("ignores everything else", () => {
@@ -18,5 +19,7 @@ describe("detail routes", () => {
     expect(parseDetailRoute(detailHref("project", 8))).toEqual({ kind: "project", id: 8 });
     expect(sectionForRoute({ kind: "project", id: 1 })).toBe("Projects");
     expect(sectionForRoute({ kind: "client", id: 1 })).toBe("Clients");
+    expect(detailHref("document", 4)).toBe("#/documents/4");
+    expect(sectionForRoute({ kind: "document", id: 4 })).toBe("Documents");
   });
 });

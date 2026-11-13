@@ -13,10 +13,10 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
-#[AsCommand(name: 'app:user:roles', description: 'Set the application roles of a user (ROLE_FINANCE, ROLE_INVENTORY, ROLE_ADMIN); ROLE_USER is implicit.')]
+#[AsCommand(name: 'app:user:roles', description: 'Set the application roles of a user (ROLE_FINANCE, ROLE_INVENTORY, ROLE_DMS_ADMIN, ROLE_ADMIN); ROLE_USER is implicit.')]
 final class SetUserRolesCommand extends Command
 {
-    public const ASSIGNABLE_ROLES = ['ROLE_FINANCE', 'ROLE_INVENTORY', 'ROLE_ADMIN'];
+    public const ASSIGNABLE_ROLES = ['ROLE_FINANCE', 'ROLE_INVENTORY', 'ROLE_DMS_ADMIN', 'ROLE_ADMIN'];
 
     public function __construct(
         private readonly UserRepository $userRepository,

@@ -15,7 +15,7 @@ the restore test against the real off-host copy.
 | Data | Source | Artifact |
 | --- | --- | --- |
 | Database | `pg_dump --format=custom` of the `app` database | `db-<stamp>.dump.age` |
-| Uploaded documents | `src/var/project-documents` | `documents-<stamp>.tar.gz.age` |
+| Uploaded documents | `src/var/project-documents` (project files, plus document-registry files in its `dms/` subfolder) | `documents-<stamp>.tar.gz.age` |
 | Integrity | SHA-256 of each artifact | `SHA256SUMS-<stamp>` |
 
 JWT keys (`src/config/jwt`) and `.env.local` secrets are **not** included; store them in a secrets manager.

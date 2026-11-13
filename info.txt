@@ -236,6 +236,74 @@ Things like incoming/outgoing mail registration, OCR and co-authoring are listed
 ===================================================
 
 
+Phase 1 (org structure and reporting lines) is built and tested. Nothing is committed yet, and the migration hasn't been applied to any real database. I also haven't clicked through the new Organization page in a running app, because that would mean starting the compose PostgreSQL on your data in storage/.
+
+Defaults I picked for the open decisions: department and section heads act only within their own part of the structure. Approvers are chosen from the sender's own chain of superiors. Editing the structure is limited to ROLE_ADMIN; I'll add the new DMS admin role in Phase 2.
+
+What you can do now:
+
+Structure: administrators build a tree with one organization at the top and departments and sections below it, up to 8 levels. Each unit gets positions, at most one of them marked as head. People are assigned to positions with start and end dates, as primary, secondary or acting.
+Reporting lines:
+A person reports to the head of their own unit, or to the head of the parent unit if they head their own. Vacant head posts are skipped.
+An administrator can set an explicit "reports to" override. Overrides that would loop back are refused.
+Deputies: anyone can name a deputy for a date range and revoke it later; administrators can do this for anyone. The deputy is recorded and shown, but approvals and acknowledgements aren't actually redirected to them yet. That comes with Phases 3 and 4.
+History: used units and positions are archived instead of deleted, and changes to them show up in the existing change history.
+UI: a new Organization section shows your own reporting line and deputies. Next to that are a structure tree (drag a unit onto another to move it, or use the parent selector in the edit form) and unit details: positions, employees and change history.
+For later phases: the core logic lives in OrgChart.php, which answers who reports to whom for a given day without touching the database.
+Verification:
+
+Backend: 213 tests pass, 21 of them new.
+Frontend: 44 tests pass, npm run build succeeds, and I restored the tracked build files afterwards.
+Migration: Version20261113100000.php applies, reverses and re-applies cleanly on a throwaway PostgreSQL 17 with no schema drift.
+I updated the Phase 1 checkboxes and notes in README.md and added the org rules to both AGENTS.md files. Two Phase 1 items are only partly done and noted that way. One is the deputy redirection above. The other is keeping the approver's name and unit as they were at the time of an approval, which needs the Phase 3 approval records.
+
+info.txt has 23 added lines that look like your own notes (my previous summary pasted in). I didn't change it and won't include it in a commit unless you say so.
+
+
+
+===================================================
+
+
+Phase 2 (the document registry) is built and tested; nothing is committed. Two items are only partly done and stay unticked in the README: Word/Excel files can't be previewed in the browser yet, and search is simple word matching rather than PostgreSQL full-text search. I couldn't check the new pages in a browser because no browser tool was available in this session.
+
+What you can do now:
+
+Document types: six are seeded (Order, Policy, Instruction, Regulation, Contract, Memo). Registry clerks edit them in a "Document types" tab: number format such as ORD-{YYYY}-{SEQ:4}, whether approval is needed, required fields, default confidentiality and retention period.
+Drafts: anyone can start a draft, upload versions, add attachments, link related documents ("replaces", "amends", "refers to") and add named readers. A draft belongs to the author's unit by default. Every upload is kept as a separate, unchangeable version with a SHA-256 fingerprint.
+Check-out: while someone has a document checked out, nobody else can edit it. A clerk can take over the check-out, and that is recorded.
+Registration: only clerks register documents (new role ROLE_DMS_ADMIN; administrators have it too). Registration needs a file, no active check-out, the type's required fields, and approval for types that need it. Numbers are consecutive per type and year, and a failed attempt doesn't skip a number. After registration a document can't be edited, only archived; unregistered drafts can be deleted.
+Who can see what:
+Drafts are visible to the author, named readers, heads of the owning unit and clerks.
+Registered general documents are visible to everyone.
+Confidential documents are visible only to the author, named readers and clerks, and each read is written to the audit log.
+Documents you can't see return "not found", so their existence isn't revealed.
+Search: works on number, title, summary, tags and the text inside text, Word, Excel and OpenDocument files, with filters for type, status, unit, author, tag and date.
+Other: a printable registration card (PDF), and a history on each document that includes downloads.
+UI: a new Documents section with a list and filters, a new-draft form, and a page per document at #/documents/<id>.
+Verification:
+
+Backend: 229 tests pass (16 new). The migration applies, reverses and re-applies cleanly on PostgreSQL 17.
+End-to-end: a new script, scripts/verify-dms-e2e.sh, ran against a throwaway API and PostgreSQL 17 that I set up and tore down; all 13 checks pass. Eight simultaneous registrations got consecutive numbers. Its first run found a real bug: searches containing % or _ never matched anything. That is fixed and now covered by a test.
+Frontend: 49 tests, type-check and build pass; I restored the tracked build files afterwards.
+Two changes outside the DMS code:
+
+Backups: the daily backup only archived src/var/project-documents, so I store registry files in a dms/ subfolder there. That way the existing backup and restore cover them without infrastructure changes; docs/BACKUP.md is updated.
+Roles: ROLE_DMS_ADMIN is added to the role hierarchy and to app:user:roles, so you can assign it from the console.
+Left for later phases: marking a document superseded when its replacement takes effect, and switching from registered to in force on the effective date, both in Phase 5. Approval (Phase 3) and acknowledgement (Phase 4) haven't started.
+
+
+
+===================================================
+
+
+
+
+
+
+
+
+
+
 
 
 

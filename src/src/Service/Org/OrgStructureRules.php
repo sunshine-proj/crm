@@ -6,6 +6,7 @@ use App\Entity\Employment;
 use App\Entity\OrgUnit;
 use App\Entity\Position;
 use App\Entity\User;
+use App\Repository\DocumentRepository;
 use App\Repository\EmploymentRepository;
 use App\Repository\OrgUnitRepository;
 use App\Repository\PositionRepository;
@@ -21,6 +22,7 @@ final class OrgStructureRules
         private readonly PositionRepository $positionRepository,
         private readonly EmploymentRepository $employmentRepository,
         private readonly SubordinationService $subordination,
+        private readonly DocumentRepository $documentRepository,
     ) {
     }
 
@@ -60,6 +62,9 @@ final class OrgStructureRules
         }
         if ($this->positionRepository->countForUnit($unit) > 0) {
             throw new \DomainException('A unit that has positions cannot be deleted; archive it instead.');
+        }
+        if ($this->documentRepository->countForOwnerUnit($unit) > 0) {
+            throw new \DomainException('A unit that owns documents cannot be deleted; archive it instead.');
         }
     }
 

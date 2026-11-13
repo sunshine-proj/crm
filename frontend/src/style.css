@@ -2889,3 +2889,135 @@ input[type="radio"] {
   display: grid;
   gap: 6px;
 }
+.dms-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: end;
+  gap: 10px 14px;
+}
+.dms-filters > div {
+  display: grid;
+  gap: 6px;
+}
+.dms-filter-wide {
+  grid-column: span 2;
+}
+.dms-list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 10px 0 14px;
+  list-style: none;
+}
+.dms-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-subtle);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+.dms-row:hover {
+  border-color: var(--line-strong);
+}
+.dms-row-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 320px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.dms-row-main:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+.dms-row-main strong {
+  overflow-wrap: anywhere;
+}
+.dms-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.dms-number {
+  color: var(--accent);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+.dms-number-large {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+.dms-tone-done {
+  border-color: rgba(85, 224, 192, 0.4);
+  color: var(--accent);
+}
+.dms-tone-progress {
+  border-color: rgba(240, 191, 104, 0.4);
+  color: var(--warning);
+}
+.dms-tone-attention {
+  border-color: rgba(255, 130, 122, 0.45);
+  color: var(--danger);
+}
+.dms-tone-closed {
+  color: var(--text-muted);
+}
+.dms-actions {
+  margin-bottom: 18px;
+}
+.dms-version {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-subtle);
+}
+.dms-version:last-child {
+  border-bottom: 0;
+}
+.dms-hash {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+.dms-prewrap {
+  white-space: pre-wrap;
+}
+.dms-history {
+  max-height: 420px;
+  overflow: auto;
+}
+.dms-event-detail {
+  display: block;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.dms-upload {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+.dms-fieldset {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-subtle);
+  border-radius: 8px;
+}
+.dms-fieldset legend {
+  padding: 0 4px;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+@media (max-width: 760px) {
+  .dms-filter-wide {
+    grid-column: auto;
+  }
+}

@@ -20,6 +20,8 @@ import InventoryPage from "./components/InventoryPage.vue";
 import OperationsPage from "./components/OperationsPage.vue";
 import SettingsPage from "./components/SettingsPage.vue";
 import OrganizationPage from "./components/OrganizationPage.vue";
+import DocumentsPage from "./components/DocumentsPage.vue";
+import DocumentDetailPage from "./components/DocumentDetailPage.vue";
 import { setOrganizationDefaultCurrency } from "./lib/organizationSettings";
 
 type LoginResponse = {
@@ -48,7 +50,7 @@ function openSection(section: string) {
 }
 const organizationSettingsReady = ref(false);
 const organizationSettingsError = ref("");
-const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Bank", "Organization", "Settings"];
+const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Bank", "Documents", "Organization", "Settings"];
 const isFinance = computed(() => isFinanceToken(token.value));
 const sections = computed(() => allSections.filter((section) => (section !== "Finance" && section !== "Bank") || isFinance.value));
 const pageComponents = {
@@ -65,6 +67,7 @@ const pageComponents = {
   Bank: BankPage,
   Inventory: InventoryPage,
   Operations: OperationsPage,
+  Documents: DocumentsPage,
   Organization: OrganizationPage,
   Settings: SettingsPage,
 };
@@ -198,6 +201,8 @@ function signOut() {
                             ? "&#9638;"
                             : section === "Operations"
                               ? "&#9881;"
+                                : section === "Documents"
+                                  ? "&#9636;"
                                 : section === "Organization"
                                   ? "&#9783;"
                                 : section === "Settings"
@@ -215,6 +220,7 @@ function signOut() {
       <div v-if="!organizationSettingsReady" class="empty-page"><h2>Loading organization settings...</h2></div>
       <ClientDetailPage v-else-if="detailRoute?.kind === 'client'" :client-id="detailRoute.id" :key="`client-${detailRoute.id}`" />
       <ProjectDetailPage v-else-if="detailRoute?.kind === 'project'" :project-id="detailRoute.id" :key="`project-${detailRoute.id}`" />
+      <DocumentDetailPage v-else-if="detailRoute?.kind === 'document'" :document-id="detailRoute.id" :key="`document-${detailRoute.id}`" />
       <component v-else :is="pageComponents[activeSection as keyof typeof pageComponents]" />
     </section>
   </main>

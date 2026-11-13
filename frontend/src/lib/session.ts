@@ -26,3 +26,9 @@ export function isInventoryToken(token: string | null): boolean {
   const roles = rolesFromToken(token);
   return roles.includes("ROLE_INVENTORY") || roles.includes("ROLE_ADMIN");
 }
+
+/** Registry clerks (ROLE_DMS_ADMIN) and administrators, who inherit it. */
+export function isDmsAdminToken(token: string | null): boolean {
+  const roles = rolesFromToken(token);
+  return roles.includes("ROLE_DMS_ADMIN") || roles.includes("ROLE_ADMIN");
+}

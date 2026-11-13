@@ -6,6 +6,11 @@
 
 # Put parameters here that don't need to change on each machine where the app is deployed
 # https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
+parameters:
+    # Managed (DMS) document files. Kept inside the uploaded-documents folder that the daily backup archives
+    # recursively (docs/BACKUP.md), so registry files are backed up and restored with project documents.
+    app.dms_storage_dir: '%kernel.project_dir%/var/project-documents/dms'
+
 services:
     # default configuration for services in *this* file
     _defaults:
@@ -19,3 +24,7 @@ services:
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
+
+when@test:
+    parameters:
+        app.dms_storage_dir: '%kernel.cache_dir%/dms-documents'

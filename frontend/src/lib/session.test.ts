@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAdminToken, isFinanceToken, isInventoryToken, rolesFromToken } from "./session";
+import { isAdminToken, isDmsAdminToken, isFinanceToken, isInventoryToken, rolesFromToken } from "./session";
 
 function tokenWith(claims: unknown): string {
   const encode = (value: unknown) => btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -33,5 +33,11 @@ describe("session roles", () => {
     expect(isInventoryToken(tokenWith({ roles: ["ROLE_FINANCE"] }))).toBe(false);
     expect(isInventoryToken(tokenWith({ roles: ["ROLE_USER"] }))).toBe(false);
     expect(isFinanceToken(tokenWith({ roles: ["ROLE_INVENTORY"] }))).toBe(false);
+  });
+  it("treats registry clerks and administrators as DMS administrators", () => {
+    expect(isDmsAdminToken(tokenWith({ roles: ["ROLE_DMS_ADMIN"] }))).toBe(true);
+    expect(isDmsAdminToken(tokenWith({ roles: ["ROLE_ADMIN"] }))).toBe(true);
+    expect(isDmsAdminToken(tokenWith({ roles: ["ROLE_FINANCE"] }))).toBe(false);
+    expect(isDmsAdminToken(null)).toBe(false);
   });
 });

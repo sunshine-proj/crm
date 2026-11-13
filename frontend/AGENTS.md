@@ -21,7 +21,8 @@ Run `npm run type-check` for a focused TypeScript/Vue check, `npm run build` for
 
 ## Navigation And Shared Helpers
 
-- Client and project detail views use hash routes (`#/clients/<id>`, `#/projects/<id>`) parsed by `src/lib/route.ts`; sidebar sections are otherwise component switches in `App.vue`. Use `src/lib/api.ts` (`apiRequest`) for new components rather than copying another request helper.
+- Client, project and document detail views use hash routes (`#/clients/<id>`, `#/projects/<id>`, `#/documents/<id>`) parsed by `src/lib/route.ts`; sidebar sections are otherwise component switches in `App.vue`. Use `src/lib/api.ts` (`apiRequest`) for new components rather than copying another request helper.
 - Board and pipeline grouping/totals live in `src/lib/kanban.ts` and `src/lib/deals.ts` with Vitest tests; deal totals use integer minor units per currency.
+- Document registry labels, filters and tag parsing live in `src/lib/documents.ts`; use `apiUpload` for multipart uploads and `previewFile` / `downloadFile` for authenticated files (never link to `/api` file URLs directly, they need the Bearer token). `isDmsAdminToken` only hides clerk controls; `permissions` on each document response decides which actions to offer.
 - Organization tree shaping, move pre-checks and person labels live in `src/lib/org.ts` (Vitest-covered); the API re-checks every structural rule.
 - Tax is calculated by the server; the invoice editor only previews the net total. Never compute tax, credit-note totals or invoice numbers in the browser. `lib/api.ts` provides `apiRequest` and `downloadFile` (authenticated PDF downloads).
