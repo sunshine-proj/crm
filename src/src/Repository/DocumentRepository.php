@@ -3,6 +3,7 @@
 namespace App\Repository;
 
 use App\Dto\DocumentSearch;
+use App\Entity\ApprovalStep;
 use App\Entity\Document;
 use App\Entity\OrgUnit;
 use App\Entity\User;
@@ -21,15 +22,16 @@ class DocumentRepository extends ServiceEntityRepository
      * The visibility predicate mirrors DocumentAccess::canRead().
      *
      * @param list<int> $managedUnitIds units the viewer heads (with sub-units)
+     * @param list<int> $actingForIds the viewer and the people they deputize for (approval participation)
      * @return array{items: list<Document>, total: int}
      */
-    public function search(DocumentSearch $search, ?User $viewer, array $managedUnitIds): array
+    public function search(DocumentSearch $search, ?User $viewer, array $managedUnitIds, array $actingForIds = []): array
     {
         $query = $this->createQueryBuilder('document')
             ->addSelect('type')->join('document.type', 'type')
             ->orderBy('document.updatedAt', 'DESC')->addOrderBy('document.id', 'DESC');
         if ($viewer !== null) {
-            $this->restrictTo($query, $viewer, $managedUnitIds);
+            $this->restrictTo($query, $viewer, $managedUnitIds, $actingForIds);
         }
         $this->applyFilters($query, $search);
         $query->setFirstResult($search->offset)->setMaxResults($search->limit);
@@ -44,14 +46,22 @@ class DocumentRepository extends ServiceEntityRepository
             ->andWhere('document.ownerUnit = :unit')->setParameter('unit', $unit)->getQuery()->getSingleScalarResult();
     }
 
-    /** @param list<int> $managedUnitIds */
-    private function restrictTo(QueryBuilder $query, User $viewer, array $managedUnitIds): void
+    /**
+     * @param list<int> $managedUnitIds
+     * @param list<int> $actingForIds
+     */
+    private function restrictTo(QueryBuilder $query, User $viewer, array $managedUnitIds, array $actingForIds): void
     {
+        $participant = $this->getEntityManager()->createQueryBuilder()->select('1')->from(ApprovalStep::class, 'participation')
+            ->join('participation.stage', 'participationStage')->join('participationStage.route', 'participationRoute')
+            ->where('participationRoute.document = document')->andWhere('IDENTITY(participation.assignee) IN (:actingFor)');
         $visible = $query->expr()->orX(
             'document.author = :viewer',
             ':viewer MEMBER OF document.readers',
             $query->expr()->andX('document.confidentiality = :general', 'document.status IN (:published)'),
+            $query->expr()->exists($participant->getDQL()),
         );
+        $query->setParameter('actingFor', $actingForIds !== [] ? $actingForIds : [(int) $viewer->getId()]);
         if ($managedUnitIds !== []) {
             $visible->add($query->expr()->andX('document.confidentiality = :general', 'IDENTITY(document.ownerUnit) IN (:managed)'));
             $query->setParameter('managed', $managedUnitIds);

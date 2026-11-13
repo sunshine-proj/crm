@@ -22,6 +22,9 @@ const confidentiality = ref<Confidentiality>("general");
 const retentionYears = ref<number | null>(null);
 const requiredFields = ref<string[]>([]);
 const active = ref(true);
+const autoRegister = ref(false);
+const resubmitMode = ref<"restart" | "continue">("restart");
+const template = ref<{ kind: "review" | "approve" | "sign"; level: number; due_days: number | null }[]>([]);
 
 async function load() {
   isLoading.value = true;
@@ -46,6 +49,9 @@ function openForm(type?: DocumentTypeInfo) {
   retentionYears.value = type?.retention_years ?? null;
   requiredFields.value = [...(type?.required_fields ?? [])];
   active.value = type?.active ?? true;
+  autoRegister.value = type?.auto_register ?? false;
+  resubmitMode.value = type?.resubmit_mode ?? "restart";
+  template.value = (type?.route_template ?? []).map((entry) => ({ ...entry }));
   notice.value = "";
   isFormOpen.value = true;
 }
@@ -61,6 +67,9 @@ async function save() {
     default_confidentiality: confidentiality.value,
     required_fields: requiredFields.value,
     active: active.value,
+    auto_register: autoRegister.value,
+    resubmit_mode: resubmitMode.value,
+    route_template: template.value.map((entry) => ({ kind: entry.kind, level: Number(entry.level), ...(entry.due_days ? { due_days: Number(entry.due_days) } : {}) })),
   };
   if (retentionYears.value) body.retention_years = retentionYears.value;
   else body.clear_retention_years = true;
@@ -123,6 +132,29 @@ onMounted(load);
         <legend>Required before registration</legend>
         <label v-for="item in requirableFields" :key="item.field" class="pm-all-projects-toggle"><input v-model="requiredFields" type="checkbox" :value="item.field" /> {{ item.label }}</label>
       </fieldset>
+      <fieldset class="dms-fieldset">
+        <legend>Default approval route</legend>
+        <p class="muted org-hint">Each line is a stage sent to the author's superior at that level (1 = direct superior). Authors can still change the route.</p>
+        <div v-for="(entry, index) in template" :key="index" class="approval-step-editor">
+          <label><span class="visually-hidden">Stage {{ index + 1 }} role</span>
+            <select v-model="entry.kind"><option value="approve">Approve</option><option value="sign">Sign</option><option value="review">Review</option></select>
+          </label>
+          <label><span class="visually-hidden">Stage {{ index + 1 }} level</span>
+            <select v-model.number="entry.level"><option v-for="level in 8" :key="level" :value="level">Level {{ level }} up</option></select>
+          </label>
+          <label><span class="visually-hidden">Stage {{ index + 1 }} days to decide</span>
+            <input v-model.number="entry.due_days" type="number" min="1" max="60" placeholder="Days" aria-label="Days to decide (optional)" />
+          </label>
+          <button class="close-button" type="button" :aria-label="`Remove stage ${index + 1}`" @click="template.splice(index, 1)">&#10005;</button>
+        </div>
+        <button v-if="template.length < 10" class="edit-button" type="button" @click="template.push({ kind: 'approve', level: template.length + 1, due_days: null })">+ Stage</button>
+      </fieldset>
+      <label class="pm-all-projects-toggle"><input v-model="autoRegister" type="checkbox" /> Register automatically after the final approval</label>
+      <label for="type-resubmit">When sent again after rejection</label>
+      <select id="type-resubmit" v-model="resubmitMode">
+        <option value="restart">Run every stage again</option>
+        <option value="continue">Keep stages already approved</option>
+      </select>
       <label class="pm-all-projects-toggle"><input v-model="active" type="checkbox" /> Active (offered for new documents)</label>
       <div class="org-actions">
         <button class="edit-button" type="submit" :disabled="isSaving">{{ isSaving ? "Saving..." : editingId === null ? "Create type" : "Save type" }}</button>
@@ -135,7 +167,7 @@ onMounted(load);
       <li v-for="type in types" :key="type.id" class="org-row" :class="{ 'is-archived': !type.active }">
         <span>
           <strong>{{ type.name }}</strong> <span class="org-kind">{{ type.code }}</span>
-          <span class="muted"> · e.g. {{ type.number_example }} · {{ type.requires_approval ? "approval required" : "no approval" }}<template v-if="type.retention_years"> · keep {{ type.retention_years }} years</template><template v-if="!type.active"> · inactive</template></span>
+          <span class="muted"> · e.g. {{ type.number_example }} · {{ type.requires_approval ? "approval required" : "no approval" }}<template v-if="type.route_template.length"> · {{ type.route_template.length }}-stage route</template><template v-if="type.auto_register"> · auto-registers</template><template v-if="type.retention_years"> · keep {{ type.retention_years }} years</template><template v-if="!type.active"> · inactive</template></span>
         </span>
         <button class="edit-button" type="button" @click="openForm(type)">Edit</button>
       </li>

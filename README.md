@@ -106,7 +106,7 @@ Without a recorded sign-off, invoices are untaxed and keep ID-based numbers. Inv
 
 ### P2 — Document management (DMS) module
 
-Goal: a document workspace with registered, versioned documents. Employees can send documents for approval up their reporting line. Management can send documents to units and sections for acknowledgement and track who has confirmed. The model follows established DMS/ECM products (registration, versioning, routed approval with an approval sheet, acknowledgement lists, an audit trail, retention). Phases 1 (organization structure) and 2 (document registry) are implemented; Phases 3-5 are not yet. The current `ProjectDocument` upload stays as it is. The DMS is a separate module that reuses its storage, MIME and size-limit rules, the in-app `Notification` mechanism, and the append-only decision history pattern used by purchase-order and expense approvals.
+Goal: a document workspace with registered, versioned documents. Employees can send documents for approval up their reporting line. Management can send documents to units and sections for acknowledgement and track who has confirmed. The model follows established DMS/ECM products (registration, versioning, routed approval with an approval sheet, acknowledgement lists, an audit trail, retention). Phases 1 (organization structure), 2 (document registry) and 3 (approval) are implemented; Phases 4-5 are not yet. The current `ProjectDocument` upload stays as it is. The DMS is a separate module that reuses its storage, MIME and size-limit rules, the in-app `Notification` mechanism, and the append-only decision history pattern used by purchase-order and expense approvals.
 
 Decisions to confirm before building:
 
@@ -121,9 +121,9 @@ Decisions to confirm before building:
 - [x] Add `Position` (title, unit, is-head flag) and `Employment` (user, position, primary flag, valid from/to) so a user can hold a primary and an acting position.
 - [x] Derive reporting lines: a user's direct superior is the head of their unit, or the head of the parent unit if the user is the head. Allow an optional explicit `reportsTo` override per employment.
 - [x] Add a `SubordinationService` that returns a user's chain of superiors, direct and transitive subordinates, and the units under a manager. Cover it with unit tests for cycles, vacancies (head position empty, so skip to the next level up), and acting positions.
-- [x] Add substitution/delegation: a user can name a deputy for a date range, and approval and acknowledgement tasks are redirected to the deputy with both names recorded. (Deputies are recorded and resolved by `OrgChart::deputyFor()`; the redirection itself lands with the Phase 3 and Phase 4 workflows.)
+- [x] Add substitution/delegation: a user can name a deputy for a date range, and approval and acknowledgement tasks are redirected to the deputy with both names recorded. (Deputies are resolved by `OrgChart::deputyFor()`; approvals are redirected since Phase 3, acknowledgements follow in Phase 4.)
 - [x] Add admin APIs and a Vue org-chart editor (tree view, drag to re-parent, assign heads/employees), plus a minimal selector endpoint like the existing manager selector.
-- [x] Add a Doctrine migration, version org changes in record history, and make sure historical approvals keep the snapshot of approver/unit names that applied at the time. (The snapshot columns belong to the Phase 3 approval records.)
+- [x] Add a Doctrine migration, version org changes in record history, and make sure historical approvals keep the snapshot of approver/unit names that applied at the time. (Approval steps snapshot the assignee's position and unit since Phase 3.)
 
 Phase 1 notes:
 
@@ -136,14 +136,14 @@ Phase 1 notes:
 
 **Phase 2 — Document registry, storage and versioning** (done except the two open items; see notes below)
 
-- [x] Add `DocumentType` (e.g. order, policy, instruction, memo, contract, regulation) with a registration-number pattern, required metadata fields, default approval route template, default retention period, and confidentiality level. (The route template field arrives with the Phase 3 routes; types already carry the "requires approval" flag.)
+- [x] Add `DocumentType` (e.g. order, policy, instruction, memo, contract, regulation) with a registration-number pattern, required metadata fields, default approval route template, default retention period, and confidentiality level. (The route template, automatic registration and resubmission mode were added in Phase 3.)
 - [x] Add a `Document` entity: type, title, summary, author, owner unit, status (`draft` → `in_approval` → `approved` / `rejected` / `withdrawn` → `registered` → `in_force` → `superseded` / `archived`), registration number and date, effective date, expiry/review date, confidentiality, tags, and links to client/project/deal records.
 - [x] Number registered documents gaplessly per type and year under a row lock, reusing the `NumberSequence` approach used for invoices.
 - [x] Add `DocumentVersion` records holding file, content SHA-256, uploader, and change comment. Versions are immutable. Editing an approved document creates a new draft version and invalidates earlier approvals for it.
 - [x] Add check-out/check-in locking so two people cannot overwrite each other's draft, with an admin override that is logged.
 - [x] Add attachments (supporting files) separate from the main version, and related-document links (replaces, amends, refers to).
 - [ ] Render a PDF of each version for in-browser preview. Add a server-generated approval sheet / acknowledgement sheet PDF (`application/pdf`) with a hash and registration stamp. (Done: in-browser preview for PDF, image and text versions, and a registration card PDF with number, versions and their SHA-256, and history. Open: converting Word/Excel/OpenDocument files to PDF needs a converter such as LibreOffice in the image; the approval and acknowledgement sheets come with Phases 3 and 4.)
-- [x] Apply access control on the backend: author, approvers, recipients, owner-unit managers and `ROLE_DMS_ADMIN` can read; confidential documents are visible only to named readers. Flag confidential reads in the audit log. Add allowed/denied regression tests for every route. (Approvers and recipients join the rule in Phases 3 and 4.)
+- [x] Apply access control on the backend: author, approvers, recipients, owner-unit managers and `ROLE_DMS_ADMIN` can read; confidential documents are visible only to named readers. Flag confidential reads in the audit log. Add allowed/denied regression tests for every route. (Approval participants were added in Phase 3; acknowledgement recipients join in Phase 4.)
 - [ ] Add full-text and metadata search (PostgreSQL `tsvector` over title, summary, number and extracted PDF/DOCX text) with filters by type, status, unit, author, and date range. (Done: word-by-word search over number, title, summary, tags, type and text extracted from text, DOCX, XLSX and ODT files, plus every filter listed. Open: `tsvector` ranking and stemming, which would need native SQL that the application's ORM-only rule does not allow yet, and PDF text extraction, which needs a parser library.)
 
 Phase 2 notes:
@@ -162,16 +162,57 @@ Phase 2 notes:
 - **Not yet:** moving an in-force document to `superseded` when a replacing document takes effect, and the scheduled `registered` → `in_force` switch on the effective date (both Phase 5); approval (Phase 3) and acknowledgement (Phase 4).
 - **Verification:** backend suite 229 tests / 2,728 assertions (16 new: entity rules, text extraction, and HTTP flows for lifecycle, numbering, visibility, confidentiality, check-out, attachments, links, deletion and validation). `scripts/verify-migrations.sh` passes on PostgreSQL 17 (30 migrations). The new `scripts/verify-dms-e2e.sh` passes against a throwaway API on PostgreSQL 17 (13 checks, including eight concurrent registrations receiving consecutive numbers); its first run found and fixed a search-escaping defect. Frontend: 49 tests, type-check and build pass. The new pages were not checked in a browser. Not applied to any deployed database.
 
-**Phase 3 — Approval workflow (by subordination)**
+**Phase 3 — Approval workflow (by subordination)** (done; see notes below)
 
-- [ ] Add `ApprovalRoute` and `ApprovalStep` records with sequential and parallel stages, step types (review / approve / sign), a per-step due date, and a rule for whether a step needs all approvers or any one of them.
-- [ ] When a document is submitted, validate approvers against the `SubordinationService`. A user may send only to people in their own chain of superiors (or to the route template's resolved approvers). Self-approval is impossible, and the server rejects out-of-hierarchy approvers.
-- [ ] Add approver actions: approve, approve with comments, reject (reason required), return for revision (back to the author with comments), and delegate/forward to a subordinate for review (the delegating approver still owes the decision). Store every action as append-only history with actor, on-behalf-of, timestamp, comment and version hash.
-- [ ] Add author actions: withdraw before the final decision, resubmit a revised version (route restarts or continues from the rejecting step, per type setting), and add a reviewer.
-- [ ] Add inline comments/remarks per version and a side-by-side comparison of two versions (text diff for extracted text).
-- [ ] Handle deadlines: in-app reminders before the due date and escalation to the approver's superior when overdue, via the existing `app:reminders:run` scheduler and `ReminderPreference`. E-mail delivery stays blocked as described in P1.
-- [ ] Send a final approved document to registration automatically, or for the registry clerk to register, per type.
-- [ ] Add Vue screens: "My documents", "Awaiting my approval" inbox with counters, a document card with a route timeline (who, status, when, comments), and a route builder that offers only eligible superiors.
+- [x] Add `ApprovalRoute` and `ApprovalStep` records with sequential and parallel stages, step types (review / approve / sign), a per-step due date, and a rule for whether a step needs all approvers or any one of them.
+- [x] When a document is submitted, validate approvers against the `SubordinationService`. A user may send only to people in their own chain of superiors (or to the route template's resolved approvers). Self-approval is impossible, and the server rejects out-of-hierarchy approvers.
+- [x] Add approver actions: approve, approve with comments, reject (reason required), return for revision (back to the author with comments), and delegate/forward to a subordinate for review (the delegating approver still owes the decision). Store every action as append-only history with actor, on-behalf-of, timestamp, comment and version hash.
+- [x] Add author actions: withdraw before the final decision, resubmit a revised version (route restarts or continues from the rejecting step, per type setting), and add a reviewer.
+- [x] Add inline comments/remarks per version and a side-by-side comparison of two versions (text diff for extracted text).
+- [x] Handle deadlines: in-app reminders before the due date and escalation to the approver's superior when overdue, via the existing `app:reminders:run` scheduler and `ReminderPreference`. E-mail delivery stays blocked as described in P1.
+- [x] Send a final approved document to registration automatically, or for the registry clerk to register, per type.
+- [x] Add Vue screens: "My documents", "Awaiting my approval" inbox with counters, a document card with a route timeline (who, status, when, comments), and a route builder that offers only eligible superiors.
+
+Phase 3 notes:
+
+- **Who can be on a route:**
+  - **Approve and sign steps** go only to the author's superiors; the API rejects anyone else with `409`.
+  - **Review steps** are advisory endorsements by peers (for example legal or finance). They may go to any colleague who holds a position.
+  - **Exclusions:** the author can never be a participant.
+  - **Forwarding:** an approver can forward a step to their own subordinates only, as a non-blocking "requested review"; the decision stays with the approver.
+  - **Deputies:** while a delegation is active, the deputy sees the step in their inbox and decides it. The step and the log record both the deputy and the person they acted for. This completes the Phase 1 delegation item.
+- **Route mechanics:**
+  - **Stages:** stages run in order. Within a stage everyone is asked at once, and the stage completes when everyone agrees (`all`) or on the first approval (`any`).
+  - **Ending:** a rejection or a return ends the round. Rejected documents become `rejected`; returned ones go back to `draft`.
+  - **Pinned version:** each round is pinned to the submitted version's number and SHA-256, and the document cannot change while it is in approval.
+  - **Snapshots:** each step keeps the assignee's position and unit as they were when the step was created. This completes the Phase 1 snapshot item.
+  - **Locking:** decisions lock the route row, so parallel approvals are counted once.
+  - **Concurrent submissions:** a second simultaneous submission answers `409`.
+- **Document type settings:**
+  - **Default route:** stages at levels up the author's reporting line, with optional days to decide. The seeded Order type is approve by the direct superior, then sign one level up; Policy, Instruction, Regulation and Contract are approve by the direct superior.
+  - **Automatic registration** after the final approval. If it fails, for example because a required field is missing, the document stays `approved` and the failure is logged.
+  - **Resubmission mode:** `restart` runs every stage again; `continue` keeps stages approved in the previous round.
+- **Comments and comparison:**
+  - **Comments** belong to a version and may quote a passage. They are resolved, not deleted, by the writer, the author or a clerk.
+  - **Comparison** aligns the extracted text of two versions sentence by sentence and lists added and removed passages. It is not a positional annotation on the rendered page, and it needs extractable text, so PDFs and images cannot be compared yet.
+- **Reminders:** `app:reminders:run` reminds approvers of steps that are due (using the task lead time), marks them overdue, and escalates to the assignee's direct superior after the escalation threshold (to administrators if there is none). Notifications link to the document.
+- **Access:** participants, and their deputies while they act, can read the document, including confidential ones. This is added to both `DocumentAccess` and the list query.
+- **API:**
+  - `GET /api/dms/approvals/inbox` and `/counts`.
+  - `POST /api/dms/approvals/steps/{id}/decision` with `approve`, `reject`, `return` or `review`.
+  - `POST /api/dms/approvals/steps/{id}/forward` and `GET .../forward-candidates`.
+  - Under `/api/dms/documents/{id}/approval`: `GET` (all rounds), `GET candidates`, `POST submit`, `POST withdraw`, `POST reviewers`.
+  - Under `/api/dms/documents/{id}`: `GET`/`POST comments`, `POST comments/{id}/resolve`, `GET versions/compare?from=&to=`.
+- **UI:**
+  - **Documents section:** an "Awaiting me" tab with a counter.
+  - **Document page:** an Approval panel with the route builder, which offers superiors for approve and sign steps and colleagues for reviews; the stage and step timeline with decisions, comments and deputies; decision, forwarding, withdraw and add-reviewer controls; a log and earlier rounds. There is also a Comments panel with version comparison.
+  - **Document types:** clerks edit the default route, automatic registration and the resubmission mode.
+  - **Notifications:** the bell links document notifications. "My documents" is the registry's "Only mine" filter.
+- **Verification:**
+  - **Backend:** 247 tests / 3,239 assertions (18 new: the route aggregate, comparison and template validation, plus HTTP flows for parallel and sequential stages with automatic registration, subordination rules, templates, rejection, return, withdrawal and both resubmission modes, deputies and forwarding, added reviewers, comments and comparison, and reminders with escalation).
+  - **Migrations:** `scripts/verify-migrations.sh` passes on PostgreSQL 17 (31 migrations).
+  - **End-to-end:** `scripts/verify-dms-e2e.sh` with the new optional `APPROVERS` checks passes against a throwaway API (19 checks: two simultaneous submissions create one round, and three simultaneous approvals of an `all` stage complete it once and register exactly one number). A run with the row lock temporarily removed also passed, so that check is a smoke test of the concurrent path, not proof the lock is needed; the lock remains in place.
+  - **Frontend:** 54 tests, type-check and build pass. The new screens were not checked in a browser. Not applied to any deployed database.
 
 **Phase 4 — Acknowledgement (familiarization) campaigns**
 

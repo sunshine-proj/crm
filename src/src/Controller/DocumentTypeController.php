@@ -95,6 +95,11 @@ final class DocumentTypeController extends AbstractController
             $input->required_fields ?? $type->getRequiredFields(),
             $input->active ?? $type->isActive(),
         );
+        $type->configureApproval(
+            $input->route_template ?? $type->getRouteTemplate(),
+            $input->auto_register ?? $type->autoRegisters(),
+            $input->resubmit_mode ?? $type->getResubmitMode(),
+        );
     }
 
     private function actor(): string

@@ -29,6 +29,12 @@ final class DocumentTypeInput
         #[Assert\All([new Assert\Choice(choices: DocumentType::REQUIRABLE_FIELDS)])]
         public readonly ?array $required_fields = null,
         public readonly ?bool $active = null,
+        /** Default route: list of {kind: review|approve|sign, level: 1-8 up the reporting line, due_days?: 1-60}. */
+        #[Assert\Count(max: 10)]
+        public readonly ?array $route_template = null,
+        public readonly ?bool $auto_register = null,
+        #[Assert\Choice(choices: [DocumentType::RESTART, DocumentType::CONTINUE])]
+        public readonly ?string $resubmit_mode = null,
     ) {
     }
 }

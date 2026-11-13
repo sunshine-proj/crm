@@ -32,6 +32,9 @@ final class DocumentViews
             'retention_years' => $type->getRetentionYears(),
             'required_fields' => $type->getRequiredFields(),
             'active' => $type->isActive(),
+            'route_template' => $type->getRouteTemplate(),
+            'auto_register' => $type->autoRegisters(),
+            'resubmit_mode' => $type->getResubmitMode(),
         ];
     }
 

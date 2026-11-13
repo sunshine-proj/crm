@@ -18,6 +18,9 @@ class DocumentType
     /** Fields a type can make mandatory before registration. */
     public const REQUIRABLE_FIELDS = ['summary', 'owner_unit', 'effective_on', 'expires_on', 'review_on', 'client', 'project'];
     public const DEFAULT_PATTERN = '{CODE}-{YYYY}-{SEQ:4}';
+    public const RESTART = 'restart';
+    public const CONTINUE = 'continue';
+    public const MAX_TEMPLATE_LEVEL = 8;
 
     #[ORM\Id]
     #[ORM\GeneratedValue]
@@ -52,6 +55,22 @@ class DocumentType
     #[ORM\Column(options: ['default' => true])]
     private bool $active = true;
 
+    /**
+     * Default route: one sequential stage per entry, assigned to the author's superior at `level` (1 = direct superior).
+     *
+     * @var list<array{kind: string, level: int, due_days: int|null}>
+     */
+    #[ORM\Column(type: Types::JSON, options: ['default' => '[]'])]
+    private array $routeTemplate = [];
+
+    /** Register automatically (with the next number) as soon as the final approval is given. */
+    #[ORM\Column(options: ['default' => false])]
+    private bool $autoRegister = false;
+
+    /** On resubmission: `restart` runs every stage again, `continue` keeps stages completed in the previous round. */
+    #[ORM\Column(length: 8, options: ['default' => 'restart'])]
+    private string $resubmitMode = self::RESTART;
+
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
@@ -80,6 +99,10 @@ class DocumentType
     /** @return list<string> */
     public function getRequiredFields(): array { return $this->requiredFields; }
     public function isActive(): bool { return $this->active; }
+    /** @return list<array{kind: string, level: int, due_days: int|null}> */
+    public function getRouteTemplate(): array { return $this->routeTemplate; }
+    public function autoRegisters(): bool { return $this->autoRegister; }
+    public function getResubmitMode(): string { return $this->resubmitMode; }
     public function getCreatedAt(): \DateTimeImmutable { return $this->createdAt; }
     public function getUpdatedAt(): \DateTimeImmutable { return $this->updatedAt; }
 
@@ -131,6 +154,33 @@ class DocumentType
         $this->retentionYears = $retentionYears;
         $this->requiredFields = array_values(array_unique($requiredFields));
         $this->active = $active;
+        $this->touch();
+    }
+
+    /**
+     * @param list<array<string, mixed>> $template entries {kind: review|approve|sign, level: 1..8, due_days?: 1..60}
+     */
+    public function configureApproval(array $template, bool $autoRegister, string $resubmitMode): void
+    {
+        if (!in_array($resubmitMode, [self::RESTART, self::CONTINUE], true)) {
+            throw new \InvalidArgumentException('Resubmission mode is restart or continue.');
+        }
+        if (count($template) > ApprovalRoute::MAX_STAGES) {
+            throw new \InvalidArgumentException(sprintf('A route template has at most %d stages.', ApprovalRoute::MAX_STAGES));
+        }
+        $clean = [];
+        foreach ($template as $entry) {
+            $kind = $entry['kind'] ?? null;
+            $level = $entry['level'] ?? null;
+            $due = $entry['due_days'] ?? null;
+            if (!in_array($kind, ApprovalStep::KINDS, true) || !is_int($level) || $level < 1 || $level > self::MAX_TEMPLATE_LEVEL || ($due !== null && (!is_int($due) || $due < 1 || $due > 60))) {
+                throw new \InvalidArgumentException('Each template stage needs a kind (review, approve, sign), a level 1-8 up the reporting line and optional due_days 1-60.');
+            }
+            $clean[] = ['kind' => $kind, 'level' => $level, 'due_days' => $due];
+        }
+        $this->routeTemplate = $clean;
+        $this->autoRegister = $autoRegister;
+        $this->resubmitMode = $resubmitMode;
         $this->touch();
     }
 

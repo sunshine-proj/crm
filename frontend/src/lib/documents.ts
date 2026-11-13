@@ -15,6 +15,9 @@ export type DocumentTypeInfo = {
   retention_years: number | null;
   required_fields: string[];
   active: boolean;
+  route_template: { kind: "review" | "approve" | "sign"; level: number; due_days: number | null }[];
+  auto_register: boolean;
+  resubmit_mode: "restart" | "continue";
 };
 
 export type DocumentVersion = {
@@ -38,6 +41,8 @@ export type DocumentPermissions = {
   can_register: boolean;
   can_archive: boolean;
   can_delete: boolean;
+  can_submit: boolean;
+  can_withdraw: boolean;
 };
 
 export type DocumentSummary = {
@@ -138,6 +143,13 @@ const eventLabels: Record<string, string> = {
   link_added: "Link added",
   link_removed: "Link removed",
   downloaded: "Downloaded",
+  submitted_for_approval: "Sent for approval",
+  approval_approved: "Approved",
+  approval_rejected: "Rejected in approval",
+  approval_returned: "Returned for revision",
+  approval_withdrawn: "Withdrawn from approval",
+  registration_failed: "Automatic registration failed",
+  commented: "Commented",
 };
 
 export function eventLabel(action: string): string {

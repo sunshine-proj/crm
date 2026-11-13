@@ -329,6 +329,47 @@ class Document
         return $this->status === self::APPROVED || ($this->status === self::DRAFT && !$this->type->requiresApproval());
     }
 
+    /** States from which a document can be sent (again) for approval. */
+    public function canBeSubmitted(): bool
+    {
+        return in_array($this->status, [self::DRAFT, self::REJECTED, self::WITHDRAWN], true);
+    }
+
+    public function submitForApproval(): void
+    {
+        if (!$this->canBeSubmitted()) {
+            throw new \DomainException('Only a draft, rejected or withdrawn document can be sent for approval.');
+        }
+        if ($this->versionCount === 0) {
+            throw new \DomainException('Upload the document file before sending it for approval.');
+        }
+        if ($this->checkedOutBy !== null) {
+            throw new \DomainException('The document is checked out; check it in before sending it for approval.');
+        }
+        $missing = $this->missingRequiredFields();
+        if ($missing !== []) {
+            throw new \DomainException('Fill in the required fields first: '.implode(', ', $missing).'.');
+        }
+        $this->status = self::IN_APPROVAL;
+        $this->touch();
+    }
+
+    /** Applies the outcome of an approval route: approved, rejected, returned (back to draft) or withdrawn. */
+    public function concludeApproval(string $routeStatus): void
+    {
+        if ($this->status !== self::IN_APPROVAL) {
+            throw new \DomainException('The document is not in approval.');
+        }
+        $this->status = match ($routeStatus) {
+            ApprovalRoute::APPROVED => self::APPROVED,
+            ApprovalRoute::REJECTED => self::REJECTED,
+            ApprovalRoute::RETURNED => self::DRAFT,
+            ApprovalRoute::WITHDRAWN => self::WITHDRAWN,
+            default => throw new \LogicException('Unknown route outcome.'),
+        };
+        $this->touch();
+    }
+
     /** @throws \DomainException when the document cannot be registered yet, with the reason */
     public function assertRegistrable(): void
     {

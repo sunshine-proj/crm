@@ -6,13 +6,15 @@ import { detailHref } from "../lib/route";
 import { treeRows, type OrgUnit } from "../lib/org";
 import { documentQuery, emptyFilters, parseTags, statusLabels, statusTone, type Confidentiality, type DocumentDetail, type DocumentStatus, type DocumentSummary, type DocumentTypeInfo } from "../lib/documents";
 import DocumentTypesPanel from "./DocumentTypesPanel.vue";
+import ApprovalInbox from "./ApprovalInbox.vue";
 
 type Page = { items: DocumentSummary[]; total: number; limit: number; offset: number };
 
 const PAGE_SIZE = 25;
 const isClerk = isDmsAdminToken(localStorage.getItem("crm_token"));
 
-const view = ref<"registry" | "types">("registry");
+const view = ref<"registry" | "inbox" | "types">("registry");
+const counts = ref<{ awaiting: number; overdue: number; consultations: number }>({ awaiting: 0, overdue: 0, consultations: 0 });
 const types = ref<DocumentTypeInfo[]>([]);
 const units = ref<OrgUnit[]>([]);
 const page = ref<Page>({ items: [], total: 0, limit: PAGE_SIZE, offset: 0 });
@@ -110,7 +112,16 @@ function formatWhen(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
 }
 
+async function loadCounts() {
+  try {
+    counts.value = await apiRequest<typeof counts.value>("/dms/approvals/counts");
+  } catch {
+    // The counter is a hint; the inbox tab loads the real list.
+  }
+}
+
 onMounted(async () => {
+  void loadCounts();
   try {
     await loadReferenceData();
   } catch (error) {
@@ -130,14 +141,18 @@ onMounted(async () => {
       <button v-if="view === 'registry' && !isFormOpen" class="create-button" type="button" :disabled="activeTypes.length === 0" @click="openForm">+ <span>New document</span></button>
     </div>
 
-    <div v-if="isClerk" class="view-tabs" role="tablist" aria-label="Documents views">
+    <div class="view-tabs" role="tablist" aria-label="Documents views">
       <button type="button" role="tab" :aria-selected="view === 'registry'" @click="view = 'registry'">Registry</button>
-      <button type="button" role="tab" :aria-selected="view === 'types'" @click="view = 'types'">Document types</button>
+      <button type="button" role="tab" :aria-selected="view === 'inbox'" @click="view = 'inbox'">
+        Awaiting me <span v-if="counts.awaiting" class="notification-badge" :aria-label="`${counts.awaiting} awaiting, ${counts.overdue} overdue`">{{ counts.awaiting }}</span>
+      </button>
+      <button v-if="isClerk" type="button" role="tab" :aria-selected="view === 'types'" @click="view = 'types'">Document types</button>
     </div>
 
     <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
 
     <DocumentTypesPanel v-if="view === 'types'" @changed="loadReferenceData" />
+    <ApprovalInbox v-else-if="view === 'inbox'" @counted="(count) => (counts.awaiting = count)" />
 
     <template v-else>
       <form v-if="isFormOpen" class="article-form" @submit.prevent="createDocument">

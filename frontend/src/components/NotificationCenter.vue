@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { apiRequest, errorText } from "../lib/api";
 import { detailHref } from "../lib/route";
 
-type Notice = { id: number; kind: "due_soon" | "overdue" | "escalation"; subject_type: string; subject_id: number; project_id: number | null; message: string; created_at: string; read_at: string | null };
+type Notice = { id: number; kind: "due_soon" | "overdue" | "escalation" | "approval" | "decision"; subject_type: string; subject_id: number; project_id: number | null; message: string; created_at: string; read_at: string | null };
 type Preferences = { enabled: boolean; task_lead_days: number; project_lead_days: number; escalate_after_days: number; delivery: string };
 
 const isOpen = ref(false);
@@ -76,7 +76,10 @@ async function savePreferences() {
   }
 }
 
+const kindLabels: Record<Notice["kind"], string> = { escalation: "Escalation", overdue: "Overdue", due_soon: "Due soon", approval: "For your decision", decision: "Decision" };
+
 function link(notice: Notice): string {
+  if (notice.subject_type === "document") return detailHref("document", notice.subject_id);
   return notice.project_id === null ? "#" : detailHref("project", notice.project_id);
 }
 
@@ -119,7 +122,7 @@ onBeforeUnmount(() => window.clearInterval(timer));
       <p v-if="items.length === 0" class="muted">You have no notifications.</p>
       <ul v-else>
         <li v-for="notice in items" :key="notice.id" :class="[notice.kind, { unread: !notice.read_at }]">
-          <a :href="link(notice)" @click="markRead(notice)"><strong>{{ notice.kind === "escalation" ? "Escalation" : notice.kind === "overdue" ? "Overdue" : "Due soon" }}</strong> {{ notice.message }}</a>
+          <a :href="link(notice)" @click="markRead(notice)"><strong>{{ kindLabels[notice.kind] ?? notice.kind }}</strong> {{ notice.message }}</a>
           <div class="muted">{{ new Date(notice.created_at).toLocaleString() }}</div>
         </li>
       </ul>

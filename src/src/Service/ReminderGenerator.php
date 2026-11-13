@@ -9,11 +9,13 @@ use App\Entity\ReminderPreference;
 use App\Entity\Task;
 use App\Entity\TaskStatus;
 use App\Entity\User;
+use App\Repository\ApprovalStepRepository;
 use App\Repository\NotificationRepository;
 use App\Repository\ProjectRepository;
 use App\Repository\ReminderPreferenceRepository;
 use App\Repository\TaskRepository;
 use App\Repository\UserRepository;
+use App\Service\Org\SubordinationService;
 use Doctrine\ORM\EntityManagerInterface;
 
 /**
@@ -23,6 +25,8 @@ use Doctrine\ORM\EntityManagerInterface;
  *
  * Deadline rules follow the project-management overview: a task is due on its due date, or on its scheduled end
  * date when it has none; a project is due on its planned end date. Finished and cancelled work is ignored.
+ * Open document approval steps with a due date follow the task lead time and escalate to the assignee's direct
+ * superior in the organization structure (administrators when there is none).
  */
 final class ReminderGenerator
 {
@@ -40,6 +44,8 @@ final class ReminderGenerator
         private readonly ReminderPreferenceRepository $preferenceRepository,
         private readonly NotificationRepository $notificationRepository,
         private readonly EntityManagerInterface $entityManager,
+        private readonly ApprovalStepRepository $approvalStepRepository,
+        private readonly SubordinationService $subordination,
     ) {
     }
 
@@ -72,14 +78,22 @@ final class ReminderGenerator
             }
             $this->remind($counts, $manager, 'project', (int) $project->getId(), $project->getId(), sprintf('Project "%s"', $project->getTitle()), $due->setTime(0, 0), $today, 'lead_project', null);
         }
+        $chart = $this->subordination->chartOn($today);
+        $verbs = ['review' => 'Review', 'approve' => 'Approval', 'sign' => 'Signature', 'consult' => 'Requested review'];
+        foreach ($this->approvalStepRepository->findOpenWithDueDate() as $step) {
+            $document = $step->getStage()->getRoute()->getDocument();
+            $label = sprintf('%s of "%s"', $verbs[$step->getKind()] ?? 'Approval', $document->getTitle());
+            $this->remind($counts, $step->getAssignee(), 'document', (int) $document->getId(), null, $label, $step->getDueOn()->setTime(0, 0), $today, 'lead_task', $chart->directSuperior($step->getAssignee()), 'approval_step:'.$step->getId());
+        }
         $this->entityManager->flush();
 
         return ['due_soon' => $counts[Notification::DUE_SOON], 'overdue' => $counts[Notification::OVERDUE], 'escalations' => $counts[Notification::ESCALATION]];
     }
 
     /** @param array<string, int> $counts */
-    private function remind(array &$counts, User $owner, string $type, int $id, ?int $projectId, string $label, \DateTimeImmutable $due, \DateTimeImmutable $today, string $leadKind, ?User $escalateTo): void
+    private function remind(array &$counts, User $owner, string $type, int $id, ?int $projectId, string $label, \DateTimeImmutable $due, \DateTimeImmutable $today, string $leadKind, ?User $escalateTo, ?string $dedupeSubject = null): void
     {
+        $subject = $dedupeSubject ?? $type.':'.$id;
         $preference = $this->preference($owner);
         $enabled = $preference?->isEnabled() ?? true;
         $lead = $leadKind === 'lead_task'
@@ -90,14 +104,14 @@ final class ReminderGenerator
 
         if ($daysUntilDue >= 0 && $daysUntilDue <= $lead && $enabled) {
             $when = $daysUntilDue === 0 ? 'today' : sprintf('in %d day%s', $daysUntilDue, $daysUntilDue === 1 ? '' : 's');
-            $this->notify($counts, $owner, Notification::DUE_SOON, $type, $id, $projectId, sprintf('%s is due %s (%s).', $label, $when, $dueText), sprintf('%s:%d:soon:%s', $type, $id, $dueText));
+            $this->notify($counts, $owner, Notification::DUE_SOON, $type, $id, $projectId, sprintf('%s is due %s (%s).', $label, $when, $dueText), sprintf('%s:soon:%s', $subject, $dueText));
         }
         if ($daysUntilDue >= 0) {
             return;
         }
         $overdueDays = -$daysUntilDue;
         if ($enabled) {
-            $this->notify($counts, $owner, Notification::OVERDUE, $type, $id, $projectId, sprintf('%s is overdue since %s.', $label, $dueText), sprintf('%s:%d:overdue:%s', $type, $id, $dueText));
+            $this->notify($counts, $owner, Notification::OVERDUE, $type, $id, $projectId, sprintf('%s is overdue since %s.', $label, $dueText), sprintf('%s:overdue:%s', $subject, $dueText));
         }
         $escalateAfter = $preference?->getEscalateAfterDays() ?? ReminderPreference::DEFAULT_ESCALATE_AFTER_DAYS;
         if ($escalateAfter < 1 || $overdueDays < $escalateAfter) {
@@ -108,7 +122,7 @@ final class ReminderGenerator
             if ($recipient->getId() === $owner->getId() || !($this->preference($recipient)?->isEnabled() ?? true)) {
                 continue;
             }
-            $this->notify($counts, $recipient, Notification::ESCALATION, $type, $id, $projectId, sprintf('Escalation: %s assigned to %s has been overdue for %d days (due %s).', $label, $owner->getUserIdentifier(), $overdueDays, $dueText), sprintf('%s:%d:escalation:%s', $type, $id, $dueText));
+            $this->notify($counts, $recipient, Notification::ESCALATION, $type, $id, $projectId, sprintf('Escalation: %s assigned to %s has been overdue for %d days (due %s).', $label, $owner->getUserIdentifier(), $overdueDays, $dueText), sprintf('%s:escalation:%s', $subject, $dueText));
         }
     }
 

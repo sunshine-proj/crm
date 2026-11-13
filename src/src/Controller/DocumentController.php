@@ -68,7 +68,7 @@ final class DocumentController extends AbstractController
             return $this->error($search, Response::HTTP_BAD_REQUEST);
         }
         $viewer = $this->viewer();
-        $result = $this->documentRepository->search($search, $this->access->isRegistrar() ? null : $viewer, $this->access->managedUnitIds($viewer));
+        $result = $this->documentRepository->search($search, $this->access->isRegistrar() ? null : $viewer, $this->access->managedUnitIds($viewer), $this->access->actingForIds($viewer));
         $current = $this->versionRepository->findLatestFor($result['items']);
 
         return $this->json([

@@ -55,6 +55,11 @@ final class ApiAccessPolicyTest extends TestCase
         'api_dms_documents_checkout', 'api_dms_documents_checkin', 'api_dms_documents_readers',
         'api_dms_documents_attachments_upload', 'api_dms_documents_attachments_file', 'api_dms_documents_attachments_delete',
         'api_dms_documents_links_create', 'api_dms_documents_links_delete', 'api_dms_documents_card_pdf',
+        // Approval: assignee or deputy, author or clerk, checked inline by ApprovalService.
+        'api_dms_approvals_inbox', 'api_dms_approvals_counts', 'api_dms_approvals_decide', 'api_dms_approvals_forward',
+        'api_dms_approvals_forward_candidates', 'api_dms_approvals_history', 'api_dms_approvals_candidates',
+        'api_dms_approvals_submit', 'api_dms_approvals_withdraw', 'api_dms_approvals_reviewers',
+        'api_dms_review_comments_list', 'api_dms_review_comments_create', 'api_dms_review_comments_resolve', 'api_dms_review_compare',
     ];
 
     /** Routes that require ROLE_FINANCE (administrators inherit it). */

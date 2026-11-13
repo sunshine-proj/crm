@@ -4,6 +4,7 @@ namespace App\Service\Dms;
 
 use App\Entity\Document;
 use App\Entity\User;
+use App\Repository\ApprovalStepRepository;
 use App\Service\Org\OrgChart;
 use App\Service\Org\SubordinationService;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
@@ -11,7 +12,8 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 /**
  * Who may do what with a document, for the signed-in user.
  *
- * Read: registry clerks (ROLE_DMS_ADMIN); the author; named readers; for general (non-confidential) documents also
+ * Read: registry clerks (ROLE_DMS_ADMIN); the author; named readers; approval participants (and their deputies while
+ * they act for them); for general (non-confidential) documents also
  * heads of the owner unit or a unit above it, and everyone once the document is registered. Confidential documents
  * are never visible beyond the author, named readers and clerks.
  * Manage (metadata, files, readers, links, delete drafts): the author and clerks. Content changes also need an
@@ -25,6 +27,7 @@ final class DocumentAccess
     public function __construct(
         private readonly AuthorizationCheckerInterface $authorization,
         private readonly SubordinationService $subordination,
+        private readonly ApprovalStepRepository $stepRepository,
     ) {
     }
 
@@ -39,9 +42,23 @@ final class DocumentAccess
         return $this->chart()->managedUnitIds($user);
     }
 
+    /** @return list<int> the user and everyone they currently deputize for */
+    public function actingForIds(User $user): array
+    {
+        return [(int) $user->getId(), ...array_map(static fn (User $principal): int => (int) $principal->getId(), $this->chart()->principalsOf($user))];
+    }
+
+    public function chartToday(): OrgChart
+    {
+        return $this->chart();
+    }
+
     public function canRead(User $user, Document $document): bool
     {
         if ($this->isRegistrar() || $this->canManage($user, $document) || $document->hasReader($user)) {
+            return true;
+        }
+        if ($this->stepRepository->isParticipant($document, $this->actingForIds($user))) {
             return true;
         }
         if ($document->isConfidential()) {
@@ -113,6 +130,8 @@ final class DocumentAccess
             'can_register' => $clerk && $document->canBeRegistered(),
             'can_archive' => $clerk && in_array($document->getStatus(), [Document::REGISTERED, Document::IN_FORCE, Document::SUPERSEDED], true),
             'can_delete' => $manage && $document->isDeletable(),
+            'can_submit' => $manage && $document->canBeSubmitted() && $document->getVersionCount() > 0 && $document->getCheckedOutBy() === null,
+            'can_withdraw' => $manage && $document->getStatus() === Document::IN_APPROVAL,
         ];
     }
 

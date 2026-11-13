@@ -296,6 +296,45 @@ Left for later phases: marking a document superseded when its replacement takes 
 ===================================================
 
 
+Phase 3, the approval workflow, is in place on top of your dms phase 2 commit; this round isn't committed. The new screens haven't been checked in a browser, since none was available in this session.
+
+How approval works now:
+
+Sending: the author (or a registry clerk) builds a route of stages. Stages run one after another; everyone in a stage is asked at once, and the stage completes when everyone agrees or on the first approval, as chosen. Each participant can have a due date. A document type can also come with a default route, built from levels up the author's reporting line.
+Subordination rules: approve and sign steps can only go to the author's superiors, and the server refuses anyone else. Review steps can go to any colleague who holds a position, for things like legal or finance checks. Nobody can approve their own document.
+Approver actions: approve (with an optional comment), reject (reason required), or return for revision. An approver can also ask one of their own subordinates for an opinion; that opinion is advisory and the decision stays with the approver.
+Author actions: withdraw, add a reviewer to the stage that's running, or send again after a rejection. Per type, a resubmission either runs every stage again or keeps the stages already approved.
+Deputies: an active deputy sees the absent person's steps in their inbox and decides on their behalf. Both names are recorded. This completes the Phase 1 delegation item.
+Record-keeping: every action goes into a history that can't be edited, with who acted, on whose behalf, the comment and the exact version's fingerprint. Each step also keeps the person's position and unit as they were at the time.
+Registration: after the final approval, a document is either registered automatically or left for the clerk, depending on the type. The seeded Order type routes to the direct superior for approval, then one level up for signature. Policy, Instruction, Regulation and Contract route to the direct superior.
+Deadlines: the existing reminder scheduler now sends due-soon and overdue notices for approval steps. A step that stays overdue escalates to the approver's own superior. Notifications link straight to the document.
+Comments and comparison: comments are attached to a version and can quote a passage. They are resolved rather than deleted. Two versions can be compared sentence by sentence, but only Word, Excel, OpenDocument and text files: PDFs and images have no extracted text yet.
+Screens:
+
+Documents section: a new "Awaiting me" tab with a counter.
+
+Document page: an Approval panel with:
+
+the route builder, which only offers superiors for approve and sign steps;
+a stage-by-stage timeline showing decisions, comments and deputies;
+controls to decide, forward, withdraw and add reviewers;
+a log and earlier rounds.
+It also gets a Comments panel with version comparison.
+
+Document types: clerks can edit the default route, automatic registration and the resubmission mode.
+
+Verification:
+
+Backend: 247 tests pass (18 new). The migration applies, reverses and re-applies cleanly on PostgreSQL 17.
+End-to-end: the DMS e2e script gained approval checks, which run when you pass three extra test logins. All 19 checks pass against a throwaway API and database: two simultaneous submissions produce one round, and three approvers deciding at the same moment complete the stage once and get exactly one registration number.
+Concurrency check is weaker than it looks: I re-ran it with the database lock removed and it still passed. The three requests didn't overlap tightly enough to trigger the race, so it's a smoke test, not proof. The lock is back in place.
+Frontend: 54 tests, type-check and build pass.
+The README Phase 3 section and both AGENTS.md files are updated, including the Phase 1 and 2 items this phase completed. Shall I go on to Phase 4, acknowledgement campaigns?
+
+
+
+===================================================
+
 
 
 

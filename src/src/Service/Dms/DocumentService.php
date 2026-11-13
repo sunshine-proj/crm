@@ -148,15 +148,26 @@ final class DocumentService
     public function register(Document $document, User $actor): void
     {
         $this->access->assertRegistrar();
+        $this->registerAs($document, $actor->getUserIdentifier());
+    }
+
+    /** Registration triggered by the final approval of a type that registers automatically. */
+    public function registerAutomatically(Document $document): void
+    {
+        $this->registerAs($document, 'automatic registration');
+    }
+
+    private function registerAs(Document $document, string $registrar): void
+    {
         $now = new \DateTimeImmutable();
         // Validate before any number is taken; the entity re-checks inside the transaction.
         $document->assertRegistrable();
         $this->numbering->prepare($document->getType(), $now);
-        $this->entityManager->wrapInTransaction(function () use ($document, $actor, $now): void {
+        $this->entityManager->wrapInTransaction(function () use ($document, $registrar, $now): void {
             $number = $this->numbering->allocate($document->getType(), $now, $document->getOwnerUnit());
-            $document->register($number, $actor->getUserIdentifier(), $now);
+            $document->register($number, $registrar, $now);
             $document->refreshSearchText($this->versionRepository->findLatest($document)?->getExtractedText());
-            $this->record($document, $actor, 'registered', ['number' => $number, 'status' => $document->getStatus()]);
+            $this->record($document, $registrar, 'registered', ['number' => $number, 'status' => $document->getStatus()]);
             $this->entityManager->flush();
         });
     }
@@ -325,8 +336,8 @@ final class DocumentService
     }
 
     /** @param array<string, scalar|null> $details */
-    private function record(Document $document, User $actor, string $action, array $details = []): void
+    public function record(Document $document, User|string $actor, string $action, array $details = []): void
     {
-        $this->entityManager->persist(new DocumentEvent($document, $actor->getUserIdentifier(), $action, $details));
+        $this->entityManager->persist(new DocumentEvent($document, $actor instanceof User ? $actor->getUserIdentifier() : $actor, $action, $details));
     }
 }

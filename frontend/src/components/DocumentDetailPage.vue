@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from "vue";
 import { apiRequest, apiUpload, downloadFile, errorText, previewFile } from "../lib/api";
 import { detailHref } from "../lib/route";
 import { personLabel, treeRows, type OrgUnit, type Person } from "../lib/org";
+import ApprovalPanel from "./ApprovalPanel.vue";
+import DocumentCommentsPanel from "./DocumentCommentsPanel.vue";
 import {
   eventLabel,
   fieldLabel,
@@ -308,6 +310,8 @@ onMounted(async () => {
         </div>
       </section>
 
+      <ApprovalPanel :document-id="document.id" :type-name="document.type.name" :key="`approval-${document.id}`" @changed="load" />
+
       <div class="detail-grid">
         <section class="detail-card" aria-labelledby="doc-details-title">
           <h2 id="doc-details-title">Details</h2>
@@ -476,6 +480,8 @@ onMounted(async () => {
             <button class="edit-button" type="submit" :disabled="isSaving || readerToAdd === null">Add</button>
           </form>
         </section>
+
+        <DocumentCommentsPanel :document-id="document.id" :version-numbers="document.versions.map((version) => version.number)" />
 
         <section class="detail-card" aria-labelledby="doc-history-title">
           <h2 id="doc-history-title">History</h2>
