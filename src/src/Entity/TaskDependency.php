@@ -7,6 +7,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: TaskDependencyRepository::class)]
 #[ORM\Table(name: 'task_dependency')]
+#[ORM\Index(columns: ['successor_id'], name: 'idx_task_dependency_successor')]
 #[ORM\UniqueConstraint(name: 'uniq_task_dependency_pair', columns: ['predecessor_id', 'successor_id'])]
 class TaskDependency
 {

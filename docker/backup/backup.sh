@@ -7,6 +7,7 @@
 #                         Configure the remote through RCLONE_CONFIG_<NAME>_* variables or a mounted rclone.conf.
 # Optional: PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE, DOCUMENTS_DIR, BACKUP_RETENTION_DAYS (default 35),
 #           BACKUP_WORK_DIR, BACKUP_STATUS_FILE.
+# The pg_dump major version in this image must match the database server (PostgreSQL 17 in docker-compose.yml).
 set -Eeuo pipefail
 
 : "${BACKUP_AGE_RECIPIENT:?BACKUP_AGE_RECIPIENT is required}"
@@ -41,8 +42,18 @@ rclone copy "$WORK_DIR" "$BACKUP_REMOTE/$stamp" --checksum
 # Verify the off-host copy matches before reporting success or pruning anything.
 rclone check "$WORK_DIR" "$BACKUP_REMOTE/$stamp" --one-way
 
-# Retention: remove backup sets older than the retention window (35 days by default).
-rclone delete "$BACKUP_REMOTE" --min-age "${RETENTION_DAYS}d" --rmdirs
+# Retention: remove whole backup sets older than the retention window (35 days by default). Sets are
+# selected by the UTC timestamp in their name, so the result does not depend on how the storage provider
+# reports modification times, and a set is never left half-deleted with a mismatching checksum file.
+cutoff="$(date -u -d "-${RETENTION_DAYS} days" +%Y%m%dT%H%M%SZ)"
+pruned=0
+while IFS= read -r set_name; do
+  [[ "$set_name" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || continue
+  if [[ "$set_name" < "$cutoff" ]]; then
+    rclone purge "$BACKUP_REMOTE/$set_name"
+    pruned=$((pruned + 1))
+  fi
+done < <(rclone lsf --dirs-only "$BACKUP_REMOTE" | tr -d /)
 
-echo "ok $(date -u +%FT%TZ) set=$stamp duration=$(( $(date -u +%s) - started ))s" > "$STATUS_FILE"
+echo "ok $(date -u +%FT%TZ) set=$stamp duration=$(( $(date -u +%s) - started ))s pruned=$pruned" > "$STATUS_FILE"
 cat "$STATUS_FILE"

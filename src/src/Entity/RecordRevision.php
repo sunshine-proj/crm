@@ -11,6 +11,7 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Table(name: 'record_revision')]
 #[ORM\Index(columns: ['entity_type', 'entity_id', 'id'], name: 'idx_record_revision_record')]
 #[ORM\Index(columns: ['action', 'entity_type'], name: 'idx_record_revision_action')]
+#[ORM\Index(columns: ['cause_type', 'cause_id'], name: 'idx_record_revision_cause')]
 class RecordRevision
 {
     public const ACTION_CREATE = 'create';
@@ -45,12 +46,32 @@ class RecordRevision
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
+    /** Type of the deleted parent record whose database cascade removed or detached this record, if any. */
+    #[ORM\Column(length: 64, nullable: true)]
+    private ?string $causeType;
+
+    #[ORM\Column(nullable: true)]
+    private ?int $causeId;
+
     /**
      * @param array<string, mixed> $snapshot
      * @param array<string, array{0: mixed, 1: mixed}>|null $changes
      */
-    public function __construct(string $entityType, int $entityId, string $action, array $snapshot, ?array $changes, string $actor)
-    {
+    public function __construct(
+        string $entityType,
+        int $entityId,
+        string $action,
+        array $snapshot,
+        ?array $changes,
+        string $actor,
+        ?string $causeType = null,
+        ?int $causeId = null,
+    ) {
+        if (($causeType === null) !== ($causeId === null)) {
+            throw new \InvalidArgumentException('A revision cause needs both a record type and an id.');
+        }
+        $this->causeType = $causeType;
+        $this->causeId = $causeId;
         $this->entityType = $entityType;
         $this->entityId = $entityId;
         $this->action = $action;
@@ -70,4 +91,6 @@ class RecordRevision
     public function getChanges(): ?array { return $this->changes; }
     public function getActor(): string { return $this->actor; }
     public function getCreatedAt(): \DateTimeImmutable { return $this->createdAt; }
+    public function getCauseType(): ?string { return $this->causeType; }
+    public function getCauseId(): ?int { return $this->causeId; }
 }

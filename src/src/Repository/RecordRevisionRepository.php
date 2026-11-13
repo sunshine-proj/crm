@@ -23,4 +23,14 @@ class RecordRevisionRepository extends ServiceEntityRepository
 
         return $this->findBy($criteria, ['id' => 'DESC'], $limit);
     }
+
+    /**
+     * Revisions written because the given record was deleted: cascade deletions and detached references.
+     *
+     * @return list<RecordRevision> oldest first
+     */
+    public function findCausedBy(string $causeType, int $causeId): array
+    {
+        return $this->findBy(['causeType' => $causeType, 'causeId' => $causeId], ['id' => 'ASC']);
+    }
 }

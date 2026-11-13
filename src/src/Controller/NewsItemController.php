@@ -32,7 +32,7 @@ class NewsItemController extends AbstractController
     #[Route('', name: 'create', methods: ['POST'])]
     public function create(#[MapRequestPayload] NewsItemInput $input): JsonResponse
     {
-        if ($input->title === null || $input->content === null) {
+        if ($input->title === null || $input->content === null || trim($input->title) === '' || trim($input->content) === '') {
             return $this->json(['error' => 'Title and content are required.'], JsonResponse::HTTP_BAD_REQUEST);
         }
 
@@ -79,7 +79,7 @@ class NewsItemController extends AbstractController
 
         $title = $input->title !== null ? trim($input->title) : $item->getTitle();
         $content = $input->content !== null ? trim($input->content) : $item->getContent();
-        if ($title === null || $content === null) {
+        if ($title === null || $content === null || $title === '' || $content === '') {
             return $this->json(['error' => 'Title and content are required.'], JsonResponse::HTTP_BAD_REQUEST);
         }
 

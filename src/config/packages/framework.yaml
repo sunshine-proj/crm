@@ -5,6 +5,14 @@ framework:
     # Note that the session will be started ONLY if you read or write from it.
     session: true
 
+    # Failed sign-ins per client address and e-mail; AuthController resets the counter on success.
+    rate_limiter:
+        login:
+            policy: sliding_window
+            limit: 5
+            interval: '15 minutes'
+            lock_factory: null
+
     #esi: true
     #fragments: true
 

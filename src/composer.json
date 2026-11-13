@@ -13,17 +13,17 @@
         "doctrine/orm": "^3.6",
         "dompdf/dompdf": "^3.1",
         "lexik/jwt-authentication-bundle": "^3.2",
-        "symfony/console": "8.0.*",
-        "symfony/dotenv": "8.0.*",
+        "symfony/console": "8.1.*",
+        "symfony/dotenv": "8.1.*",
         "symfony/flex": "^2",
-        "symfony/framework-bundle": "8.0.*",
+        "symfony/framework-bundle": "8.1.*",
         "symfony/monolog-bundle": "^4.1",
-        "symfony/rate-limiter": "8.0.*",
-        "symfony/runtime": "8.0.*",
-        "symfony/security-bundle": "8.0.*",
-        "symfony/serializer": "8.0.*",
-        "symfony/validator": "8.0.*",
-        "symfony/yaml": "8.0.*"
+        "symfony/rate-limiter": "8.1.*",
+        "symfony/runtime": "8.1.*",
+        "symfony/security-bundle": "8.1.*",
+        "symfony/serializer": "8.1.*",
+        "symfony/validator": "8.1.*",
+        "symfony/yaml": "8.1.*"
     },
     "config": {
         "allow-plugins": {
@@ -68,7 +68,11 @@
             "@auto-scripts"
         ],
         "test": "php bin/phpunit",
-        "test:coverage": "php -d pcov.enabled=1 bin/phpunit --coverage-text --coverage-html=coverage/html --coverage-clover=coverage/clover.xml"
+        "test:coverage": "php -d pcov.enabled=1 bin/phpunit --coverage-text --coverage-html=coverage/html --coverage-clover=coverage/clover.xml",
+        "test:coverage:check": [
+            "@test:coverage",
+            "php tests/coverage-gate.php coverage/clover.xml 90"
+        ]
     },
     "conflict": {
         "symfony/symfony": "*"
@@ -76,15 +80,15 @@
     "extra": {
         "symfony": {
             "allow-contrib": false,
-            "require": "8.0.*"
+            "require": "8.1.*"
         }
     },
     "require-dev": {
         "phpunit/phpunit": "^12",
-        "symfony/browser-kit": "8.0.*",
-        "symfony/css-selector": "8.0.*",
+        "symfony/browser-kit": "8.1.*",
+        "symfony/css-selector": "8.1.*",
         "symfony/maker-bundle": "^1.67",
-        "symfony/stopwatch": "8.0.*",
-        "symfony/web-profiler-bundle": "8.0.*"
+        "symfony/stopwatch": "8.1.*",
+        "symfony/web-profiler-bundle": "8.1.*"
     }
 }

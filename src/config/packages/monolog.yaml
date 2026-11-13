@@ -26,6 +26,11 @@ when@dev:
 when@test:
     monolog:
         handlers:
+            # Keeps audit records in memory so tests can assert what was written to the audit trail.
+            audit_test:
+                type: test
+                level: info
+                channels: [audit]
             main:
                 type: fingers_crossed
                 action_level: error

@@ -21,3 +21,8 @@ export function isFinanceToken(token: string | null): boolean {
   const roles = rolesFromToken(token);
   return roles.includes("ROLE_FINANCE") || roles.includes("ROLE_ADMIN");
 }
+
+export function isInventoryToken(token: string | null): boolean {
+  const roles = rolesFromToken(token);
+  return roles.includes("ROLE_INVENTORY") || roles.includes("ROLE_ADMIN");
+}

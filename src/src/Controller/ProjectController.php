@@ -14,6 +14,7 @@ use App\Repository\ProjectMilestoneRepository;
 use App\Repository\UserRepository;
 use App\Service\ClientActivityLogger;
 use App\Service\InvoiceMoney;
+use App\Service\RecordDeletionPolicy;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -35,6 +36,7 @@ class ProjectController extends AbstractController
 		private readonly EntityManagerInterface $entityManager,
 		private readonly ClientActivityLogger $activityLogger,
 		private readonly InvoiceMoney $money,
+		private readonly RecordDeletionPolicy $deletionPolicy,
 		#[Autowire(service: 'monolog.logger.audit')]
 		private readonly LoggerInterface $auditLogger,
 	) {
@@ -65,7 +67,7 @@ class ProjectController extends AbstractController
 	#[IsGranted('ROLE_USER')]
 	public function create(#[MapRequestPayload] ProjectInput $input): JsonResponse
 	{
-		if ($input->title === null || $input->description === null || $input->client_id === null) {
+		if ($input->title === null || trim($input->title) === '' || $input->description === null || $input->client_id === null) {
 			return $this->json(['error' => 'Title, description and client_id are required.'], JsonResponse::HTTP_BAD_REQUEST);
 		}
 
@@ -211,7 +213,7 @@ class ProjectController extends AbstractController
 		$description = $input->description !== null ? trim($input->description) : $item->getDescription();
 		$startDate = $input->start_date !== null ? new \DateTimeImmutable($input->start_date) : $item->getStartDate();
 		$endDate = $input->end_date !== null ? new \DateTimeImmutable($input->end_date) : $item->getEndDate();
-		if ($title === null || $description === null) {
+		if ($title === null || $description === null || trim($title) === '') {
 			return $this->json(['error' => 'Title and description are required.'], JsonResponse::HTTP_BAD_REQUEST);
 		}
 		if ($startDate !== null && $endDate !== null && $endDate < $startDate) {
@@ -281,6 +283,12 @@ class ProjectController extends AbstractController
 		$item = $this->projectRepository->find($id);
 		if ($item === null) {
 			return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
+		}
+		$blockers = $this->deletionPolicy->projectBlockers($item);
+		if ($blockers !== []) {
+			return $this->json([
+				'error' => sprintf('This project still has %s. Set its status to completed or cancelled instead of deleting it.', implode(', ', $blockers)),
+			], JsonResponse::HTTP_CONFLICT);
 		}
 
 		$this->activityLogger->record(

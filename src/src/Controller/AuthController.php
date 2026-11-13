@@ -6,7 +6,9 @@ use App\Repository\UserRepository;
 use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Routing\Attribute\Route;
 
 class AuthController extends AbstractController
@@ -14,6 +16,7 @@ class AuthController extends AbstractController
     public function __construct(
         private readonly UserRepository $userRepository,
         private readonly JWTTokenManagerInterface $jwtManager,
+        #[Autowire(service: 'limiter.login')] private readonly RateLimiterFactoryInterface $loginLimiter,
     ) {
     }
 
@@ -35,11 +38,25 @@ class AuthController extends AbstractController
             ], JsonResponse::HTTP_BAD_REQUEST);
         }
 
+        // Throttle failed attempts per client address and account so passwords cannot be guessed at speed.
+        $limiter = $this->loginLimiter->create(hash('sha256', $request->getClientIp().'|'.mb_strtolower($email)));
+        $limit = $limiter->consume(0);
+        if ($limit->getRemainingTokens() < 1) {
+            return $this->json(
+                ['error' => 'Too many failed sign-in attempts. Try again later.'],
+                JsonResponse::HTTP_TOO_MANY_REQUESTS,
+                ['Retry-After' => max(1, $limit->getRetryAfter()->getTimestamp() - time())],
+            );
+        }
+
         $user = $this->userRepository->findOneByEmail($email);
 
         if ($user === null || !password_verify($password, $user->getPasswordHash() ?? '')) {
+            $limiter->consume();
+
             return $this->json(['error' => 'Invalid email or password.'], JsonResponse::HTTP_UNAUTHORIZED);
         }
+        $limiter->reset();
 
         return $this->json([
             'token' => $this->jwtManager->create($user),

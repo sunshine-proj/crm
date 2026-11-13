@@ -71,6 +71,7 @@ final class InventoryController extends AbstractController
     }
 
     #[Route('/warehouses', name: 'warehouses_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createWarehouse(#[MapRequestPayload] WarehouseInput $input): JsonResponse
     {
         $data = $this->warehouseData($input);
@@ -84,6 +85,7 @@ final class InventoryController extends AbstractController
     }
 
     #[Route('/warehouses/{id<\d+>}', name: 'warehouses_update', methods: ['PUT', 'PATCH'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function updateWarehouse(int $id, #[MapRequestPayload] WarehouseInput $input): JsonResponse
     {
         $warehouse = $this->warehouseRepository->find($id);
@@ -104,6 +106,7 @@ final class InventoryController extends AbstractController
     }
 
     #[Route('/suppliers', name: 'suppliers_create', methods: ['POST'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function createSupplier(#[MapRequestPayload] SupplierInput $input): JsonResponse
     {
         $data = $this->supplierData($input);
@@ -117,6 +120,7 @@ final class InventoryController extends AbstractController
     }
 
     #[Route('/suppliers/{id<\d+>}', name: 'suppliers_update', methods: ['PUT', 'PATCH'])]
+    #[IsGranted('ROLE_ADMIN')]
     public function updateSupplier(int $id, #[MapRequestPayload] SupplierInput $input): JsonResponse
     {
         $supplier = $this->supplierRepository->find($id);
@@ -137,6 +141,7 @@ final class InventoryController extends AbstractController
     }
 
     #[Route('/purchase-orders', name: 'purchase_orders_create', methods: ['POST'])]
+    #[IsGranted('ROLE_INVENTORY')]
     public function createPurchaseOrder(#[MapRequestPayload] PurchaseOrderInput $input): JsonResponse
     {
         $data = $this->purchaseOrderData($input);
@@ -158,6 +163,7 @@ final class InventoryController extends AbstractController
     }
 
     #[Route('/purchase-orders/{id<\d+>}/receipts', name: 'goods_receipt_create', methods: ['POST'])]
+    #[IsGranted('ROLE_INVENTORY')]
     public function receiveGoods(int $id, #[MapRequestPayload] GoodsReceiptInput $input): JsonResponse
     {
         $order = $this->purchaseOrderRepository->find($id);
@@ -297,6 +303,7 @@ final class InventoryController extends AbstractController
     }
 
     #[Route('/sales-shipments/{id<\d+>}/dispatch', name: 'sales_shipment_dispatch', methods: ['POST'])]
+    #[IsGranted('ROLE_INVENTORY')]
     public function dispatchSalesShipment(int $id, #[MapRequestPayload] ShipmentDispatchInput $input): JsonResponse
     {
         $shipment = $this->shipmentRepository->find($id);
@@ -342,6 +349,7 @@ final class InventoryController extends AbstractController
     }
 
     #[Route('/returns', name: 'returns_create', methods: ['POST'])]
+    #[IsGranted('ROLE_INVENTORY')]
     public function createReturn(#[MapRequestPayload] InventoryReturnInput $input): JsonResponse
     {
         if ($input->return_type === null || $input->source_type === null || $input->source_id === null || $input->warehouse_id === null || $input->items === []) {

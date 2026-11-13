@@ -2,10 +2,12 @@
 
 namespace App\Tests\Unit\Security;
 
+use App\Command\SetUserRolesCommand;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Core\Role\RoleHierarchy;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
+use Symfony\Component\Yaml\Yaml;
 
 /**
  * Pins the declared role requirement of every API route. A new route fails this test until it is
@@ -19,18 +21,15 @@ final class ApiAccessPolicyTest extends TestCase
         'api_client_activities_list', 'api_client_activities_create',
         'api_client_contacts_list', 'api_clients_list', 'api_clients_show', 'api_dashboard_summary',
         'api_finance_currencies',
-        'api_inventory_warehouses_list', 'api_inventory_warehouses_create', 'api_inventory_warehouses_update',
-        'api_inventory_suppliers_list', 'api_inventory_suppliers_create', 'api_inventory_suppliers_update',
-        'api_inventory_purchase_orders_list', 'api_inventory_purchase_orders_create', 'api_inventory_goods_receipt_create',
+        'api_inventory_warehouses_list', 'api_inventory_suppliers_list', 'api_inventory_purchase_orders_list',
         'api_inventory_stock_list', 'api_inventory_movements_list', 'api_inventory_pending_sales_shipments',
-        'api_inventory_dispatched_sales_shipments', 'api_inventory_sales_shipment_dispatch',
-        'api_inventory_returns_list', 'api_inventory_returns_create',
+        'api_inventory_dispatched_sales_shipments', 'api_inventory_returns_list',
         'api_invoices_list', 'api_invoices_create', 'api_invoices_from_approved_time', 'api_invoices_from_milestone',
         'api_invoices_show', 'api_invoices_update', 'api_invoices_pdf', 'api_invoices_delete',
         'api_deals_list', 'api_deals_summary', 'api_deals_create', 'api_deals_show', 'api_deals_update', 'api_deals_stage', 'api_deals_history',
         'api_notifications_list', 'api_notifications_read', 'api_notifications_read_all', 'api_notifications_preferences_show', 'api_notifications_preferences_update',
         'api_history_show', 'api_purchasing_history',
-        'api_notes_list', 'api_notes_create', 'api_notes_update', 'api_notes_delete',
+        'api_notes_list', 'api_notes_create',
         'api_operations_time_entries_list', 'api_operations_time_entries_create', 'api_operations_time_entry_decision',
         'api_operations_time_entry_reopen', 'api_operations_time_entry_withdraw', 'api_operations_time_entry_history',
         'api_operations_expenses_list', 'api_operations_expenses_create', 'api_operations_expenses_pending',
@@ -78,6 +77,12 @@ final class ApiAccessPolicyTest extends TestCase
         'api_sales_payments_create',
     ];
 
+    /** Stock-changing routes that require ROLE_INVENTORY (administrators inherit it; finance users do not). */
+    private const INVENTORY_ROUTES = [
+        'api_inventory_purchase_orders_create', 'api_inventory_goods_receipt_create',
+        'api_inventory_sales_shipment_dispatch', 'api_inventory_returns_create',
+    ];
+
     /** Routes that require ROLE_ADMIN. */
     private const ADMIN_ROUTES = [
         'api_client_contacts_create', 'api_client_contacts_update', 'api_client_contacts_delete',
@@ -90,6 +95,8 @@ final class ApiAccessPolicyTest extends TestCase
 
 
         'api_inventory_adjustment_create',
+        'api_inventory_warehouses_create', 'api_inventory_warehouses_update',
+        'api_inventory_suppliers_create', 'api_inventory_suppliers_update',
         'api_deals_delete', 'api_purchasing_policy_update',
         'api_jurisdiction_validation_create', 'api_jurisdiction_validation_revoke', 'api_jurisdiction_standard_tax_code', 'api_jurisdiction_legal_profile_update',
         'api_records_revisions_list', 'api_records_revisions_restore',
@@ -102,6 +109,7 @@ final class ApiAccessPolicyTest extends TestCase
     /** Routes whose authorization is an ownership check inside the controller. */
     private const RECORD_LEVEL = [
         'api_news_list', 'api_news_create', 'api_news_show', 'api_news_update', 'api_news_delete',
+        'api_notes_update', 'api_notes_delete',
     ];
 
     /** Routes reachable without a token. */
@@ -110,7 +118,7 @@ final class ApiAccessPolicyTest extends TestCase
     public function test_every_api_route_is_classified_and_declares_the_expected_role(): void
     {
         $routes = $this->declaredRoutes();
-        $classified = [...self::USER_ROUTES, ...self::FINANCE_ROUTES, ...self::ADMIN_ROUTES, ...self::RECORD_LEVEL, ...self::PUBLIC_ROUTES];
+        $classified = [...self::USER_ROUTES, ...self::FINANCE_ROUTES, ...self::INVENTORY_ROUTES, ...self::ADMIN_ROUTES, ...self::RECORD_LEVEL, ...self::PUBLIC_ROUTES];
 
         self::assertSame([], array_values(array_diff(array_keys($routes), $classified)), 'Unclassified route: add it to the access policy.');
         self::assertSame([], array_values(array_diff($classified, array_keys($routes))), 'Policy lists a route that no longer exists.');
@@ -119,6 +127,9 @@ final class ApiAccessPolicyTest extends TestCase
         foreach (self::FINANCE_ROUTES as $name) {
             self::assertContains('ROLE_FINANCE', $routes[$name], sprintf('%s must require ROLE_FINANCE.', $name));
         }
+        foreach (self::INVENTORY_ROUTES as $name) {
+            self::assertContains('ROLE_INVENTORY', $routes[$name], sprintf('%s must require ROLE_INVENTORY.', $name));
+        }
         foreach (self::ADMIN_ROUTES as $name) {
             self::assertContains('ROLE_ADMIN', $routes[$name], sprintf('%s must require ROLE_ADMIN.', $name));
         }
@@ -126,6 +137,7 @@ final class ApiAccessPolicyTest extends TestCase
             self::assertContains('ROLE_USER', $routes[$name], sprintf('%s must require at least ROLE_USER.', $name));
             self::assertNotContains('ROLE_ADMIN', $routes[$name], sprintf('%s is documented as open to all users.', $name));
             self::assertNotContains('ROLE_FINANCE', $routes[$name], sprintf('%s is documented as open to all users.', $name));
+            self::assertNotContains('ROLE_INVENTORY', $routes[$name], sprintf('%s is documented as open to all users.', $name));
         }
     }
 
@@ -146,13 +158,27 @@ final class ApiAccessPolicyTest extends TestCase
         }
     }
 
-    public function test_role_hierarchy_lets_administrators_act_as_finance_but_not_the_reverse(): void
+    public function test_role_hierarchy_lets_administrators_act_as_finance_and_inventory_but_not_the_reverse(): void
     {
-        $hierarchy = new RoleHierarchy(['ROLE_FINANCE' => ['ROLE_USER'], 'ROLE_ADMIN' => ['ROLE_FINANCE', 'ROLE_USER']]);
+        $configured = Yaml::parseFile(dirname(__DIR__, 3).'/config/packages/security.yaml')['security']['role_hierarchy'];
+        $hierarchy = new RoleHierarchy(array_map(static fn (string|array $roles): array => (array) $roles, $configured));
 
         self::assertContains('ROLE_FINANCE', $hierarchy->getReachableRoleNames(['ROLE_ADMIN']));
+        self::assertContains('ROLE_INVENTORY', $hierarchy->getReachableRoleNames(['ROLE_ADMIN']));
         self::assertNotContains('ROLE_ADMIN', $hierarchy->getReachableRoleNames(['ROLE_FINANCE']));
+        self::assertNotContains('ROLE_ADMIN', $hierarchy->getReachableRoleNames(['ROLE_INVENTORY']));
         self::assertContains('ROLE_USER', $hierarchy->getReachableRoleNames(['ROLE_FINANCE']));
+        self::assertContains('ROLE_USER', $hierarchy->getReachableRoleNames(['ROLE_INVENTORY']));
+        // Segregation of duties: whoever approves purchase orders does not also receive the goods by default.
+        self::assertNotContains('ROLE_INVENTORY', $hierarchy->getReachableRoleNames(['ROLE_FINANCE']));
+        self::assertNotContains('ROLE_FINANCE', $hierarchy->getReachableRoleNames(['ROLE_INVENTORY']));
+    }
+
+    public function test_every_role_a_route_requires_can_be_assigned_from_the_console(): void
+    {
+        $required = array_unique(array_merge(...array_values($this->declaredRoutes())));
+
+        self::assertSame([], array_values(array_diff($required, [...SetUserRolesCommand::ASSIGNABLE_ROLES, 'ROLE_USER'])));
     }
 
     /** @return array<string, list<string>> route name => roles required by class and method attributes */

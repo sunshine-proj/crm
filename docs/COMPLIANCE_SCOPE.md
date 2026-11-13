@@ -15,16 +15,19 @@ ORG-2, ORG-5, FN-6, FN-13).
 | 5 | Retention: which event starts the clock (document date, end of financial year, contract end) and the period for financial records, client data, audit logs and uploaded documents. | Lawyer | | | |
 | 6 | Personal-data rules for client contacts: lawful basis, erasure vs. financial retention conflicts, export requests. | Data-protection adviser | | | |
 | 7 | Whether the operational ledger may serve as the books of record, or an external accounting system remains authoritative. | Accountant | | | |
-| 8 | Which finance duties map to `ROLE_FINANCE` vs `ROLE_ADMIN`, and who approves period close/reopen (segregation of duties). | Business owner / accountant | | | |
+| 8 | Which finance duties map to `ROLE_FINANCE` vs `ROLE_ADMIN`, whether purchase approval (`ROLE_FINANCE`) and goods receipt (`ROLE_INVENTORY`) may be held by the same person, and who approves period close/reopen (segregation of duties). | Business owner / accountant | | | |
 
 ## What the software currently does (so reviewers can check it)
 
 - Country and default currency are stored; no country-specific rule is applied. Tax codes are configuration only.
 - Invoice identifiers are ID-based (`INV-<year>-<id>`), not jurisdiction-approved numbering. Journals are numbered `JE-<year>-<id>`.
 - Retention is a reference value (default 10 years); nothing is deleted automatically.
-- Roles: `ROLE_USER`, `ROLE_FINANCE` (ledger, payables, invoice issue, customer receipts, cost visibility) and
-  `ROLE_ADMIN` (everything, plus configuration, period close/reopen, reversals, user roles and record recovery).
-  Assign them with `php bin/console app:user:roles <email> ROLE_FINANCE`.
+- Roles: `ROLE_USER`, `ROLE_FINANCE` (ledger, payables, invoice issue, customer receipts, cost visibility),
+  `ROLE_INVENTORY` (purchase orders, goods receipts, dispatches, returns) and `ROLE_ADMIN` (everything, plus
+  configuration, master data, period close/reopen, reversals, user roles and record recovery). Finance and inventory
+  are separate roles; a user can hold both. Assign them with
+  `php bin/console app:user:roles <email> ROLE_FINANCE ROLE_INVENTORY`.
+- Every change request and every refused request is written to the audit log with the acting user.
 
 Record the sign-off for each row, then implement the validated rules as separate, tested changes.
 

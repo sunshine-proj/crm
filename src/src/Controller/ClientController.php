@@ -6,6 +6,7 @@ use App\Dto\ClientInput;
 use App\Entity\Client;
 use App\Entity\User;
 use App\Repository\ClientRepository;
+use App\Service\RecordDeletionPolicy;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -22,6 +23,7 @@ class ClientController extends AbstractController
     public function __construct(
         private readonly ClientRepository $clientRepository,
         private readonly EntityManagerInterface $entityManager,
+        private readonly RecordDeletionPolicy $deletionPolicy,
         #[Autowire(service: 'monolog.logger.audit')]
         private readonly LoggerInterface $auditLogger,
     ) {
@@ -50,6 +52,7 @@ class ClientController extends AbstractController
             'action' => 'client.list',
             'actor' => $this->getAuditActor(),
             'result_count' => count($items),
+            'restricted_fields_disclosed' => $this->isGranted('ROLE_FINANCE') && array_any($items, $this->hasRestrictedDetails(...)),
         ]);
 
         return $this->json(array_map(fn (Client $item): array => $this->serializeItem($item), $items));
@@ -111,6 +114,7 @@ class ClientController extends AbstractController
             'action' => 'client.show',
             'actor' => $this->getAuditActor(),
             'client_id' => $item->getId(),
+            'restricted_fields_disclosed' => $this->isGranted('ROLE_FINANCE') && $this->hasRestrictedDetails($item),
         ]);
 
         return $this->json($this->serializeItem($item));
@@ -168,6 +172,12 @@ class ClientController extends AbstractController
 
             return $this->json(['error' => 'Client not found.'], JsonResponse::HTTP_NOT_FOUND);
         }
+        $blockers = $this->deletionPolicy->clientBlockers($item);
+        if ($blockers !== []) {
+            return $this->json([
+                'error' => sprintf('This client still has %s. Set its account status to inactive instead of deleting it.', implode(', ', $blockers)),
+            ], JsonResponse::HTTP_CONFLICT);
+        }
 
         $this->entityManager->remove($item);
         $this->entityManager->flush();
@@ -224,6 +234,13 @@ class ClientController extends AbstractController
     }
 
     /** @return array<string, bool|int|string|null> */
+    /** Whether the client carries tax identifiers or billing details, which only finance users may read. */
+    private function hasRestrictedDetails(Client $item): bool
+    {
+        return $item->getRegistrationNumber() !== null || $item->getVatNumber() !== null
+            || $item->getBillingAddress() !== null || $item->getBillingEmail() !== null;
+    }
+
     private function serializeItem(Client $item): array
     {
         // Tax identifiers, billing address and billing e-mail are visible to finance users and administrators only.

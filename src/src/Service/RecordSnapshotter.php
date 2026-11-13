@@ -42,8 +42,9 @@ final class RecordSnapshotter
      *
      * @param array<string, mixed> $state
      * @param list<string> $skipFields
+     * @param array<string, object> $references association name => record to link instead of the id in $state
      */
-    public function apply(object $entity, array $state, array $skipFields = []): void
+    public function apply(object $entity, array $state, array $skipFields = [], array $references = []): void
     {
         $metadata = $this->entityManager->getClassMetadata($entity::class);
         foreach ($state as $name => $value) {
@@ -55,6 +56,10 @@ final class RecordSnapshotter
                 continue;
             }
             if (!in_array($name, $metadata->getAssociationNames(), true) || in_array($name, self::PROTECTED_ASSOCIATIONS, true)) {
+                continue;
+            }
+            if (isset($references[$name])) {
+                $metadata->setFieldValue($entity, $name, $references[$name]);
                 continue;
             }
             $target = $metadata->getAssociationTargetClass($name);

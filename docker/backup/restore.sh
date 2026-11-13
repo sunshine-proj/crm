@@ -18,10 +18,16 @@ if [ "$scratch_db" = "${PGDATABASE:-app}" ]; then
   echo "refusing to restore into the live database '$scratch_db'" >&2
   exit 2
 fi
+# Newest backup set on the remote; anything else stored next to the sets is ignored.
+latest_set() { rclone lsf --dirs-only "$BACKUP_REMOTE" | tr -d / | grep -E '^[0-9]{8}T[0-9]{6}Z$' | sort | tail -n 1; }
 if [ "$set_name" = "latest" ]; then
-  set_name="$(rclone lsf --dirs-only "$BACKUP_REMOTE" | tr -d / | sort | tail -n 1)"
+  set_name="$(latest_set || true)"
 fi
 [ -n "$set_name" ] || { echo "no backup sets found" >&2; exit 1; }
+[[ "$set_name" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || { echo "'$set_name' is not a backup set name (YYYYMMDDTHHMMSSZ)" >&2; exit 1; }
+# Age of the newest restorable data, to compare with the 24 h recovery point objective.
+taken="$(date -u -d "${set_name:0:4}-${set_name:4:2}-${set_name:6:2} ${set_name:9:2}:${set_name:11:2}:${set_name:13:2}" +%s)"
+backup_age=$(( started - taken ))
 
 rm -rf "$WORK_DIR"; mkdir -p "$WORK_DIR"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -31,6 +37,7 @@ rclone copy "$BACKUP_REMOTE/$set_name" "$WORK_DIR" --checksum
 age -d -i "$identity" -o "$WORK_DIR/db.dump" "$WORK_DIR/db-$set_name.dump.age"
 dropdb --if-exists "$scratch_db"
 createdb "$scratch_db"
+# A dump can only be restored into the same or a newer PostgreSQL major version than the one it was taken with.
 pg_restore --no-owner --exit-on-error -d "$scratch_db" "$WORK_DIR/db.dump"
 
 tables="$(psql -d "$scratch_db" -Atc "select count(*) from information_schema.tables where table_schema='public'")"
@@ -46,4 +53,8 @@ fi
 
 echo "restore verified: set=$set_name tables=$tables migrations=$migrations invoices=$invoices document_files=$docs"
 echo "elapsed: $(( $(date -u +%s) - started ))s (RTO target: 86400s)"
+echo "backup age: ${backup_age}s (RPO target: 86400s)"
+if [ "$set_name" = "$(latest_set || true)" ] && [ "$backup_age" -gt 86400 ]; then
+  echo "WARNING: the newest backup set is older than 24 hours; the recovery point objective is not met" >&2
+fi
 echo "Drop the scratch database when finished: dropdb $scratch_db"

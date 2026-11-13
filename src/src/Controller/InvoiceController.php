@@ -338,6 +338,13 @@ final class InvoiceController extends AbstractController
 			return $this->json(['error' => 'Only unpaid, project-linked draft invoices can be deleted.'], JsonResponse::HTTP_CONFLICT);
 		}
 
+		// Discarding a draft must free what it billed, so the time and milestones can be invoiced again.
+		foreach ($this->milestoneRepository->findBy(['invoice' => $invoice]) as $milestone) {
+			$milestone->releaseInvoice();
+		}
+		foreach ($this->timeEntryRepository->findBy(['invoice' => $invoice]) as $entry) {
+			$entry->setInvoice(null);
+		}
 		$this->entityManager->remove($invoice);
 		$this->entityManager->flush();
 

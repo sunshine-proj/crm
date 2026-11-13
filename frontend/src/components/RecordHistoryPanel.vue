@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { changeSummary, restoreWarning, revisionLabel, type RecordRevision } from "../lib/recordRevisions";
+import { changeSummary, restoreNotice, restoreWarning, revisionLabel, type RecordRevision } from "../lib/recordRevisions";
 
 const revisions = ref<RecordRevision[]>([]);
 const typeFilter = ref("");
@@ -46,8 +46,8 @@ async function restore(revision: RecordRevision) {
   errorMessage.value = "";
   noticeMessage.value = "";
   try {
-    const result = await request<{ record_id: number; recreated: boolean }>(`/records/revisions/${revision.id}/restore`, { method: "POST" });
-    noticeMessage.value = result.recreated ? `Record recreated as #${result.record_id}.` : `Record #${result.record_id} rolled back.`;
+    const result = await request<{ record_id: number; recreated: boolean; related_restored?: number }>(`/records/revisions/${revision.id}/restore`, { method: "POST" });
+    noticeMessage.value = restoreNotice(result);
     await load();
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Unable to restore the record.";

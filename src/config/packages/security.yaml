@@ -4,11 +4,13 @@ security:
         Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface: 'auto'
 
     # https://symfony.com/doc/current/security.html#loading-the-user-the-user-provider
-    # ROLE_FINANCE: ledger, payables, invoice issue/payments and cost visibility; ROLE_ADMIN keeps configuration,
-    # period close, journal reversal and user-management rights.
+    # ROLE_FINANCE: ledger, payables, invoice issue/payments and cost visibility. ROLE_INVENTORY: purchase orders,
+    # goods receipts, dispatches and returns (finance approves purchase orders, so the two roles stay separate).
+    # ROLE_ADMIN keeps configuration, master data, period close, journal reversal and user-management rights.
     role_hierarchy:
         ROLE_FINANCE: ROLE_USER
-        ROLE_ADMIN: [ROLE_FINANCE, ROLE_USER]
+        ROLE_INVENTORY: ROLE_USER
+        ROLE_ADMIN: [ROLE_FINANCE, ROLE_INVENTORY, ROLE_USER]
 
     providers:
         # users_in_memory: { memory: null }

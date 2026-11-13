@@ -114,6 +114,12 @@ services:
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-35}
       BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-02}
       RCLONE_CONFIG: /config/rclone.conf
+    # Unhealthy when the last run failed or no status has been written for 26 hours (see docs/BACKUP.md).
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 30m
+      timeout: 10s
+      start_period: 1m
     volumes:
       - ./src/var/project-documents:/data/project-documents:ro
       - ./storage/backup-status:/var/lib/backup

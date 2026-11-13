@@ -8,6 +8,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: TaskRepository::class)]
 #[ORM\Table(name: 'task')]
+#[ORM\Index(columns: ['assignee_id'], name: 'idx_task_assignee')]
 class Task
 {
 	#[ORM\Id]

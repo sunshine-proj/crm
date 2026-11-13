@@ -8,6 +8,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: ExpenseReimbursementRepository::class)]
 #[ORM\Table(name: 'expense_reimbursement')]
+#[ORM\Index(columns: ['recorded_by_id'], name: 'idx_expense_reimbursement_recorded_by')]
 #[ORM\Index(columns: ['expense_id', 'paid_at'], name: 'idx_expense_reimbursement_expense_paid')]
 class ExpenseReimbursement
 {

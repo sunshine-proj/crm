@@ -8,6 +8,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: ProjectMilestoneRepository::class)]
 #[ORM\Table(name: 'project_milestone')]
+#[ORM\Index(columns: ['invoice_id'], name: 'idx_project_milestone_invoice')]
 #[ORM\Index(columns: ['project_id', 'due_date'], name: 'idx_project_milestone_project_due')]
 class ProjectMilestone
 {
@@ -88,6 +89,17 @@ class ProjectMilestone
         }
         $this->status = 'invoiced';
         $this->invoice = $invoice;
+
+        return $this;
+    }
+
+    /** Makes the milestone billable again when its draft invoice is discarded before being issued. */
+    public function releaseInvoice(): static
+    {
+        if ($this->status === 'invoiced') {
+            $this->status = 'completed';
+        }
+        $this->invoice = null;
 
         return $this;
     }

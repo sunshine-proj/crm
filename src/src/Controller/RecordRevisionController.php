@@ -59,15 +59,24 @@ final class RecordRevisionController extends AbstractController
     }
 
     #[Route('/revisions/{id<\d+>}/restore', name: 'revisions_restore', methods: ['POST'])]
-    public function restore(int $id): JsonResponse
+    public function restore(int $id, Request $request): JsonResponse
     {
+        $withRelated = true;
+        if (trim($request->getContent()) !== '') {
+            $payload = json_decode($request->getContent(), true);
+            if (!is_array($payload) || (array_key_exists('with_related', $payload) && !is_bool($payload['with_related']))) {
+                return $this->json(['error' => 'with_related must be true or false.'], JsonResponse::HTTP_BAD_REQUEST);
+            }
+            $withRelated = $payload['with_related'] ?? true;
+        }
+
         $revision = $this->revisionRepository->find($id);
         if (!$revision instanceof RecordRevision) {
             return $this->json(['error' => 'Revision not found.'], JsonResponse::HTTP_NOT_FOUND);
         }
 
         try {
-            $result = $this->recovery->restore($revision);
+            $result = $this->recovery->restore($revision, $withRelated);
         } catch (\DomainException $exception) {
             return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_CONFLICT);
         } catch (ConstraintViolationException) {
@@ -80,6 +89,7 @@ final class RecordRevisionController extends AbstractController
             'record_type' => $result['type'],
             'record_id' => $revision->getEntityId(),
             'recreated' => $result['recreated'],
+            'related_restored' => $result['related'],
             'actor' => $actor instanceof User ? $actor->getUserIdentifier() : null,
         ]);
 
@@ -88,6 +98,7 @@ final class RecordRevisionController extends AbstractController
             'record_type' => $result['type'],
             'record_id' => $result['entity']->getId(),
             'recreated' => $result['recreated'],
+            'related_restored' => $result['related'],
         ]);
     }
 
@@ -102,6 +113,7 @@ final class RecordRevisionController extends AbstractController
             'snapshot' => $revision->getSnapshot(),
             'changes' => $revision->getChanges(),
             'actor' => $revision->getActor(),
+            'cause' => $revision->getCauseType() === null ? null : ['record_type' => $revision->getCauseType(), 'record_id' => $revision->getCauseId()],
             'created_at' => $revision->getCreatedAt()->format(\DateTimeInterface::ATOM),
         ];
     }

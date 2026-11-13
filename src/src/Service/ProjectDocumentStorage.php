@@ -26,7 +26,9 @@ final class ProjectDocumentStorage
     public function store(UploadedFile $file): array
     {
         $size = $file->getSize();
-        $mimeType = $file->getMimeType() ?? 'application/octet-stream';
+        // Detect the type from the file content (never from the client-supplied name or header).
+        $detected = $file->isValid() ? (new \finfo(\FILEINFO_MIME_TYPE))->file($file->getPathname()) : false;
+        $mimeType = is_string($detected) && $detected !== '' ? $detected : 'application/octet-stream';
         if ($size === false || $size < 1 || $size > self::MAX_BYTES) {
             throw new \InvalidArgumentException('Document size must be between 1 byte and 10 MB.');
         }

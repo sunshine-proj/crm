@@ -89,6 +89,9 @@ final class NoteController extends AbstractController
         if ($note === null || $note->getEntityType() !== $entityType || $note->getEntityId() !== $entityId) {
             return $this->json(['error' => 'Note not found.'], JsonResponse::HTTP_NOT_FOUND);
         }
+        if (!$this->mayChange($note)) {
+            return $this->json(['error' => 'Only the author or an administrator may change this note.'], JsonResponse::HTTP_FORBIDDEN);
+        }
 
         if ($input->content === null || trim($input->content) === '') {
             return $this->json(['error' => 'Note content is required.'], JsonResponse::HTTP_BAD_REQUEST);
@@ -123,6 +126,9 @@ final class NoteController extends AbstractController
         if ($note === null || $note->getEntityType() !== $entityType || $note->getEntityId() !== $entityId) {
             return $this->json(['error' => 'Note not found.'], JsonResponse::HTTP_NOT_FOUND);
         }
+        if (!$this->mayChange($note)) {
+            return $this->json(['error' => 'Only the author or an administrator may delete this note.'], JsonResponse::HTTP_FORBIDDEN);
+        }
 
         $author = $this->getUser();
         $this->activityLogger->record(
@@ -143,6 +149,14 @@ final class NoteController extends AbstractController
         ]);
 
         return new JsonResponse(null, JsonResponse::HTTP_NO_CONTENT);
+    }
+
+    /** Notes belong to their author; administrators may moderate them. */
+    private function mayChange(Note $note): bool
+    {
+        $user = $this->getUser();
+
+        return $this->isGranted('ROLE_ADMIN') || ($user instanceof User && $note->getAuthor()?->getId() === $user->getId());
     }
 
     private function getAuditActor(): string

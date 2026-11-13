@@ -8,6 +8,7 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: OrganizationSettingsChangeRepository::class)]
 #[ORM\Table(name: 'organization_settings_change')]
+#[ORM\Index(columns: ['changed_at'], name: 'idx_org_settings_change_changed_at')]
 class OrganizationSettingsChange
 {
     #[ORM\Id]

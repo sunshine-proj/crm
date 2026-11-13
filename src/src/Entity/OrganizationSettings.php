@@ -8,6 +8,12 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: OrganizationSettingsRepository::class)]
 #[ORM\Table(name: 'organization_settings')]
+#[ORM\Index(columns: ['accounts_receivable_account_id'], name: 'idx_org_settings_ar')]
+#[ORM\Index(columns: ['revenue_account_id'], name: 'idx_org_settings_revenue')]
+#[ORM\Index(columns: ['cash_account_id'], name: 'idx_org_settings_cash')]
+#[ORM\Index(columns: ['accounts_payable_account_id'], name: 'idx_org_settings_ap')]
+#[ORM\Index(columns: ['project_expense_account_id'], name: 'idx_org_settings_expense')]
+#[ORM\Index(columns: ['expense_payable_account_id'], name: 'idx_org_settings_expense_payable')]
 class OrganizationSettings
 {
     /** @var list<string> */

@@ -8,6 +8,8 @@ use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: TimeEntryRepository::class)]
 #[ORM\Table(name: 'time_entry')]
+#[ORM\Index(columns: ['invoice_id'], name: 'idx_time_entry_invoice')]
+#[ORM\Index(columns: ['decided_by_id'], name: 'idx_time_entry_decider')]
 #[ORM\Index(columns: ['project_id'], name: 'idx_time_entry_project')]
 #[ORM\Index(columns: ['project_id', 'work_date'], name: 'idx_time_entry_project_date')]
 #[ORM\Index(columns: ['task_id'], name: 'idx_time_entry_task')]
