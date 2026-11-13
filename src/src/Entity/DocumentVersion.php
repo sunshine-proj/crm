@@ -52,6 +52,10 @@ class DocumentVersion
     #[ORM\Column(type: Types::TEXT, nullable: true)]
     private ?string $extractedText;
 
+    /** Set when the file was destroyed by a disposal; the metadata and SHA-256 stay as evidence. */
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $fileDisposedAt = null;
+
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
@@ -87,4 +91,11 @@ class DocumentVersion
     public function getComment(): ?string { return $this->comment; }
     public function getExtractedText(): ?string { return $this->extractedText; }
     public function getCreatedAt(): \DateTimeImmutable { return $this->createdAt; }
+    public function getFileDisposedAt(): ?\DateTimeImmutable { return $this->fileDisposedAt; }
+
+    public function discardContent(\DateTimeImmutable $now): void
+    {
+        $this->fileDisposedAt = $now;
+        $this->extractedText = null;
+    }
 }

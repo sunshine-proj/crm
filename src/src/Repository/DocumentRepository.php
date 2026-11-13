@@ -42,6 +42,60 @@ class DocumentRepository extends ServiceEntityRepository
         return ['items' => array_values(iterator_to_array($paginator)), 'total' => count($paginator)];
     }
 
+    /** @return list<Document> registered documents whose effective date has come */
+    public function findDueToTakeEffect(\DateTimeImmutable $today): array
+    {
+        return $this->createQueryBuilder('document')
+            ->andWhere('document.status = :registered')->setParameter('registered', Document::REGISTERED)
+            ->andWhere('document.effectiveOn IS NULL OR document.effectiveOn <= :today')->setParameter('today', $today->setTime(0, 0))
+            ->orderBy('document.id', 'ASC')->getQuery()->getResult();
+    }
+
+    /** @return list<Document> current documents past their expiry date */
+    public function findExpired(\DateTimeImmutable $today): array
+    {
+        return $this->createQueryBuilder('document')
+            ->andWhere('document.status IN (:current)')->setParameter('current', [Document::REGISTERED, Document::IN_FORCE, Document::SUPERSEDED])
+            ->andWhere('document.expiresOn < :today')->setParameter('today', $today->setTime(0, 0))
+            ->orderBy('document.id', 'ASC')->getQuery()->getResult();
+    }
+
+    /** @return list<Document> registered documents and documents in force that have a review date */
+    public function findWithReviewDate(): array
+    {
+        return $this->createQueryBuilder('document')
+            ->andWhere('document.status IN (:current)')->setParameter('current', [Document::REGISTERED, Document::IN_FORCE])
+            ->andWhere('document.reviewOn IS NOT NULL')
+            ->getQuery()->getResult();
+    }
+
+    /** @return list<Document> archived documents of types with a retention period, oldest archive first */
+    public function findArchivedWithRetention(): array
+    {
+        return $this->createQueryBuilder('document')->addSelect('type')->join('document.type', 'type')
+            ->andWhere('document.status = :archived')->setParameter('archived', Document::ARCHIVED)
+            ->andWhere('type.retentionYears IS NOT NULL')
+            ->orderBy('document.archivedAt', 'ASC')->addOrderBy('document.id', 'ASC')
+            ->getQuery()->getResult();
+    }
+
+    /**
+     * Current document counts grouped by type, owner unit and status.
+     *
+     * @return list<array{type: string, unit: ?string, status: string, count: int}>
+     */
+    public function countByTypeUnitAndStatus(): array
+    {
+        $rows = $this->createQueryBuilder('document')
+            ->select('type.name AS typeName', 'unit.name AS unitName', 'document.status AS status', 'COUNT(document.id) AS total')
+            ->join('document.type', 'type')->leftJoin('document.ownerUnit', 'unit')
+            ->groupBy('type.name', 'unit.name', 'document.status')
+            ->orderBy('type.name', 'ASC')->addOrderBy('unit.name', 'ASC')->addOrderBy('document.status', 'ASC')
+            ->getQuery()->getArrayResult();
+
+        return array_map(static fn (array $row): array => ['type' => $row['typeName'], 'unit' => $row['unitName'], 'status' => $row['status'], 'count' => (int) $row['total']], $rows);
+    }
+
     public function countForOwnerUnit(OrgUnit $unit): int
     {
         return (int) $this->createQueryBuilder('document')->select('COUNT(document.id)')

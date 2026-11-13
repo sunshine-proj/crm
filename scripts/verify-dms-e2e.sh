@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # End-to-end check of the document registry against a running API and a DISPOSABLE PostgreSQL database: concurrent
-# registration numbering, content search, confidential visibility through named readers, the PDF card and draft
-# deletion. Creates its own document type (code E<timestamp>) so it can run repeatedly.
+# registration numbering, content search, confidential visibility through named readers, the PDF card, the audit
+# trail, legal hold, registry reports and draft deletion. Creates its own document type (code E<timestamp>) so it can run repeatedly.
 #
 # Usage: API_URL=http://localhost:8081 ADMIN_EMAIL=... ADMIN_PASSWORD=... USER_EMAIL=... USER_PASSWORD=... scripts/verify-dms-e2e.sh
 # Optional: APPROVERS="a@x:pw b@x:pw c@x:pw" (three users without a position) adds the approval checks: the script builds
 # its own small structure (the user reports to the three of them) and approves in parallel, then runs an
-# acknowledgement request through it (simultaneous confirmations and reminders, partial boards, CSV and PDF exports).
+# acknowledgement request through it (simultaneous confirmations and reminders, partial boards, CSV and PDF exports)
+# and checks that the registry reports and the audit trail reflect it.
 # USER must have no current primary position.
 # Requires: curl, jq. The admin needs ROLE_ADMIN (which includes ROLE_DMS_ADMIN); the other users need no extra role.
 set -Eeuo pipefail
@@ -52,6 +53,16 @@ api "$ADMIN" PUT "/dms/documents/$secret/readers" -d "{\"user_ids\":[$user_id]}"
 check "a named reader sees it in the list" "$(api "$USER" GET "/dms/documents?q=minutes%20$s" | jq -r .total)" "1"
 
 check "registration card is a PDF" "$(curl -sS -o /dev/null -w '%{content_type}' "$API_URL/api/dms/documents/$first/card.pdf" -H "Authorization: Bearer $USER")" "application/pdf"
+# Audit trail and legal hold (Phase 5).
+api "$USER" GET "/dms/documents/$first" >/dev/null; api "$USER" GET "/dms/documents/$first" >/dev/null
+check "a view is audited once per person and day" "$(api "$USER" GET "/dms/documents/$first/audit?action=viewed" | jq -r .total)" "1"
+check "the audit trail exports as CSV" "$(curl -sS "$API_URL/api/dms/documents/$first/audit?format=csv" -H "Authorization: Bearer $USER" | sed -n 1p | tr -d '\r\357\273\277')" 'When,Source,Action,Actor,"On behalf of",Details'
+check "a legal hold needs a clerk" "$(status "$USER" POST "/dms/documents/$first/legal-hold" -H 'Content-Type: application/json' -d '{"reason":"Case 1"}')" "403"
+check "a clerk places a legal hold" "$(status "$ADMIN" POST "/dms/documents/$first/legal-hold" -H 'Content-Type: application/json' -d '{"reason":"Case 1"}')" "200"
+check "a held draft cannot be deleted" "$(status "$USER" DELETE "/dms/documents/$first")" "409"
+check "the hold is released" "$(status "$ADMIN" DELETE "/dms/documents/$first/legal-hold")" "200"
+check "registry reports are for clerks" "$(status "$USER" GET /dms/reports)" "403"
+check "registry reports count documents" "$(api "$ADMIN" GET /dms/reports | jq -r '.documents.total > 0')" "true"
 check "an unregistered draft can be deleted" "$(status "$USER" DELETE "/dms/documents/$first")" "204"
 check "and is gone" "$(status "$USER" GET "/dms/documents/$first")" "404"
 
@@ -115,6 +126,12 @@ if [ -n "${APPROVERS:-}" ]; then
   check "status export is CSV with a header and two people" "$(curl -sS "$API_URL/api/dms/acknowledgements/$request/export.csv" -H "Authorization: Bearer ${tokens[1]}" | wc -l | tr -d ' ')" "3"
   check "acknowledgement sheet is a PDF" "$(curl -sS -o /dev/null -w '%{content_type}' "$API_URL/api/dms/acknowledgements/$request/sheet.pdf" -H "Authorization: Bearer ${tokens[1]}")" "application/pdf"
   check "the user's history lists the confirmation" "$(api "$USER" GET /dms/acknowledgements/history | jq -r '.[0].status')" "acknowledged"
+
+  # Status report (Phase 5): the approvals and the acknowledgement above appear in the registry reports.
+  report="$(api "$ADMIN" GET /dms/reports)"
+  check "the report times the three approvals" "$(jq -r '.approval_time.by_kind[] | select(.kind == "approve") | .decided' <<<"$report")" "3"
+  check "the report shows acknowledgement completion for the section" "$(jq -r '.acknowledgement.by_unit[] | select(.unit == "Approval 1 '"$s"'") | "\(.total) \(.acknowledged)"' <<<"$report")" "2 1"
+  check "the audit trail merges the three approval decisions" "$(api "$USER" GET "/dms/documents/$doc/audit?action=approval_approved" | jq -r '[.entries[] | select(.source == "approval")] | length')" "3"
 fi
 
 [ "$failures" -eq 0 ] && echo "All document registry checks passed." || { echo "$failures check(s) failed."; exit 1; }

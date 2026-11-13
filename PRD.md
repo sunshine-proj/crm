@@ -33,12 +33,13 @@ Implemented modules include:
 - **Inventory and purchasing:** authenticated users can configure warehouses and suppliers, create product-based purchase orders, receive partial/full quantities into a warehouse, derive on-hand quantities from signed stock movements, post adjustments, explicitly dispatch sales shipments against warehouse stock, and record bounded customer/supplier returns. The ledger tracks quantities only and is not valued inventory.
 - **Finance foundation:** authenticated users can configure accounts, fiscal periods, and administrator-managed posting mappings; post manual/opening-balance journals; reverse entries; and close/reopen periods with administrator reasons. Invoice issues/receipts, vendor bills/payments, approved expenses, and expense reimbursements generate mapped accrual postings. Currency-scoped trial balance, operational P&L/balance-sheet/cash-movement summaries, AR/AP, and source-record posting checks are available. These are not statutory reports or external-bank reconciliations.
 - **Project documents:** authenticated upload/download endpoints enforce a 10 MB file-size limit and MIME allowlist. Files are local, without virus scanning or external backup.
+- **Document management (DMS):** an organization structure (units, sections, positions, employments, deputies), a document registry with types, gapless registration numbers, immutable SHA-256-identified versions, check-out, attachments, links and confidentiality; approval by subordination; acknowledgement campaigns by unit, position or person; and records management (lifecycle, retention, legal hold, four-eyes disposal, audit trail, reports, optional ClamAV scanning). Registry clerks hold `ROLE_DMS_ADMIN`.
 - **News:** news-item records with user ownership behavior in the API.
 - **Dashboard:** displays live client, active-project, and open-task counts from an authenticated API summary endpoint.
 - **Authentication:** sign-in through `POST /api/login` and bearer-token API requests.
 - **Organization Settings:** administrators can set the operating country, default currency, and a ten-year reference retention period for the single organization in an installation. Changes are audited and can be restored. Country-specific tax/accounting profiles remain unverified and no retention deletion is automated.
 
-New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. Client/project search, inline context, milestones, task assignments/dependencies, due indicators, approval workflows, basic cost-to-billing flows, and a project-management overview with a project/task timetable and status/overdue statistics are implemented. Clients carry structured legal and account details (tax identifiers visible to finance users and administrators only), dedicated client/project detail views exist, tasks can be managed on a board, deals move through a sales pipeline, and users receive in-app reminders and escalations configured per user (no e-mail delivery). Individual-customer and parent/child account models remain open. Finance postings and reports are operational foundations only: mappings must be configured, cross-currency accounting and external bank reconciliation are absent, and no jurisdiction-specific compliance is claimed. The latest migrations have been applied to a disposable PostgreSQL database, and an end-to-end script verifies ledger postings, concurrent receipts, and the posting-presence check, but they are not yet verified on a deployed database. Application roles are `ROLE_USER`, `ROLE_FINANCE`, `ROLE_INVENTORY`, and `ROLE_ADMIN`; changes to core business records are versioned and administrator-recoverable, including records removed with a deleted parent.
+New projects must be associated with a client, and new tasks must be associated with a project. Existing legacy rows may remain unlinked and are displayed as such. Client contacts are separate records managed through a client-scoped API. Client/project search, inline context, milestones, task assignments/dependencies, due indicators, approval workflows, basic cost-to-billing flows, and a project-management overview with a project/task timetable and status/overdue statistics are implemented. Clients carry structured legal and account details (tax identifiers visible to finance users and administrators only), dedicated client/project detail views exist, tasks can be managed on a board, deals move through a sales pipeline, and users receive in-app reminders and escalations configured per user (no e-mail delivery). Individual-customer and parent/child account models remain open. Finance postings and reports are operational foundations only: mappings must be configured, cross-currency accounting and external bank reconciliation are absent, and no jurisdiction-specific compliance is claimed. The latest migrations have been applied to a disposable PostgreSQL database, and an end-to-end script verifies ledger postings, concurrent receipts, and the posting-presence check, but they are not yet verified on a deployed database. Application roles are `ROLE_USER`, `ROLE_FINANCE`, `ROLE_INVENTORY`, `ROLE_DMS_ADMIN` (registry clerk), and `ROLE_ADMIN`; changes to core business records are versioned and administrator-recoverable, including records removed with a deleted parent.
 
 ## Product Principles
 
@@ -178,6 +179,15 @@ The sales workflow is operational and links to a separate quantity-only inventor
 - Validate accounting, tax, access, retention, audit, and document rules for the target jurisdictions before treating this operational foundation as a production ledger or statutory finance product.
 - Add integrations or broader ERP capabilities only after user research, jurisdiction review, and a separate scoped PRD.
 
+### Phase 7: Document Management
+
+- **Implemented foundation:** organization structure with dated employments, head posts, reporting overrides, deputies and change history; subordination rules computed per day.
+- **Implemented foundation:** document registry with per-type number patterns, required fields, retention and confidentiality; immutable versions with SHA-256 and extracted text for search; check-out/check-in; attachments; related-document links; registration card PDF.
+- **Implemented foundation:** approval routes of sequential stages with parallel all/any steps, restricted to the author's chain of superiors for approve/sign; deputies, forwarding for advisory review, reminders and escalation, automatic registration per type.
+- **Implemented foundation:** acknowledgement requests by unit (with sub-units), position or person within the sender's management subtree; snapshot of who was asked; viewed/acknowledged/excused states; status board per unit with CSV and a printable sheet; joiners; re-issue for a new edition.
+- **Implemented foundation:** lifecycle automation (in force, superseded, archived on expiry), review reminders, retention from the archive date, legal hold, four-eyes disposal leaving a tombstone, a per-document audit trail, registry reports, and ClamAV scanning when configured.
+- **Not implemented:** qualified e-signatures, external correspondence registration, OCR, conversion of office files to PDF, an approval sheet PDF, `tsvector` full-text ranking, e-mail delivery, object storage, and jurisdiction-validated retention schedules. Nothing is represented as a certified records-management system.
+
 ## Functional Requirements
 
 ### Organization Settings And Localization
@@ -259,6 +269,19 @@ The sales workflow is operational and links to a separate quantity-only inventor
 - **INV-4:** Customer/supplier returns reference the originating shipment/order and cannot exceed original shipped/received quantity less previous returns.
 - **INV-5:** Stock value is reported only from valued movements (weighted average) and only when the inventory accounts are mapped; unvalued legacy quantity is shown separately and cannot be issued until an opening valuation exists.
 
+### Document Management
+
+- **DMS-1:** A document's read access is limited to its author, named readers, approval participants (and their active deputies), acknowledgement recipients, registry clerks, heads of the owner unit for general drafts, and, for general documents only, everyone once registered. Documents a user cannot read answer as not found.
+- **DMS-2:** Registration numbers are gapless per type and year and allocated under a lock; a registered document's content and metadata are frozen, except the review date set by recording a review.
+- **DMS-3:** Approve and sign steps may only be assigned to the author's superiors per the organization structure on the day of submission; the author never participates; every route action is kept as append-only history with actor, on-behalf-of, comment and version hash.
+- **DMS-4:** Only unit heads (for their own subtree) and registry clerks (organization-wide) can request acknowledgement, only for registered documents that are in force or awaiting their effective date. Acknowledgement is a personal confirmation pinned to one version's SHA-256; deputies cannot acknowledge for someone else.
+- **DMS-5:** Who was asked to acknowledge, and the unit and position they were asked under, is a snapshot that later structure changes do not rewrite.
+- **DMS-6:** Lifecycle transitions (in force on the effective date, superseded by a replacing document in force, archived after expiry) are automatic, idempotent and recorded.
+- **DMS-7:** Registered documents are never hard-deleted. Content is destroyed only by a disposal proposed by a registry clerk and approved by a different administrator, after the type's retention period and while no legal hold applies; the registration entry, file hashes, history and disposal manifest remain.
+- **DMS-8:** Legal hold blocks deletion and disposal until a registry clerk releases it.
+- **DMS-9:** Views, downloads, version uploads, access changes, approval actions, acknowledgements, legal holds and disposal steps appear in a per-document audit trail that the author and clerks can filter and export.
+- **DMS-10:** When virus scanning is configured, every registry upload is scanned before it is stored; infected files are refused and an unavailable scanner blocks uploads instead of letting them through.
+
 ### Access, Privacy, And Audit
 
 - **SEC-1:** The API enforces authentication, authorization, validation, and ownership rules for every read and write operation.
@@ -311,4 +334,7 @@ Do not present a candidate measure as a live KPI until its source data and calcu
 - What does bookkeeping mean for the first target users: expense tracking and cash summaries, accounting-system integration, or a general ledger?
 - Which roles need access to client data, project budgets, costs, invoices, and payment details?
 - What audit, export, and deletion controls are required in addition to the initial ten-year reference period and backup policy?
+- Which retention periods and triggers apply per document type in each country (archive date, expiry, end of year, end of contract), and who signs off the disposal schedule?
+- Is an electronic acknowledgement sufficient for internal policies in the target jurisdictions, or must some documents also be signed (paper or qualified e-signature)?
+- Should deputies be able to act on acknowledgements in any case (they cannot today), and should managers see acknowledgement status for confidential documents they are not readers of?
 - Which currencies beyond EUR, GBP, and USD, tax rules, billing addresses, payment instructions, and document templates are required for invoice drafts?

@@ -39,6 +39,21 @@ class ApprovalStepRepository extends ServiceEntityRepository
         return $this->open()->andWhere('step.dueOn IS NOT NULL')->getQuery()->getResult();
     }
 
+    /**
+     * Steps decided in [from, to) that were opened, for timing reports (consultations included as their own kind).
+     *
+     * @return list<ApprovalStep>
+     */
+    public function findDecidedBetween(\DateTimeImmutable $from, \DateTimeImmutable $to): array
+    {
+        return $this->createQueryBuilder('step')
+            ->andWhere('step.decidedAt >= :from')->setParameter('from', $from)
+            ->andWhere('step.decidedAt < :to')->setParameter('to', $to)
+            ->andWhere('step.openedAt IS NOT NULL')
+            ->andWhere('step.status IN (:decided)')->setParameter('decided', [...ApprovalStep::DECISIONS, ApprovalStep::REVIEWED])
+            ->getQuery()->getResult();
+    }
+
     /** @param list<int> $userIds */
     public function isParticipant(Document $document, array $userIds): bool
     {

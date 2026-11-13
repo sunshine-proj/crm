@@ -79,6 +79,9 @@ final class DocumentViews
             'review_on' => $document->getReviewOn()?->format('Y-m-d'),
             'registered_by' => $document->getRegisteredBy(),
             'archived_at' => $document->getArchivedAt()?->format(\DateTimeInterface::ATOM),
+            'retain_until' => $document->retainUntil()?->format('Y-m-d'),
+            'legal_hold' => $document->isOnLegalHold() ? ['reason' => $document->getLegalHoldReason(), 'by' => $document->getLegalHoldBy(), 'at' => $document->getLegalHoldAt()?->format(\DateTimeInterface::ATOM)] : null,
+            'disposed_at' => $document->getDisposedAt()?->format(\DateTimeInterface::ATOM),
             'checked_out_at' => $document->getCheckedOutAt()?->format(\DateTimeInterface::ATOM),
             'client' => $document->getClient() !== null ? ['id' => $document->getClient()->getId(), 'title' => $document->getClient()->getTitle()] : null,
             'project' => $document->getProject() !== null ? ['id' => $document->getProject()->getId(), 'title' => $document->getProject()->getTitle()] : null,
@@ -89,6 +92,7 @@ final class DocumentViews
             'attachments' => array_map(static fn (DocumentAttachment $attachment): array => [
                 'id' => $attachment->getId(), 'original_name' => $attachment->getOriginalName(), 'mime_type' => $attachment->getMimeType(),
                 'size_bytes' => $attachment->getSizeBytes(), 'sha256' => $attachment->getSha256(), 'uploaded_by' => $attachment->getUploadedByEmail(),
+                'file_disposed' => $attachment->getFileDisposedAt() !== null,
                 'created_at' => $attachment->getCreatedAt()->format(\DateTimeInterface::ATOM),
             ], $attachments),
             'links' => array_values(array_filter(array_map(function (DocumentLink $link) use ($id, $viewer): ?array {
@@ -122,7 +126,8 @@ final class DocumentViews
             'sha256' => $version->getSha256(),
             'uploaded_by' => $version->getUploadedByEmail(),
             'comment' => $version->getComment(),
-            'previewable' => DmsFileStorage::isPreviewable($version->getMimeType()),
+            'previewable' => $version->getFileDisposedAt() === null && DmsFileStorage::isPreviewable($version->getMimeType()),
+            'file_disposed' => $version->getFileDisposedAt() !== null,
             'has_text' => $version->getExtractedText() !== null,
             'created_at' => $version->getCreatedAt()->format(\DateTimeInterface::ATOM),
         ];

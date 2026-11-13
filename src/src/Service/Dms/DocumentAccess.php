@@ -135,6 +135,11 @@ final class DocumentAccess
             'can_delete' => $manage && $document->isDeletable(),
             'can_submit' => $manage && $document->canBeSubmitted() && $document->getVersionCount() > 0 && $document->getCheckedOutBy() === null,
             'can_withdraw' => $manage && $document->getStatus() === Document::IN_APPROVAL,
+            'can_place_legal_hold' => $clerk && !$document->isOnLegalHold() && $document->getStatus() !== Document::DISPOSED,
+            'can_release_legal_hold' => $clerk && $document->isOnLegalHold(),
+            'can_record_review' => $manage && in_array($document->getStatus(), [Document::REGISTERED, Document::IN_FORCE], true),
+            'can_view_audit' => $manage,
+            'can_propose_disposal' => $clerk && $document->isDueForDisposal(new \DateTimeImmutable('today')),
             'can_request_acknowledgement' => in_array($document->getStatus(), Document::ACKNOWLEDGEABLE, true) && ($clerk || $this->managedUnitIds($user) !== []),
         ];
     }

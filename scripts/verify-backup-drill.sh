@@ -36,6 +36,9 @@ counts() {
     select 'invoice' t, count(*) n from invoice union all select 'payment', count(*) from payment
     union all select 'journal_entry_line', count(*) from journal_entry_line union all select 'client', count(*) from client
     union all select 'stock_movement', count(*) from stock_movement union all select 'record_revision', count(*) from record_revision
+    union all select 'document', count(*) from document union all select 'document_version', count(*) from document_version
+    union all select 'document_event', count(*) from document_event union all select 'approval_action', count(*) from approval_action
+    union all select 'ack_recipient', count(*) from ack_recipient union all select 'document_disposal', count(*) from document_disposal
     union all select 'migrations', count(*) from doctrine_migration_versions) c"
 }
 
@@ -55,6 +58,11 @@ run restore.sh latest /key/drill.key "$SCRATCH_DB" >"$work/restore.log" 2>&1 && 
 check "restore into a scratch database succeeds" "$restore" "ok"
 grep -E '^(restore verified|elapsed|backup age)' "$work/restore.log" || true
 check "restored row counts equal the source" "$(counts "$SCRATCH_DB")" "$(counts "$PGDATABASE")"
+# Document-registry files live in the dms/ subfolder of the documents archive: every file must come back byte for byte.
+dms_digest() { run sh -c "cd '$1' 2>/dev/null && find . -type f | sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1"; }
+run sh -c 'mkdir -p /var/lib/backup/extract && age -d -i /key/drill.key /remote/drill/*/documents-*.tar.gz.age | tar -xzf - -C /var/lib/backup/extract'
+check "the documents archive holds every DMS file unchanged" "$(dms_digest /var/lib/backup/extract/dms)" "$(dms_digest /data/project-documents/dms)"
+check "the archive has as many DMS files as the source" "$(run sh -c 'find /data/project-documents/dms -type f 2>/dev/null | wc -l | tr -d " "')" "$(run sh -c 'find /var/lib/backup/extract/dms -type f 2>/dev/null | wc -l | tr -d " "')"
 check "restoring over the live database is refused" "$(run restore.sh latest /key/drill.key "$PGDATABASE" >/dev/null 2>&1; echo $?)" "2"
 run dropdb --if-exists "$SCRATCH_DB" >/dev/null
 # Files were written by the container's root user, so remove them from a container too.

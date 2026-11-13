@@ -72,8 +72,9 @@ document to confirm it is readable. The script refuses to restore into the live 
 
 `scripts/verify-backup-drill.sh` builds the backup image, backs up a running database into a temporary local
 folder with a throwaway key, checks pruning of an expired set, the status file and health check, restores into
-a scratch database, compares row counts with the source and confirms that restoring over the live database is
-refused. It only reads the source database.
+a scratch database, compares row counts with the source (including the document-registry tables), checks that
+every file in the documents archive's `dms/` subfolder comes back byte for byte, and confirms that restoring over
+the live database is refused. It only reads the source database and the documents folder.
 
 ```bash
 DOCKER_NETWORK=crm_app PGPASSWORD=... scripts/verify-backup-drill.sh
@@ -82,6 +83,7 @@ DOCKER_NETWORK=crm_app PGPASSWORD=... scripts/verify-backup-drill.sh
 | Date | Database | Result | Notes |
 | --- | --- | --- | --- |
 | 2026-11-12 | Disposable PostgreSQL 17 with ledger test data (not production) | Passed (8 checks) | First run of the scripts. It found and fixed two defects: the retention step failed on every run, and `latest` could select a folder that is not a backup set. |
+| 2026-11-13 | Disposable PostgreSQL 17 and documents folder left by `scripts/verify-dms-e2e.sh` (not production) | Passed (10 checks) | Adds the DMS checks: registry table counts and the 9 DMS files restored with identical SHA-256. Still a local folder, not the off-host destination. |
 
 ## Disaster restore
 

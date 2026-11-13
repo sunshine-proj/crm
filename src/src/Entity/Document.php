@@ -30,11 +30,13 @@ class Document
     public const IN_FORCE = 'in_force';
     public const SUPERSEDED = 'superseded';
     public const ARCHIVED = 'archived';
-    public const STATUSES = [self::DRAFT, self::IN_APPROVAL, self::APPROVED, self::REJECTED, self::WITHDRAWN, self::REGISTERED, self::IN_FORCE, self::SUPERSEDED, self::ARCHIVED];
+    /** Content destroyed after retention, by an approved disposal; the record stays as a tombstone. */
+    public const DISPOSED = 'disposed';
+    public const STATUSES = [self::DRAFT, self::IN_APPROVAL, self::APPROVED, self::REJECTED, self::WITHDRAWN, self::REGISTERED, self::IN_FORCE, self::SUPERSEDED, self::ARCHIVED, self::DISPOSED];
     /** States in which content and metadata may change. */
     public const EDITABLE = [self::DRAFT, self::REJECTED, self::WITHDRAWN, self::APPROVED];
     /** States after registration; such documents are visible organization-wide unless confidential. */
-    public const REGISTERED_STATES = [self::REGISTERED, self::IN_FORCE, self::SUPERSEDED, self::ARCHIVED];
+    public const REGISTERED_STATES = [self::REGISTERED, self::IN_FORCE, self::SUPERSEDED, self::ARCHIVED, self::DISPOSED];
     /** States in which management can ask people to acknowledge the document. */
     public const ACKNOWLEDGEABLE = [self::REGISTERED, self::IN_FORCE];
 
@@ -135,6 +137,19 @@ class Document
     #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
     private ?\DateTimeImmutable $archivedAt = null;
 
+    /** A legal hold blocks deletion and disposal until a registry clerk releases it. */
+    #[ORM\Column(length: 1000, nullable: true)]
+    private ?string $legalHoldReason = null;
+
+    #[ORM\Column(length: 180, nullable: true)]
+    private ?string $legalHoldBy = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $legalHoldAt = null;
+
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $disposedAt = null;
+
     public function __construct(DocumentType $type, User $author, string $title)
     {
         if (!$type->isActive()) {
@@ -175,6 +190,11 @@ class Document
     public function getCreatedAt(): \DateTimeImmutable { return $this->createdAt; }
     public function getUpdatedAt(): \DateTimeImmutable { return $this->updatedAt; }
     public function getArchivedAt(): ?\DateTimeImmutable { return $this->archivedAt; }
+    public function getLegalHoldReason(): ?string { return $this->legalHoldReason; }
+    public function getLegalHoldBy(): ?string { return $this->legalHoldBy; }
+    public function getLegalHoldAt(): ?\DateTimeImmutable { return $this->legalHoldAt; }
+    public function isOnLegalHold(): bool { return $this->legalHoldReason !== null; }
+    public function getDisposedAt(): ?\DateTimeImmutable { return $this->disposedAt; }
 
     /** @return list<User> */
     public function getReaders(): array
@@ -403,19 +423,124 @@ class Document
         $this->touch();
     }
 
-    public function archive(): void
+    public function archive(?\DateTimeImmutable $now = null): void
     {
         if (!in_array($this->status, [self::REGISTERED, self::IN_FORCE, self::SUPERSEDED], true)) {
             throw new \DomainException('Only registered documents are archived; delete an unregistered draft instead.');
         }
         $this->status = self::ARCHIVED;
-        $this->archivedAt = new \DateTimeImmutable();
+        $this->archivedAt = $now ?? new \DateTimeImmutable();
+        $this->touch();
+    }
+
+    /** A registered document whose effective date has come is in force; returns whether it changed. */
+    public function takeEffect(\DateTimeImmutable $today): bool
+    {
+        if ($this->status !== self::REGISTERED || ($this->effectiveOn !== null && $this->effectiveOn->format('Y-m-d') > $today->format('Y-m-d'))) {
+            return false;
+        }
+        $this->status = self::IN_FORCE;
+        $this->touch();
+
+        return true;
+    }
+
+    /** Replaced by a document that came into force. */
+    public function supersede(): void
+    {
+        if (!in_array($this->status, [self::REGISTERED, self::IN_FORCE], true)) {
+            throw new \DomainException('Only a registered document or one in force can be superseded.');
+        }
+        $this->status = self::SUPERSEDED;
+        $this->touch();
+    }
+
+    /** Past its expiry date: the last valid day is the expiry date itself. */
+    public function hasExpired(\DateTimeImmutable $today): bool
+    {
+        return $this->expiresOn !== null && $this->expiresOn->format('Y-m-d') < $today->format('Y-m-d')
+            && in_array($this->status, [self::REGISTERED, self::IN_FORCE, self::SUPERSEDED], true);
+    }
+
+    /** Records that the owner reviewed the document; sets (or clears) the next review date. */
+    public function recordReview(?\DateTimeImmutable $nextReviewOn, \DateTimeImmutable $today): void
+    {
+        if (!in_array($this->status, [self::REGISTERED, self::IN_FORCE], true)) {
+            throw new \DomainException('Only a registered document or one in force is reviewed.');
+        }
+        if ($nextReviewOn !== null && $nextReviewOn->format('Y-m-d') <= $today->format('Y-m-d')) {
+            throw new \InvalidArgumentException('The next review date must be in the future.');
+        }
+        $this->reviewOn = $nextReviewOn?->setTime(0, 0);
+        $this->touch();
+    }
+
+    public function placeLegalHold(string $reason, string $by, \DateTimeImmutable $now): void
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new \InvalidArgumentException('Give the reason for the legal hold, for example the case or request it serves.');
+        }
+        if ($this->isOnLegalHold()) {
+            throw new \DomainException('The document is already under legal hold.');
+        }
+        if ($this->status === self::DISPOSED) {
+            throw new \DomainException('The document has been disposed of.');
+        }
+        $this->legalHoldReason = mb_substr($reason, 0, 1000);
+        $this->legalHoldBy = $by;
+        $this->legalHoldAt = $now;
+        $this->touch();
+    }
+
+    public function releaseLegalHold(): void
+    {
+        if (!$this->isOnLegalHold()) {
+            throw new \DomainException('The document is not under legal hold.');
+        }
+        $this->legalHoldReason = $this->legalHoldBy = null;
+        $this->legalHoldAt = null;
+        $this->touch();
+    }
+
+    /**
+     * End of the retention period: the type's retention years counted from the day the document was archived.
+     * Null when it is not archived or the type keeps documents indefinitely.
+     */
+    public function retainUntil(): ?\DateTimeImmutable
+    {
+        $years = $this->type->getRetentionYears();
+        $from = $this->archivedAt;
+
+        return $years === null || $from === null ? null : $from->setTime(0, 0)->modify(sprintf('+%d years', $years));
+    }
+
+    /** Archived, past retention and not held: may be proposed for disposal. */
+    public function isDueForDisposal(\DateTimeImmutable $today): bool
+    {
+        $until = $this->retainUntil();
+
+        return $this->status === self::ARCHIVED && !$this->isOnLegalHold() && $until !== null && $until->format('Y-m-d') <= $today->format('Y-m-d');
+    }
+
+    /** Destroys the content fields; the number, title, type, dates and trail stay as the tombstone. */
+    public function dispose(\DateTimeImmutable $now): void
+    {
+        if (!$this->isDueForDisposal($now)) {
+            throw new \DomainException($this->isOnLegalHold() ? 'The document is under legal hold.' : 'The document is not archived past its retention period.');
+        }
+        $this->status = self::DISPOSED;
+        $this->disposedAt = $now;
+        $this->summary = null;
+        $this->tags = [];
+        $this->readers->clear();
+        $this->refreshSearchText(null);
         $this->touch();
     }
 
     public function isDeletable(): bool
     {
-        return $this->registrationNumber === null && in_array($this->status, [self::DRAFT, self::REJECTED, self::WITHDRAWN], true);
+        return $this->registrationNumber === null && !$this->isOnLegalHold() && in_array($this->status, [self::DRAFT, self::REJECTED, self::WITHDRAWN], true);
     }
 
     public function refreshSearchText(?string $versionText): void

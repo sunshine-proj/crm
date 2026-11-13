@@ -10,6 +10,7 @@ use App\Entity\Task;
 use App\Entity\TaskStatus;
 use App\Entity\User;
 use App\Repository\AcknowledgementRecipientRepository;
+use App\Repository\DocumentRepository;
 use App\Repository\AcknowledgementRequestRepository;
 use App\Repository\ApprovalStepRepository;
 use App\Repository\NotificationRepository;
@@ -30,7 +31,8 @@ use Doctrine\ORM\EntityManagerInterface;
  * Open document approval steps with a due date follow the task lead time and escalate to the assignee's direct
  * superior in the organization structure (administrators when there is none). People who still owe an
  * acknowledgement of a request with a deadline are reminded the same way; escalation goes to their direct superior,
- * or to the request's sender when they have none.
+ * or to the request's sender when they have none. Registered documents with a review date remind their author with
+ * the project lead time and escalate to the head of the owner unit.
  */
 final class ReminderGenerator
 {
@@ -52,6 +54,7 @@ final class ReminderGenerator
         private readonly SubordinationService $subordination,
         private readonly AcknowledgementRequestRepository $acknowledgementRequestRepository,
         private readonly AcknowledgementRecipientRepository $acknowledgementRecipientRepository,
+        private readonly DocumentRepository $documentRepository,
     ) {
     }
 
@@ -101,6 +104,10 @@ final class ReminderGenerator
                 $document = $request->getDocument();
                 $this->remind($counts, $recipient->getUser(), 'document', (int) $document->getId(), null, sprintf('Acknowledgement of "%s"', $document->getTitle()), $request->getDueOn()->setTime(0, 0), $today, 'lead_task', $chart->directSuperior($recipient->getUser()) ?? $request->getSender(), 'ack_recipient:'.$recipient->getId());
             }
+        }
+        foreach ($this->documentRepository->findWithReviewDate() as $document) {
+            $unitHead = $document->getOwnerUnit() !== null ? $chart->headOf((int) $document->getOwnerUnit()->getId()) : null;
+            $this->remind($counts, $document->getAuthor(), 'document', (int) $document->getId(), null, sprintf('Review of "%s"', $document->getTitle()), $document->getReviewOn()->setTime(0, 0), $today, 'lead_project', $unitHead, 'document_review:'.$document->getId());
         }
         $this->entityManager->flush();
 

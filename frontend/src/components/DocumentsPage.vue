@@ -9,13 +9,15 @@ import DocumentTypesPanel from "./DocumentTypesPanel.vue";
 import ApprovalInbox from "./ApprovalInbox.vue";
 import AcknowledgementInbox from "./AcknowledgementInbox.vue";
 import AcknowledgementCampaigns from "./AcknowledgementCampaigns.vue";
+import DisposalsPanel from "./DisposalsPanel.vue";
+import DmsReportsPanel from "./DmsReportsPanel.vue";
 
 type Page = { items: DocumentSummary[]; total: number; limit: number; offset: number };
 
 const PAGE_SIZE = 25;
 const isClerk = isDmsAdminToken(localStorage.getItem("crm_token"));
 
-const view = ref<"registry" | "inbox" | "acknowledge" | "campaigns" | "types">("registry");
+const view = ref<"registry" | "inbox" | "acknowledge" | "campaigns" | "types" | "retention" | "reports">("registry");
 const ackCounts = ref<{ to_acknowledge: number; overdue: number }>({ to_acknowledge: 0, overdue: 0 });
 const counts = ref<{ awaiting: number; overdue: number; consultations: number }>({ awaiting: 0, overdue: 0, consultations: 0 });
 const types = ref<DocumentTypeInfo[]>([]);
@@ -157,6 +159,8 @@ onMounted(async () => {
       </button>
       <button type="button" role="tab" :aria-selected="view === 'campaigns'" @click="view = 'campaigns'">Acknowledgement status</button>
       <button v-if="isClerk" type="button" role="tab" :aria-selected="view === 'types'" @click="view = 'types'">Document types</button>
+      <button v-if="isClerk" type="button" role="tab" :aria-selected="view === 'retention'" @click="view = 'retention'">Retention</button>
+      <button v-if="isClerk" type="button" role="tab" :aria-selected="view === 'reports'" @click="view = 'reports'">Reports</button>
     </div>
 
     <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
@@ -165,6 +169,8 @@ onMounted(async () => {
     <ApprovalInbox v-else-if="view === 'inbox'" @counted="(count) => (counts.awaiting = count)" />
     <AcknowledgementInbox v-else-if="view === 'acknowledge'" @counted="(count) => (ackCounts.to_acknowledge = count)" />
     <AcknowledgementCampaigns v-else-if="view === 'campaigns'" />
+    <DisposalsPanel v-else-if="view === 'retention'" />
+    <DmsReportsPanel v-else-if="view === 'reports'" />
 
     <template v-else>
       <form v-if="isFormOpen" class="article-form" @submit.prevent="createDocument">

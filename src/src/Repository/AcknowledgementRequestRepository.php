@@ -26,6 +26,15 @@ class AcknowledgementRequestRepository extends ServiceEntityRepository
         return $this->findBy(['status' => AcknowledgementRequest::OPEN, 'autoAddJoiners' => true], ['id' => 'ASC']);
     }
 
+    /** @return list<AcknowledgementRequest> requests sent in [from, to) */
+    public function findCreatedBetween(\DateTimeImmutable $from, \DateTimeImmutable $to): array
+    {
+        return $this->createQueryBuilder('request')
+            ->andWhere('request.createdAt >= :from')->setParameter('from', $from)
+            ->andWhere('request.createdAt < :to')->setParameter('to', $to)
+            ->getQuery()->getResult();
+    }
+
     /** @return list<AcknowledgementRequest> open requests with a deadline */
     public function findOpenWithDueDate(): array
     {

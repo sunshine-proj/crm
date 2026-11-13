@@ -6318,3 +6318,30 @@ Background workers
 
 
 
+
+# Discussion 6: Document management (DMS)
+
+The document management module was built in five phases (see README, "P2 — Document management (DMS) module"). This note keeps the decisions that are not obvious from the code, and the gaps that remain.
+
+## Decisions
+
+- **Subordination comes from the organization structure, not from roles.** A person's superior is their reporting override, else the head of their unit, else of the parent unit when they head their own. Vacant head posts are skipped. The chart is built per day, so a decision is checked against the structure on the day it is made.
+- **Management means unit and section heads, for their own subtree.** They see general drafts of their units, send acknowledgements to their units and supervise their part of the status board. Registry clerks (`ROLE_DMS_ADMIN`) work organization-wide. Organization editing stays with `ROLE_ADMIN`.
+- **Approvals go up, reviews go sideways.** Approve and sign steps must be held by the author's superiors; review steps may go to any colleague with a position, for example legal or finance. An approver can ask their own subordinates for an advisory opinion without giving up the decision.
+- **Deputies act on approvals but not on acknowledgements.** Confirming that someone else has read a document is meaningless, so absent people are excused by their manager instead. This changed the original Phase 1 plan.
+- **Everything is pinned to a version hash.** Approval rounds, approval actions, acknowledgement requests and confirmations all record the version number and SHA-256, so the record shows exactly which file was approved or read.
+- **Snapshots over recomputation.** Approval steps and acknowledgement recipients keep the position and unit as they were. Reports roll those units up the current structure but never rewrite who was asked.
+- **Registered documents are frozen and never deleted.** A new edition is a new document linked as "replaces" or "amends". Supersession follows automatically when the new one comes into force. The only way content disappears is a four-eyes disposal after retention (clerk proposes, another administrator approves), which keeps a tombstone with the hashes and history.
+- **Retention counts from the archive date.** This is the simplest trigger that works for every type. Whether some types must count from expiry, the end of the year or the end of a contract is an open PRD decision.
+- **ORM-only persistence held.** Search uses lower-cased LIKE over a maintained search column instead of PostgreSQL `tsvector`, because native SQL is not allowed outside migrations. This trades ranking and stemming for portability and testability on SQLite.
+- **Fail closed on scanning.** When ClamAV is configured and unreachable, uploads are refused (503) rather than stored unscanned.
+
+## Remaining gaps
+
+- E-mail delivery: in-app notifications only while `symfony/mime` is blocked by Composer's advisory policy.
+- Office-to-PDF conversion for preview, an approval sheet PDF, PDF text extraction and OCR.
+- `tsvector` ranking and stemming, which need native SQL.
+- A per-document retention override and jurisdiction-validated retention schedules.
+- Virus scanning of project documents outside the registry, a production clamd deployment, an off-host restore test that includes the DMS files, and object storage if volume grows.
+- Component-level frontend tests (no `@vue/test-utils` installed) and a browser check of the DMS screens.
+- Qualified e-signatures, external correspondence, and co-authoring are out of scope.

@@ -26,4 +26,25 @@ class DocumentLinkRepository extends ServiceEntityRepository
     {
         return $this->findOneBy(['source' => $source, 'target' => $target, 'kind' => $kind]) !== null;
     }
+
+    /**
+     * "Replaces" links whose source is in force while the replaced document is still registered or in force: the
+     * replaced side has to be superseded. Restricted to one source when given.
+     *
+     * @return list<DocumentLink>
+     */
+    public function findPendingSupersessions(?Document $source = null): array
+    {
+        $query = $this->createQueryBuilder('link')
+            ->addSelect('source', 'target')->join('link.source', 'source')->join('link.target', 'target')
+            ->andWhere('link.kind = :replaces')->setParameter('replaces', 'replaces')
+            ->andWhere('source.status = :inForce')->setParameter('inForce', Document::IN_FORCE)
+            ->andWhere('target.status IN (:current)')->setParameter('current', [Document::REGISTERED, Document::IN_FORCE])
+            ->orderBy('link.id', 'ASC');
+        if ($source !== null) {
+            $query->andWhere('link.source = :source')->setParameter('source', $source);
+        }
+
+        return $query->getQuery()->getResult();
+    }
 }

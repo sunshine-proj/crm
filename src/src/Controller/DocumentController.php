@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Dto\DocumentInput;
 use App\Dto\DocumentLinkInput;
 use App\Dto\DocumentReadersInput;
+use App\Dto\DocumentRecordsInput;
 use App\Dto\DocumentSearch;
 use App\Entity\Document;
 use App\Entity\DocumentAttachment;
@@ -12,6 +13,7 @@ use App\Entity\DocumentLink;
 use App\Entity\DocumentVersion;
 use App\Entity\User;
 use App\Repository\DocumentAttachmentRepository;
+use App\Repository\DocumentDisposalRepository;
 use App\Repository\DocumentEventRepository;
 use App\Repository\DocumentLinkRepository;
 use App\Repository\DocumentRepository;
@@ -20,10 +22,12 @@ use App\Service\Dms\AcknowledgementService;
 use App\Service\Dms\DmsFileStorage;
 use App\Service\Dms\DocumentAccess;
 use App\Service\Dms\DocumentAccessDenied;
+use App\Service\Dms\DocumentAudit;
 use App\Service\Dms\DocumentCardPdf;
 use App\Service\Dms\DocumentService;
 use App\Service\Dms\DocumentViews;
 use App\Service\Dms\NotFound;
+use App\Service\Dms\ScannerUnavailable;
 use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
@@ -58,6 +62,8 @@ final class DocumentController extends AbstractController
         private readonly DmsFileStorage $storage,
         private readonly DocumentCardPdf $cardPdf,
         private readonly AcknowledgementService $acknowledgements,
+        private readonly DocumentAudit $audit,
+        private readonly DocumentDisposalRepository $disposalRepository,
         #[Autowire(service: 'monolog.logger.audit')] private readonly LoggerInterface $auditLogger,
     ) {
     }
@@ -98,6 +104,7 @@ final class DocumentController extends AbstractController
         return $this->guard(function () use ($id): JsonResponse {
             $document = $this->readable($id);
             $this->flagConfidentialRead($document, 'details');
+            $this->documents->recordView($document, $this->viewer());
 
             return $this->json($this->detail($document));
         });
@@ -151,6 +158,9 @@ final class DocumentController extends AbstractController
             $version = $this->versionRepository->findOneBy(['document' => $document, 'number' => $number]);
             if (!$version instanceof DocumentVersion) {
                 throw new NotFound('Version not found.');
+            }
+            if ($version->getFileDisposedAt() !== null) {
+                return $this->error('This file was destroyed when the document was disposed of; its SHA-256 remains on record.', Response::HTTP_GONE);
             }
             $this->flagConfidentialRead($document, 'version '.$number);
             $this->documents->recordDownload($document, $this->viewer(), 'v'.$number.' '.$version->getOriginalName(), $version->getSha256());
@@ -243,6 +253,9 @@ final class DocumentController extends AbstractController
         return $this->guard(function () use ($id, $attachmentId, $request): Response {
             $document = $this->readable($id);
             $attachment = $this->attachment($document, $attachmentId);
+            if ($attachment->getFileDisposedAt() !== null) {
+                return $this->error('This file was destroyed when the document was disposed of; its SHA-256 remains on record.', Response::HTTP_GONE);
+            }
             $this->flagConfidentialRead($document, 'attachment');
             $this->documents->recordDownload($document, $this->viewer(), 'attachment '.$attachment->getOriginalName(), $attachment->getSha256());
 
@@ -302,6 +315,97 @@ final class DocumentController extends AbstractController
         });
     }
 
+    /** Clerks put a document under legal hold: it cannot be deleted or disposed of until released. */
+    #[Route('/{id<\d+>}/legal-hold', name: 'legal_hold_place', methods: ['POST'])]
+    #[IsGranted('ROLE_DMS_ADMIN')]
+    public function placeLegalHold(int $id, #[MapRequestPayload] DocumentRecordsInput $input): JsonResponse
+    {
+        return $this->guard(function () use ($id, $input): JsonResponse {
+            $document = $this->readable($id);
+            $this->documents->placeLegalHold($document, $this->viewer(), $input->reason);
+            $this->auditLogger->notice('Legal hold placed.', ['document_id' => $id, 'actor' => $this->viewer()->getUserIdentifier()]);
+
+            return $this->json($this->detail($document));
+        });
+    }
+
+    #[Route('/{id<\d+>}/legal-hold', name: 'legal_hold_release', methods: ['DELETE'])]
+    #[IsGranted('ROLE_DMS_ADMIN')]
+    public function releaseLegalHold(int $id, Request $request): JsonResponse
+    {
+        return $this->guard(function () use ($id, $request): JsonResponse {
+            $document = $this->readable($id);
+            $body = json_decode($request->getContent() ?: '{}', true);
+            $this->documents->releaseLegalHold($document, $this->viewer(), is_array($body) && is_string($body['comment'] ?? null) ? $body['comment'] : null);
+            $this->auditLogger->notice('Legal hold released.', ['document_id' => $id, 'actor' => $this->viewer()->getUserIdentifier()]);
+
+            return $this->json($this->detail($document));
+        });
+    }
+
+    /** The author or a clerk records the periodic review of a registered document and sets the next date. */
+    #[Route('/{id<\d+>}/review', name: 'review', methods: ['POST'])]
+    public function recordReview(int $id, #[MapRequestPayload] DocumentRecordsInput $input): JsonResponse
+    {
+        return $this->guard(function () use ($id, $input): JsonResponse {
+            $document = $this->readable($id);
+            $next = $input->next_review_on !== null && $input->next_review_on !== '' ? \DateTimeImmutable::createFromFormat('!Y-m-d', $input->next_review_on) : null;
+            $this->documents->recordReview($document, $this->viewer(), $next ?: null, $input->comment);
+
+            return $this->json($this->detail($document));
+        });
+    }
+
+    /**
+     * The document's audit trail (its events and every approval action), for the author and clerks.
+     * Filters: `action` (prefix), `actor`, `from`, `to` (YYYY-MM-DD); `format=csv` downloads it.
+     */
+    #[Route('/{id<\d+>}/audit', name: 'audit', methods: ['GET'])]
+    public function auditTrail(int $id, Request $request): Response
+    {
+        return $this->guard(function () use ($id, $request): Response {
+            $document = $this->readable($id);
+            if (!$this->access->canManage($this->viewer(), $document)) {
+                throw new DocumentAccessDenied('Only the author and registry clerks can see the audit trail.');
+            }
+            $dates = [];
+            foreach (['from', 'to'] as $key) {
+                $value = (string) $request->query->get($key, '');
+                $date = $value === '' ? null : \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+                if ($date === false || ($date !== null && $date->format('Y-m-d') !== $value)) {
+                    throw new \InvalidArgumentException(sprintf('%s must be a date in YYYY-MM-DD form.', $key));
+                }
+                $dates[$key] = $date;
+            }
+            $trail = $this->audit->entries($document, $request->query->get('action'), $request->query->get('actor'), $dates['from'], $dates['to']);
+            $this->auditLogger->info('Document audit trail read.', ['document_id' => $id, 'format' => $request->query->get('format', 'json'), 'actor' => $this->viewer()->getUserIdentifier()]);
+            if ($request->query->get('format') !== 'csv') {
+                return $this->json($trail);
+            }
+            $handle = fopen('php://temp', 'w+');
+            fputcsv($handle, ['When', 'Source', 'Action', 'Actor', 'On behalf of', 'Details'], escape: '');
+            foreach ($trail['entries'] as $entry) {
+                $details = implode('; ', array_map(static fn (string $key, mixed $value): string => $key.'='.(is_scalar($value) ? (string) $value : json_encode($value)), array_keys($entry['details']), $entry['details']));
+                fputcsv($handle, array_map(self::csvCell(...), [$entry['at'], $entry['source'], $entry['action'], $entry['actor'], (string) $entry['on_behalf_of'], $details]), escape: '');
+            }
+            rewind($handle);
+            $csv = "\xEF\xBB\xBF".stream_get_contents($handle);
+            fclose($handle);
+
+            return new Response($csv, Response::HTTP_OK, [
+                'Content-Type' => 'text/csv; charset=utf-8',
+                'Content-Disposition' => HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, sprintf('document-%d-audit.csv', $id)),
+                'X-Content-Type-Options' => 'nosniff',
+            ]);
+        });
+    }
+
+    /** Spreadsheet formula injection guard. */
+    private static function csvCell(string $value): string
+    {
+        return $value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true) ? "'".$value : $value;
+    }
+
     /** @return array<string, mixed> */
     private function detail(Document $document): array
     {
@@ -312,7 +416,11 @@ final class DocumentController extends AbstractController
             $this->linkRepository->findInvolving($document),
             $this->eventRepository->findForDocument($document),
             $this->viewer(),
-        );
+        ) + ['disposals' => array_map(static fn ($disposal): array => [
+            'id' => $disposal->getId(), 'status' => $disposal->getStatus(), 'proposed_by' => $disposal->getProposedBy(),
+            'proposed_at' => $disposal->getProposedAt()->format(\DateTimeInterface::ATOM), 'reason' => $disposal->getReason(),
+            'decided_by' => $disposal->getDecidedBy(), 'decided_at' => $disposal->getDecidedAt()?->format(\DateTimeInterface::ATOM), 'decision_comment' => $disposal->getDecisionComment(),
+        ], $this->access->isRegistrar() ? $this->disposalRepository->findForDocument($document) : [])];
     }
 
     private function readable(int $id): Document
@@ -423,6 +531,10 @@ final class DocumentController extends AbstractController
             return $this->error($exception->getMessage(), Response::HTTP_BAD_REQUEST);
         } catch (\DomainException $exception) {
             return $this->error($exception->getMessage(), Response::HTTP_CONFLICT);
+        } catch (ScannerUnavailable $exception) {
+            $this->auditLogger->error('Upload refused: virus scanner unavailable.', ['error' => $exception->getMessage()]);
+
+            return $this->error('Uploads are paused because the virus scanner is not available. Try again later.', Response::HTTP_SERVICE_UNAVAILABLE);
         }
     }
 

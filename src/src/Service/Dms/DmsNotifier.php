@@ -20,6 +20,8 @@ final class DmsNotifier
     public const REQUEST = 'approval';
     public const OUTCOME = 'decision';
     public const ACKNOWLEDGEMENT = 'acknowledgement';
+    public const LIFECYCLE = 'lifecycle';
+    public const DISPOSAL = 'disposal';
 
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
@@ -47,6 +49,18 @@ final class DmsNotifier
         return $this->notify($recipient, self::ACKNOWLEDGEMENT, $document, $message, $dedupeKey);
     }
 
+    /** The document came into force, was superseded or archived on expiry. */
+    public function lifecycle(User $recipient, Document $document, string $message, string $dedupeKey): bool
+    {
+        return $this->notify($recipient, self::LIFECYCLE, $document, $message, $dedupeKey);
+    }
+
+    /** A disposal awaits an administrator's decision, or was decided. */
+    public function disposal(User $recipient, Document $document, string $message, string $dedupeKey): bool
+    {
+        return $this->notify($recipient, self::DISPOSAL, $document, $message, $dedupeKey);
+    }
+
     private function notify(User $user, string $kind, Document $document, string $message, string $dedupeKey): bool
     {
         $dedupeKey = mb_substr($dedupeKey, 0, 120);
@@ -61,6 +75,6 @@ final class DmsNotifier
     /** @return list<string> */
     public static function kinds(): array
     {
-        return [self::REQUEST, self::OUTCOME, self::ACKNOWLEDGEMENT, Notification::DUE_SOON, Notification::OVERDUE, Notification::ESCALATION];
+        return [self::REQUEST, self::OUTCOME, self::ACKNOWLEDGEMENT, self::LIFECYCLE, self::DISPOSAL, Notification::DUE_SOON, Notification::OVERDUE, Notification::ESCALATION];
     }
 }

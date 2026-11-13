@@ -374,6 +374,56 @@ Two simultaneous confirmations or reminders now return a conflict response inste
 ===================================================
 
 
+Phase 5 is done, and with it the whole document management plan. Nothing is committed yet. Two Phase 5 checklist items stay unticked in the README: one needs deployment work, the other a test library that isn't installed. The new screens haven't been checked in a browser.
+
+Lifecycle:
+
+A new scheduled job runs hourly before the reminders. It puts registered documents in force on their effective date and archives documents the day after they expire.
+A document marked as replacing another supersedes it as soon as the new one is in force, either at registration or on its effective date. The old document's open acknowledgement requests are closed and its author is notified.
+Review dates send reminders to the author and escalate to the head of the owner unit when overdue. The author records a completed review and sets the next date. That date is the only thing that can change on a registered document.
+Retention, legal hold and disposal:
+
+Retention is the type's number of years, counted from the day the document is archived.
+Registry clerks place and release legal holds. A hold blocks deleting a draft and disposing of a document, and it automatically rejects a pending disposal proposal.
+Disposal needs two people: a clerk proposes, and a different administrator approves. Approval destroys the files, text, comments and summary. The registration entry, file fingerprints, full history and a list of what was destroyed stay behind as a "disposed" record.
+Audit trail and reports:
+
+Document views are now logged, once per person per day. Access changes record who gained and who lost access.
+Each document has an audit trail for its author and clerks, merging its own events with every approval action. It can be filtered and exported to CSV.
+Clerks get reports covering:
+documents by type, unit and status;
+approval time per step and per approver;
+overdue approvals per approver;
+acknowledgement completion per unit.
+Hardening:
+
+Uploads are scanned with ClamAV when DMS_CLAMAV_DSN is set. Infected files are refused. If the scanner can't be reached, uploads are refused rather than stored unscanned.
+The backup drill now checks that the registry tables and every DMS file come back identical after a restore.
+Screens: the document page gets a "Records management" panel and an "Audit trail" panel, and clerks get "Retention" and "Reports" tabs in Documents.
+
+Verification:
+
+Backend: 271 tests pass, 16 of them new.
+Migrations: they apply, reverse and re-apply cleanly on PostgreSQL 17.
+End-to-end: all 43 end-to-end checks pass on a throwaway setup with real PostgreSQL, 11 of them new. On the same database I also ran the lifecycle job (with dates backdated by SQL) and a full disposal approved by a second administrator. The original file was deleted, its download returned 410, and the tombstone and audit trail were correct.
+Backup drill: passes against that data, restoring all 9 DMS files byte for byte. It still uses a local folder, not your off-host backup destination.
+Frontend: 63 tests, type-check and build pass.
+The two unticked items:
+
+Production steps: run a ClamAV service and set the variable, and repeat the restore test against the real off-host backup. Object storage isn't needed at current volume.
+Screen tests: the lists and status board logic are unit-tested, but the inbox screens themselves aren't. That needs @vue/test-utils, which isn't installed, and node_modules is tracked in git. Tell me if you want it added.
+Other changes:
+
+docker-compose.yml: the scheduler now also runs app:dms:lifecycle.
+.env: adds an empty DMS_CLAMAV_DSN.
+docs/BACKUP.md: a new drill log row.
+PRD.md: a Document Management phase, requirements DMS-1 to DMS-10, and new open questions on retention triggers, e-signatures and deputies.
+NOTES.md: "Discussion 6" records the design decisions and remaining gaps.
+One product decision to confirm: retention counts from the archive date for every type. Some document types may legally need to count from expiry or year-end; that is listed as an open question in PRD.md.
+
+
+
+===================================================
 
 
 

@@ -10,6 +10,9 @@ parameters:
     # Managed (DMS) document files. Kept inside the uploaded-documents folder that the daily backup archives
     # recursively (docs/BACKUP.md), so registry files are backed up and restored with project documents.
     app.dms_storage_dir: '%kernel.project_dir%/var/project-documents/dms'
+    # clamd address for scanning DMS uploads (tcp://host:3310 or unix:///path/clamd.sock); empty disables scanning.
+    app.dms_clamav_dsn: '%env(DMS_CLAMAV_DSN)%'
+    app.dms_clamav_timeout: 30
 
 services:
     # default configuration for services in *this* file

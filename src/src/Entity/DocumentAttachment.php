@@ -3,6 +3,7 @@
 namespace App\Entity;
 
 use App\Repository\DocumentAttachmentRepository;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 
 /** A supporting file (annex, scan, spreadsheet) kept beside the main document versions. */
@@ -38,6 +39,10 @@ class DocumentAttachment
     #[ORM\Column(length: 180)]
     private string $uploadedByEmail;
 
+    /** Set when the file was destroyed by a disposal; the metadata and SHA-256 stay as evidence. */
+    #[ORM\Column(type: Types::DATETIME_IMMUTABLE, nullable: true)]
+    private ?\DateTimeImmutable $fileDisposedAt = null;
+
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
@@ -62,4 +67,10 @@ class DocumentAttachment
     public function getSha256(): string { return $this->sha256; }
     public function getUploadedByEmail(): string { return $this->uploadedByEmail; }
     public function getCreatedAt(): \DateTimeImmutable { return $this->createdAt; }
+    public function getFileDisposedAt(): ?\DateTimeImmutable { return $this->fileDisposedAt; }
+
+    public function discardContent(\DateTimeImmutable $now): void
+    {
+        $this->fileDisposedAt = $now;
+    }
 }

@@ -17,4 +17,14 @@ class DocumentEventRepository extends ServiceEntityRepository
     {
         return $this->findBy(['document' => $document], ['createdAt' => 'ASC', 'id' => 'ASC']);
     }
+
+    public function existsSince(Document $document, string $actor, string $action, \DateTimeImmutable $since): bool
+    {
+        return $this->createQueryBuilder('event')->select('COUNT(event.id)')
+            ->andWhere('event.document = :document')->setParameter('document', $document)
+            ->andWhere('event.actor = :actor')->setParameter('actor', $actor)
+            ->andWhere('event.action = :action')->setParameter('action', $action)
+            ->andWhere('event.createdAt >= :since')->setParameter('since', $since)
+            ->getQuery()->getSingleScalarResult() > 0;
+    }
 }

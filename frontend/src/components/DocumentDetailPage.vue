@@ -6,6 +6,8 @@ import { personLabel, treeRows, type OrgUnit, type Person } from "../lib/org";
 import ApprovalPanel from "./ApprovalPanel.vue";
 import DocumentCommentsPanel from "./DocumentCommentsPanel.vue";
 import AcknowledgementPanel from "./AcknowledgementPanel.vue";
+import DocumentRecordsPanel from "./DocumentRecordsPanel.vue";
+import DocumentAuditPanel from "./DocumentAuditPanel.vue";
 import {
   eventLabel,
   fieldLabel,
@@ -313,6 +315,7 @@ onMounted(async () => {
 
       <ApprovalPanel :document-id="document.id" :type-name="document.type.name" :key="`approval-${document.id}`" @changed="load" />
       <AcknowledgementPanel :document-id="document.id" :versions="document.versions" :key="`acknowledgement-${document.id}-${document.status}`" @changed="load" />
+      <DocumentRecordsPanel :document="document" @updated="(updated) => (document = updated)" @changed="load" />
 
       <div class="detail-grid">
         <section class="detail-card" aria-labelledby="doc-details-title">
@@ -397,8 +400,11 @@ onMounted(async () => {
               <div class="org-row">
                 <span><strong>v{{ version.number }}</strong> {{ version.original_name }} <span class="muted">· {{ formatBytes(version.size_bytes) }}</span></span>
                 <span class="org-actions">
-                  <button v-if="version.previewable" class="edit-button" type="button" @click="filePreview(`/versions/${version.number}/file`)">Preview</button>
-                  <button class="edit-button" type="button" @click="fileDownload(`/versions/${version.number}/file`, version.original_name)">Download</button>
+                  <span v-if="version.file_disposed" class="muted">File destroyed on disposal</span>
+                  <template v-else>
+                    <button v-if="version.previewable" class="edit-button" type="button" @click="filePreview(`/versions/${version.number}/file`)">Preview</button>
+                    <button class="edit-button" type="button" @click="fileDownload(`/versions/${version.number}/file`, version.original_name)">Download</button>
+                  </template>
                 </span>
               </div>
               <span class="muted">{{ version.uploaded_by }} · {{ formatWhen(version.created_at) }}<template v-if="version.comment"> · {{ version.comment }}</template></span>
@@ -414,7 +420,8 @@ onMounted(async () => {
             <li v-for="attachment in document.attachments" :key="attachment.id" class="org-row">
               <span>{{ attachment.original_name }} <span class="muted">· {{ formatBytes(attachment.size_bytes) }} · {{ attachment.uploaded_by }}</span></span>
               <span class="org-actions">
-                <button class="edit-button" type="button" @click="fileDownload(`/attachments/${attachment.id}/file`, attachment.original_name)">Download</button>
+                <span v-if="attachment.file_disposed" class="muted">File destroyed on disposal</span>
+                <button v-else class="edit-button" type="button" @click="fileDownload(`/attachments/${attachment.id}/file`, attachment.original_name)">Download</button>
                 <button v-if="permissions?.can_edit" class="edit-button danger-button" type="button" :disabled="isSaving" @click="removeAttachment(attachment.id, attachment.original_name)">Remove</button>
               </span>
             </li>
@@ -484,6 +491,8 @@ onMounted(async () => {
         </section>
 
         <DocumentCommentsPanel :document-id="document.id" :version-numbers="document.versions.map((version) => version.number)" />
+
+        <DocumentAuditPanel v-if="permissions?.can_view_audit" :document-id="document.id" :key="`audit-${document.id}`" />
 
         <section class="detail-card" aria-labelledby="doc-history-title">
           <h2 id="doc-history-title">History</h2>

@@ -55,6 +55,7 @@ final class ApiAccessPolicyTest extends TestCase
         'api_dms_documents_checkout', 'api_dms_documents_checkin', 'api_dms_documents_readers',
         'api_dms_documents_attachments_upload', 'api_dms_documents_attachments_file', 'api_dms_documents_attachments_delete',
         'api_dms_documents_links_create', 'api_dms_documents_links_delete', 'api_dms_documents_card_pdf',
+        'api_dms_documents_review', 'api_dms_documents_audit',
         // Approval: assignee or deputy, author or clerk, checked inline by ApprovalService.
         'api_dms_approvals_inbox', 'api_dms_approvals_counts', 'api_dms_approvals_decide', 'api_dms_approvals_forward',
         'api_dms_approvals_forward_candidates', 'api_dms_approvals_history', 'api_dms_approvals_candidates',
@@ -106,6 +107,8 @@ final class ApiAccessPolicyTest extends TestCase
     /** Registry routes that require ROLE_DMS_ADMIN (administrators inherit it). */
     private const DMS_ADMIN_ROUTES = [
         'api_dms_types_create', 'api_dms_types_update', 'api_dms_documents_register', 'api_dms_documents_archive',
+        'api_dms_documents_legal_hold_place', 'api_dms_documents_legal_hold_release',
+        'api_dms_records_disposals_eligible', 'api_dms_records_disposals_list', 'api_dms_records_disposals_propose', 'api_dms_records_reports',
     ];
 
     /** Routes that require ROLE_ADMIN. */
@@ -131,6 +134,8 @@ final class ApiAccessPolicyTest extends TestCase
         'api_org_units_create', 'api_org_units_update', 'api_org_units_archive', 'api_org_units_restore', 'api_org_units_delete',
         'api_org_positions_create', 'api_org_positions_update', 'api_org_positions_archive', 'api_org_positions_delete',
         'api_org_employments_create', 'api_org_employments_update', 'api_org_employments_delete',
+        // Disposal decisions: an administrator other than the proposing clerk (checked in DisposalService).
+        'api_dms_records_disposals_approve', 'api_dms_records_disposals_reject',
 
     ];
 

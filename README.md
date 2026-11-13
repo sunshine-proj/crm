@@ -157,9 +157,9 @@ Phase 2 notes:
   Confidential documents are visible only to the author, named readers and clerks, and every read of one is written to the audit log. Documents a user cannot read answer `404`, so their existence is not disclosed.
 - **Lifecycle:** a draft gets versions (immutable, SHA-256, text extracted for search), attachments, links, readers and metadata while it is editable and not checked out by someone else. Registration needs a clerk, at least one version, no check-out, the type's required fields, and approval when the type requires it (approval arrives in Phase 3). It takes the next `{CODE}-{YYYY}-{SEQ:n}`-style number, and the document is `in_force` at once or `registered` until its effective date. Registered documents cannot be edited; they are archived, and unregistered drafts can be deleted with their files. A new version on an approved document returns it to draft. Six starting types are seeded by the migration (Order, Policy, Instruction, Regulation, Contract, Memo).
 - **API:** `/api/dms/types` (list for everyone, writes for clerks) and `/api/dms/documents`: list with search and filters, create, show, update, delete, `versions` (multipart upload and file download, `inline=1` preview for safe types), `checkout` (`force` for clerks), `checkin`, `register`, `archive`, `readers`, `attachments`, `links`, `card.pdf`. Every action is recorded in the document's history, including downloads.
-- **Storage:** files live in `src/var/project-documents/dms`, inside the folder the daily backup already archives (see [docs/BACKUP.md](docs/BACKUP.md)). They use the same 10 MB limit, content-detected type checks and random storage names as project documents, plus OpenDocument text. There is no virus scanning yet (Phase 5).
+- **Storage:** files live in `src/var/project-documents/dms`, inside the folder the daily backup already archives (see [docs/BACKUP.md](docs/BACKUP.md)). They use the same 10 MB limit, content-detected type checks and random storage names as project documents, plus OpenDocument text. Since Phase 5 uploads are scanned by ClamAV when `DMS_CLAMAV_DSN` is set.
 - **UI:** a new **Documents** section with search and filters, a new-draft form (with optional first file), a document page (actions, details, versions with preview and download, attachments, related documents, access, history) at `#/documents/<id>`, and a **Document types** tab for clerks.
-- **Not yet:** moving an in-force document to `superseded` when a replacing document takes effect, and the scheduled `registered` → `in_force` switch on the effective date (both Phase 5). Approval and acknowledgement were added in Phases 3 and 4.
+- **Later phases:** approval and acknowledgement were added in Phases 3 and 4; supersession and the scheduled `registered` → `in_force` switch in Phase 5.
 - **Verification:** backend suite 229 tests / 2,728 assertions (16 new: entity rules, text extraction, and HTTP flows for lifecycle, numbering, visibility, confidentiality, check-out, attachments, links, deletion and validation). `scripts/verify-migrations.sh` passes on PostgreSQL 17 (30 migrations). The new `scripts/verify-dms-e2e.sh` passes against a throwaway API on PostgreSQL 17 (13 checks, including eight concurrent registrations receiving consecutive numbers); its first run found and fixed a search-escaping defect. Frontend: 49 tests, type-check and build pass. The new pages were not checked in a browser. Not applied to any deployed database.
 
 **Phase 3 — Approval workflow (by subordination)** (done; see notes below)
@@ -271,15 +271,52 @@ Phase 4 notes:
   - **End-to-end:** `scripts/verify-dms-e2e.sh` with `APPROVERS` passes against a throwaway API on PostgreSQL 17. It has 32 checks, 13 of them new: subtree scope, the board on PostgreSQL, opening before confirming, two simultaneous confirmations counting once, simultaneous "remind all" giving exactly one reminder, the partial board, CSV and PDF. As with Phase 3, the concurrency checks are smoke tests of the concurrent path, not proof that the locks are needed.
   - **Frontend:** 59 tests (5 new), type-check and build pass. The new screens were not checked in a browser. Not applied to any deployed database.
 
-**Phase 5 — Records lifecycle, audit and hardening**
+**Phase 5 — Records lifecycle, audit and hardening** (done except the two open items; see notes below)
 
-- [ ] Handle the lifecycle: make a document effective on its effective date, send review-date reminders to the owner, mark it superseded when a replacing document comes into force, and archive it on expiry.
-- [ ] Add retention per type, legal hold (blocks deletion), and an admin-approved disposal step that leaves a tombstone record. No hard deletes of registered documents.
-- [ ] Add an audit trail covering view, download, version upload, every route action, acknowledgement, and access change, with filtering per document.
-- [ ] Add reports: documents by status/type/unit, average approval time per step, overdue approvals per approver, and acknowledgement completion per unit.
-- [ ] Before production, run virus scanning on upload, verify that DMS files are included in the P0 off-host backup, and move to object storage if volume requires it.
-- [ ] Add backend PHPUnit tests (subordination, routing validation, concurrency of numbering and decisions, access denial), frontend unit tests for the inbox, route builder and status dashboard, and an e2e script in `scripts/` (submit → approve → register → acknowledgement campaign → status report).
-- [ ] Update [PRD.md](PRD.md) and [NOTES.md](NOTES.md) with the DMS requirements, decisions and remaining gaps.
+- [x] Handle the lifecycle: make a document effective on its effective date, send review-date reminders to the owner, mark it superseded when a replacing document comes into force, and archive it on expiry.
+- [x] Add retention per type, legal hold (blocks deletion), and an admin-approved disposal step that leaves a tombstone record. No hard deletes of registered documents.
+- [x] Add an audit trail covering view, download, version upload, every route action, acknowledgement, and access change, with filtering per document.
+- [x] Add reports: documents by status/type/unit, average approval time per step, overdue approvals per approver, and acknowledgement completion per unit.
+- [ ] Before production, run virus scanning on upload, verify that DMS files are included in the P0 off-host backup, and move to object storage if volume requires it. (Done: ClamAV scanning of every DMS upload when `DMS_CLAMAV_DSN` is set, failing closed with `503` when the scanner is unreachable; the backup drill now proves DMS files and tables restore byte for byte. Open, because they are deployment steps: run a clamd service and set the variable in production, and repeat the restore test against the real off-host destination. Object storage is not needed at the current volume, 10 MB per file on local disk; revisit when the `dms/` folder approaches the backup window or disk limits.)
+- [ ] Add backend PHPUnit tests (subordination, routing validation, concurrency of numbering and decisions, access denial), frontend unit tests for the inbox, route builder and status dashboard, and an e2e script in `scripts/` (submit → approve → register → acknowledgement campaign → status report). (Done: the backend tests across Phases 1–5, frontend unit tests for the route builder (`lib/approvals.ts`), the acknowledgement status board (`lib/acknowledgements.ts`) and the reports (`lib/records.ts`), and `scripts/verify-dms-e2e.sh`, which now ends with the status report. Open: component-level tests of the inbox screens, which need `@vue/test-utils` and a DOM environment that are not installed; the inboxes have no logic outside the tested libraries.)
+- [x] Update [PRD.md](PRD.md) and [NOTES.md](NOTES.md) with the DMS requirements, decisions and remaining gaps.
+
+Phase 5 notes:
+
+- **Lifecycle** (`app:dms:lifecycle`, run hourly by the `scheduler` service before the reminders; safe to repeat):
+  - **In force:** a `registered` document becomes `in_force` on its effective date.
+  - **Superseded:** a document linked as "replaces" another supersedes it as soon as it is in force, on registration or on its effective date. The replaced document's open acknowledgement requests are closed and its author is notified.
+  - **Expired:** the day after its expiry date a registered, in-force or superseded document is archived. Changes are recorded as `automatic (lifecycle)`.
+  - **Review dates:** `app:reminders:run` reminds the author before a registered document's review date (project lead time), marks it overdue, and escalates to the head of the owner unit. The author or a clerk records the review ("Record review") and sets the next date. This is the only field that changes on a registered document.
+- **Retention and disposal:**
+  - **Retention:** the type's retention years, counted from the archive date. Types without one keep documents indefinitely.
+  - **Legal hold:** clerks place it with a reason and release it. It blocks deleting a draft and disposing of a document, and placing it rejects an open disposal proposal.
+  - **Disposal** is four-eyes. A clerk proposes an archived document past retention, the administrators are notified, and an administrator other than the proposer approves or rejects (a reason is required to reject). Approval destroys the version and attachment files, extracted text, comments, summary, tags and named readers. It keeps the document as a `disposed` tombstone: number, title, type, dates, version and attachment names with SHA-256, the full history, and the disposal record with its manifest. Files of disposed versions answer `410`. Registered documents are still never deleted.
+- **Audit trail:**
+  - **Views:** opening the document page is recorded once per person and day.
+  - **Access changes:** they name who gained and who lost access.
+  - **Trail:** `GET /api/dms/documents/{id}/audit` merges the document's events with every approval route action, filtered by action group, person and dates, with `format=csv`. Only the author and clerks can read it; reading it is itself written to the audit log.
+- **Reports** (`GET /api/dms/reports?from=&to=`, clerks):
+  - **Documents:** counts by type, owner unit and status, as of today.
+  - **Approval time:** per step kind and per approver (opened → decided, mean, median, longest) for steps decided in the period.
+  - **Overdue approvals:** open approval steps past their due date, per approver.
+  - **Acknowledgement completion:** per recorded unit, for requests sent in the period.
+- **Virus scanning:** `ClamAvScanner` streams each upload to clamd (`INSTREAM`) before it is stored. Infected files are refused with `400` and audit-logged. With `DMS_CLAMAV_DSN` empty (the default) scanning is off, which is acceptable only for development. Project documents outside the registry are not scanned yet.
+- **API:**
+  - **Legal hold:** `POST`/`DELETE /api/dms/documents/{id}/legal-hold`.
+  - **Per document:** `POST .../review`, `GET .../audit`, and `POST .../disposal` (propose).
+  - **Disposals:** `GET /api/dms/disposals` and `/eligible`, and `POST /api/dms/disposals/{id}/approve|reject` (`ROLE_ADMIN`).
+  - **Reports:** `GET /api/dms/reports`.
+- **UI:**
+  - **Document page:** a Records management panel (next review, retention end, legal hold, disposal state and actions) and an Audit trail panel with filters and CSV. Destroyed files are marked on versions and attachments.
+  - **Clerk tabs:** "Retention" (documents due for disposal, proposals and decisions) and "Reports".
+  - **Notifications:** "Document status" and "Disposal".
+- **Not yet:** a per-document retention override, retention triggers other than the archive date (PRD open decision), scanning of project documents, and object storage.
+- **Verification:**
+  - **Backend:** 271 tests / 3,921 assertions (16 new: lifecycle, review, hold and disposal rules, and the four-eyes record; the ClamAV protocol against a fake daemon and storage refusing infected files; HTTP flows for lifecycle and supersession, review reminders and escalation, legal hold and disposal with the tombstone, the audit trail and the reports).
+  - **Migrations:** `scripts/verify-migrations.sh` passes on PostgreSQL 17 (33 migrations).
+  - **End-to-end:** `scripts/verify-dms-e2e.sh` passes against a throwaway API on PostgreSQL 17 (43 checks, 11 new: audit, legal hold, reports, and the approval and acknowledgement figures in the status report). The lifecycle and reminder commands, and a full disposal with a second administrator, were also run by hand against the same database, with dates moved by SQL. The extended `scripts/verify-backup-drill.sh` passed against it.
+  - **Frontend:** 63 tests (4 new), type-check and build pass. The new screens were not checked in a browser. Not applied to any deployed database.
 
 Out of scope for this phase: qualified e-signatures, external (inter-organization) correspondence and incoming/outgoing mail registration, OCR of scanned paper, a WYSIWYG document editor or co-authoring, and e-mail delivery while `symfony/mime` remains blocked.
 

@@ -3,13 +3,14 @@
 namespace App\Service\Dms;
 
 use App\Entity\StoredFile;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 
 /**
  * Local storage for managed document files and attachments. Files get server-generated names, their type is detected
  * from the content (never from the client), and their SHA-256 is recorded. Same limits as project documents plus
- * OpenDocument text. No virus scanning yet (Phase 5).
+ * OpenDocument text. Files are scanned by ClamAvScanner before they are kept, when scanning is configured.
  */
 final class DmsFileStorage
 {
@@ -27,8 +28,11 @@ final class DmsFileStorage
     /** Types a browser can show inline safely; everything else is served as a download. */
     public const PREVIEWABLE_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'text/plain'];
 
-    public function __construct(#[Autowire('%app.dms_storage_dir%')] private readonly string $directory)
-    {
+    public function __construct(
+        #[Autowire('%app.dms_storage_dir%')] private readonly string $directory,
+        private readonly ClamAvScanner $scanner,
+        #[Autowire(service: 'monolog.logger.audit')] private readonly LoggerInterface $auditLogger,
+    ) {
     }
 
     public function store(UploadedFile $file): StoredFile
@@ -43,6 +47,13 @@ final class DmsFileStorage
             throw new \InvalidArgumentException('This file type is not supported (PDF, Word, Excel, OpenDocument text, plain text, CSV, JPEG or PNG).');
         }
         $hash = hash_file('sha256', $file->getPathname());
+        if ($this->scanner->isEnabled()) {
+            $signature = $this->scanner->scan($file->getPathname());
+            if ($signature !== null) {
+                $this->auditLogger->warning('Infected document upload refused.', ['signature' => $signature, 'sha256' => $hash]);
+                throw new \InvalidArgumentException(sprintf('The file was refused: the virus scanner found %s.', $signature));
+            }
+        }
         if (!is_dir($this->directory) && !mkdir($this->directory, 0700, true) && !is_dir($this->directory)) {
             throw new \RuntimeException('Unable to prepare document storage.');
         }

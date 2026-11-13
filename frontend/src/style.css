@@ -3261,3 +3261,28 @@ input[type="radio"] {
 .detail-card:has(> .ack-units) {
   overflow-x: auto;
 }
+
+/* Records management */
+.records-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 8px 0 12px;
+}
+.records-facts dt {
+  color: var(--text-muted);
+}
+.records-facts dd {
+  margin: 0;
+}
+.records-summary-heading {
+  display: inline;
+  font-size: inherit;
+}
+.audit-filters {
+  align-items: end;
+  margin-bottom: 10px;
+}
+.report-scroll {
+  overflow-x: auto;
+}

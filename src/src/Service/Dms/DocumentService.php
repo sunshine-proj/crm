@@ -16,6 +16,8 @@ use App\Entity\Project;
 use App\Entity\StoredFile;
 use App\Entity\User;
 use App\Repository\AcknowledgementRequestRepository;
+use App\Repository\DocumentDisposalRepository;
+use App\Repository\DocumentEventRepository;
 use App\Repository\DocumentLinkRepository;
 use App\Repository\DocumentRepository;
 use App\Repository\DocumentTypeRepository;
@@ -45,6 +47,9 @@ final class DocumentService
         private readonly UserRepository $userRepository,
         private readonly SubordinationService $subordination,
         private readonly AcknowledgementRequestRepository $acknowledgementRequests,
+        private readonly DocumentEventRepository $eventRepository,
+        private readonly DocumentDisposalRepository $disposalRepository,
+        private readonly DmsNotifier $notifier,
     ) {
     }
 
@@ -170,29 +175,111 @@ final class DocumentService
             $document->register($number, $registrar, $now);
             $document->refreshSearchText($this->versionRepository->findLatest($document)?->getExtractedText());
             $this->record($document, $registrar, 'registered', ['number' => $number, 'status' => $document->getStatus()]);
+            // The supersession query reads the new status from the database, so write it first.
             $this->entityManager->flush();
+            if ($this->supersedeReplacedBy($document, $registrar) > 0) {
+                $this->entityManager->flush();
+            }
         });
+    }
+
+    /**
+     * Once a document is in force, the documents it is linked as replacing are superseded (and their open
+     * acknowledgement requests closed). Persists, does not flush.
+     *
+     * @return int documents superseded
+     */
+    public function supersedeReplacedBy(?Document $replacement, string $actor): int
+    {
+        $count = 0;
+        foreach ($this->linkRepository->findPendingSupersessions($replacement) as $link) {
+            $old = $link->getTarget();
+            $new = $link->getSource();
+            $old->supersede();
+            $this->record($old, $actor, 'superseded', ['by_document' => $new->getId(), 'by_number' => $new->getRegistrationNumber()]);
+            $this->closeAcknowledgements($old, $actor, 'superseded');
+            $this->notifier->lifecycle($old->getAuthor(), $old, sprintf('"%s" is superseded by %s.', $old->getTitle(), $new->getRegistrationNumber() ?? $new->getTitle()), sprintf('lifecycle:%d:superseded', $old->getId()));
+            ++$count;
+        }
+
+        return $count;
     }
 
     public function archive(Document $document, User $actor): void
     {
         $this->access->assertRegistrar();
+        $this->archiveAs($document, $actor->getUserIdentifier(), null);
+        $this->entityManager->flush();
+    }
+
+    /** Archives (by a clerk, or automatically on expiry). Persists, does not flush. */
+    public function archiveAs(Document $document, string $actor, ?string $reason): void
+    {
         $document->archive();
-        $this->record($document, $actor, 'archived');
+        $this->record($document, $actor, 'archived', $reason !== null ? ['reason' => $reason] : []);
         // Nobody should still be asked to acknowledge an archived document.
-        foreach ($this->acknowledgementRequests->findForDocument($document) as $request) {
-            if ($request->isOpen()) {
-                $request->close($actor->getUserIdentifier(), new \DateTimeImmutable());
-                $this->record($document, $actor, 'acknowledgement_closed', ['request' => $request->getId(), 'reason' => 'archived']);
-            }
+        $this->closeAcknowledgements($document, $actor, 'archived');
+    }
+
+    public function placeLegalHold(Document $document, User $actor, ?string $reason): void
+    {
+        $this->access->assertRegistrar();
+        $now = new \DateTimeImmutable();
+        $document->placeLegalHold((string) $reason, $actor->getUserIdentifier(), $now);
+        $this->record($document, $actor, 'legal_hold_placed', ['reason' => $document->getLegalHoldReason()]);
+        $pending = $this->disposalRepository->findOpenFor($document);
+        if ($pending !== null) {
+            $pending->reject($actor->getUserIdentifier(), 'Rejected automatically: the document was put under legal hold.', $now, automatic: true);
+            $this->record($document, $actor, 'disposal_rejected', ['disposal' => $pending->getId(), 'reason' => 'legal hold']);
         }
         $this->entityManager->flush();
+    }
+
+    public function releaseLegalHold(Document $document, User $actor, ?string $comment): void
+    {
+        $this->access->assertRegistrar();
+        $reason = $document->getLegalHoldReason();
+        $document->releaseLegalHold();
+        $this->record($document, $actor, 'legal_hold_released', ['hold_reason' => $reason, 'comment' => $comment !== null && trim($comment) !== '' ? mb_substr(trim($comment), 0, 1000) : null]);
+        $this->entityManager->flush();
+    }
+
+    /** The owner (author) or a clerk confirms the periodic review and sets the next review date, if any. */
+    public function recordReview(Document $document, User $actor, ?\DateTimeImmutable $nextReviewOn, ?string $comment): void
+    {
+        $this->access->assertManage($actor, $document);
+        $previous = $document->getReviewOn()?->format('Y-m-d');
+        $document->recordReview($nextReviewOn, new \DateTimeImmutable('today'));
+        $this->record($document, $actor, 'reviewed', ['due_on' => $previous, 'next_review_on' => $nextReviewOn?->format('Y-m-d'), 'comment' => $comment !== null && trim($comment) !== '' ? mb_substr(trim($comment), 0, 1000) : null]);
+        $this->entityManager->flush();
+    }
+
+    /** Opening the document page is part of the trail, once per person and day. */
+    public function recordView(Document $document, User $actor): void
+    {
+        if (!$this->eventRepository->existsSince($document, $actor->getUserIdentifier(), 'viewed', new \DateTimeImmutable('today'))) {
+            $this->record($document, $actor, 'viewed');
+            $this->entityManager->flush();
+        }
+    }
+
+    private function closeAcknowledgements(Document $document, string $actor, string $reason): void
+    {
+        foreach ($this->acknowledgementRequests->findForDocument($document) as $request) {
+            if ($request->isOpen()) {
+                $request->close($actor, new \DateTimeImmutable());
+                $this->record($document, $actor, 'acknowledgement_closed', ['request' => $request->getId(), 'reason' => $reason]);
+            }
+        }
     }
 
     /** Deletes an unregistered document with its versions, attachments and files. */
     public function delete(Document $document, User $actor): void
     {
         $this->access->assertManage($actor, $document);
+        if ($document->isOnLegalHold()) {
+            throw new \DomainException('The document is under legal hold and cannot be deleted.');
+        }
         if (!$document->isDeletable()) {
             throw new \DomainException('Only unregistered drafts can be deleted; registered documents are archived.');
         }
@@ -218,8 +305,15 @@ final class DocumentService
         foreach (array_unique($userIds) as $id) {
             $users[] = $this->userRepository->find($id) ?? throw new NotFound(sprintf('User %d not found.', $id));
         }
+        $before = array_map(static fn (User $user): string => $user->getUserIdentifier(), $document->getReaders());
         $document->replaceReaders($users);
-        $this->record($document, $actor, 'readers_changed', ['count' => count($document->getReaders())]);
+        $after = array_map(static fn (User $user): string => $user->getUserIdentifier(), $document->getReaders());
+        // Access changes name who gained and who lost access (details hold scalars only).
+        $this->record($document, $actor, 'readers_changed', [
+            'count' => count($after),
+            'added' => implode(', ', array_diff($after, $before)) ?: null,
+            'removed' => implode(', ', array_diff($before, $after)) ?: null,
+        ]);
         $this->entityManager->flush();
     }
 

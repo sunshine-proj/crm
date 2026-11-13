@@ -1,6 +1,6 @@
 // Document registry display helpers. The API decides permissions, numbering and status; these only label and shape data.
 
-export type DocumentStatus = "draft" | "in_approval" | "approved" | "rejected" | "withdrawn" | "registered" | "in_force" | "superseded" | "archived";
+export type DocumentStatus = "draft" | "in_approval" | "approved" | "rejected" | "withdrawn" | "registered" | "in_force" | "superseded" | "archived" | "disposed";
 export type Confidentiality = "general" | "confidential";
 
 export type DocumentTypeInfo = {
@@ -30,6 +30,7 @@ export type DocumentVersion = {
   comment: string | null;
   previewable: boolean;
   has_text: boolean;
+  file_disposed: boolean;
   created_at: string;
 };
 
@@ -43,6 +44,23 @@ export type DocumentPermissions = {
   can_delete: boolean;
   can_submit: boolean;
   can_withdraw: boolean;
+  can_request_acknowledgement: boolean;
+  can_place_legal_hold: boolean;
+  can_release_legal_hold: boolean;
+  can_record_review: boolean;
+  can_view_audit: boolean;
+  can_propose_disposal: boolean;
+};
+
+export type DisposalSummary = {
+  id: number;
+  status: "proposed" | "approved" | "rejected";
+  proposed_by: string;
+  proposed_at: string;
+  reason: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_comment: string | null;
 };
 
 export type DocumentSummary = {
@@ -71,6 +89,11 @@ export type DocumentDetail = DocumentSummary & {
   review_on: string | null;
   registered_by: string | null;
   archived_at: string | null;
+  retain_until: string | null;
+  legal_hold: { reason: string; by: string; at: string } | null;
+  disposed_at: string | null;
+  /** Disposal proposals and decisions; only returned to registry clerks. */
+  disposals: DisposalSummary[];
   checked_out_at: string | null;
   client: { id: number; title: string } | null;
   project: { id: number; title: string } | null;
@@ -78,7 +101,7 @@ export type DocumentDetail = DocumentSummary & {
   readers: { id: number; email: string }[];
   missing_required_fields: string[];
   versions: DocumentVersion[];
-  attachments: { id: number; original_name: string; mime_type: string; size_bytes: number; sha256: string; uploaded_by: string; created_at: string }[];
+  attachments: { id: number; original_name: string; mime_type: string; size_bytes: number; sha256: string; uploaded_by: string; file_disposed: boolean; created_at: string }[];
   links: { id: number; kind: LinkKind; direction: "outgoing" | "incoming"; document: { id: number; title: string; registration_number: string | null; status: DocumentStatus }; created_by: string; created_at: string }[];
   events: { id: number; action: string; actor: string; details: Record<string, string | number | boolean | null>; created_at: string }[];
 };
@@ -97,13 +120,14 @@ export const statusLabels: Record<DocumentStatus, string> = {
   in_force: "In force",
   superseded: "Superseded",
   archived: "Archived",
+  disposed: "Disposed",
 };
 
 /** Visual tone of a status pill: work in progress, done, attention needed, or finished. */
 export function statusTone(status: DocumentStatus): "progress" | "done" | "attention" | "closed" {
   if (status === "in_force" || status === "registered" || status === "approved") return "done";
   if (status === "rejected") return "attention";
-  if (status === "superseded" || status === "archived" || status === "withdrawn") return "closed";
+  if (status === "superseded" || status === "archived" || status === "withdrawn" || status === "disposed") return "closed";
   return "progress";
 }
 
