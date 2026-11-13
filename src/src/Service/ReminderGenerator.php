@@ -9,6 +9,8 @@ use App\Entity\ReminderPreference;
 use App\Entity\Task;
 use App\Entity\TaskStatus;
 use App\Entity\User;
+use App\Repository\AcknowledgementRecipientRepository;
+use App\Repository\AcknowledgementRequestRepository;
 use App\Repository\ApprovalStepRepository;
 use App\Repository\NotificationRepository;
 use App\Repository\ProjectRepository;
@@ -26,7 +28,9 @@ use Doctrine\ORM\EntityManagerInterface;
  * Deadline rules follow the project-management overview: a task is due on its due date, or on its scheduled end
  * date when it has none; a project is due on its planned end date. Finished and cancelled work is ignored.
  * Open document approval steps with a due date follow the task lead time and escalate to the assignee's direct
- * superior in the organization structure (administrators when there is none).
+ * superior in the organization structure (administrators when there is none). People who still owe an
+ * acknowledgement of a request with a deadline are reminded the same way; escalation goes to their direct superior,
+ * or to the request's sender when they have none.
  */
 final class ReminderGenerator
 {
@@ -46,6 +50,8 @@ final class ReminderGenerator
         private readonly EntityManagerInterface $entityManager,
         private readonly ApprovalStepRepository $approvalStepRepository,
         private readonly SubordinationService $subordination,
+        private readonly AcknowledgementRequestRepository $acknowledgementRequestRepository,
+        private readonly AcknowledgementRecipientRepository $acknowledgementRecipientRepository,
     ) {
     }
 
@@ -84,6 +90,17 @@ final class ReminderGenerator
             $document = $step->getStage()->getRoute()->getDocument();
             $label = sprintf('%s of "%s"', $verbs[$step->getKind()] ?? 'Approval', $document->getTitle());
             $this->remind($counts, $step->getAssignee(), 'document', (int) $document->getId(), null, $label, $step->getDueOn()->setTime(0, 0), $today, 'lead_task', $chart->directSuperior($step->getAssignee()), 'approval_step:'.$step->getId());
+        }
+        $requests = $this->acknowledgementRequestRepository->findOpenWithDueDate();
+        foreach ($this->acknowledgementRecipientRepository->findForRequests($requests) as $recipients) {
+            foreach ($recipients as $recipient) {
+                if (!$recipient->isOpen()) {
+                    continue;
+                }
+                $request = $recipient->getRequest();
+                $document = $request->getDocument();
+                $this->remind($counts, $recipient->getUser(), 'document', (int) $document->getId(), null, sprintf('Acknowledgement of "%s"', $document->getTitle()), $request->getDueOn()->setTime(0, 0), $today, 'lead_task', $chart->directSuperior($recipient->getUser()) ?? $request->getSender(), 'ack_recipient:'.$recipient->getId());
+            }
         }
         $this->entityManager->flush();
 

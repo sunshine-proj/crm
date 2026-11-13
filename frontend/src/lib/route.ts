@@ -1,12 +1,13 @@
-export type DetailRoute = { kind: "client" | "project" | "document"; id: number };
+export type DetailRoute = { kind: "client" | "project" | "document" | "acknowledgement"; id: number };
 
 const patterns: { kind: DetailRoute["kind"]; pattern: RegExp }[] = [
   { kind: "client", pattern: /^#\/clients\/(\d+)$/ },
   { kind: "project", pattern: /^#\/projects\/(\d+)$/ },
   { kind: "document", pattern: /^#\/documents\/(\d+)$/ },
+  { kind: "acknowledgement", pattern: /^#\/acknowledgements\/(\d+)$/ },
 ];
 
-/** Parses `#/clients/12`, `#/projects/5` and `#/documents/7`; anything else is the normal section view. */
+/** Parses `#/clients/12`, `#/projects/5`, `#/documents/7` and `#/acknowledgements/3`; anything else is the normal section view. */
 export function parseDetailRoute(hash: string): DetailRoute | null {
   for (const { kind, pattern } of patterns) {
     const match = pattern.exec(hash);
@@ -19,7 +20,8 @@ export function parseDetailRoute(hash: string): DetailRoute | null {
 }
 
 export function detailHref(kind: DetailRoute["kind"], id: number): string {
-  return `#/${kind === "client" ? "clients" : kind === "project" ? "projects" : "documents"}/${id}`;
+  const segments: Record<DetailRoute["kind"], string> = { client: "clients", project: "projects", document: "documents", acknowledgement: "acknowledgements" };
+  return `#/${segments[kind]}/${id}`;
 }
 
 /** The sidebar section a detail route belongs to. */

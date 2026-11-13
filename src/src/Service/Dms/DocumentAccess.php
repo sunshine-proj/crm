@@ -4,6 +4,7 @@ namespace App\Service\Dms;
 
 use App\Entity\Document;
 use App\Entity\User;
+use App\Repository\AcknowledgementRecipientRepository;
 use App\Repository\ApprovalStepRepository;
 use App\Service\Org\OrgChart;
 use App\Service\Org\SubordinationService;
@@ -13,11 +14,12 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
  * Who may do what with a document, for the signed-in user.
  *
  * Read: registry clerks (ROLE_DMS_ADMIN); the author; named readers; approval participants (and their deputies while
- * they act for them); for general (non-confidential) documents also
+ * they act for them); people asked to acknowledge it; for general (non-confidential) documents also
  * heads of the owner unit or a unit above it, and everyone once the document is registered. Confidential documents
  * are never visible beyond the author, named readers and clerks.
  * Manage (metadata, files, readers, links, delete drafts): the author and clerks. Content changes also need an
- * editable status and no check-out by somebody else. Registration and archiving: clerks only.
+ * editable status and no check-out by somebody else. Registration and archiving: clerks only. Asking for
+ * acknowledgement: unit heads (for their own subtree) and clerks, once the document is registered and in force.
  * DocumentRepository::search() applies the same read rule in the query.
  */
 final class DocumentAccess
@@ -28,6 +30,7 @@ final class DocumentAccess
         private readonly AuthorizationCheckerInterface $authorization,
         private readonly SubordinationService $subordination,
         private readonly ApprovalStepRepository $stepRepository,
+        private readonly AcknowledgementRecipientRepository $recipientRepository,
     ) {
     }
 
@@ -58,7 +61,7 @@ final class DocumentAccess
         if ($this->isRegistrar() || $this->canManage($user, $document) || $document->hasReader($user)) {
             return true;
         }
-        if ($this->stepRepository->isParticipant($document, $this->actingForIds($user))) {
+        if ($this->stepRepository->isParticipant($document, $this->actingForIds($user)) || $this->recipientRepository->isRecipient($document, $user)) {
             return true;
         }
         if ($document->isConfidential()) {
@@ -132,6 +135,7 @@ final class DocumentAccess
             'can_delete' => $manage && $document->isDeletable(),
             'can_submit' => $manage && $document->canBeSubmitted() && $document->getVersionCount() > 0 && $document->getCheckedOutBy() === null,
             'can_withdraw' => $manage && $document->getStatus() === Document::IN_APPROVAL,
+            'can_request_acknowledgement' => in_array($document->getStatus(), Document::ACKNOWLEDGEABLE, true) && ($clerk || $this->managedUnitIds($user) !== []),
         ];
     }
 

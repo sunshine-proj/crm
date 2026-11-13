@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { apiRequest, errorText } from "../lib/api";
 import { detailHref } from "../lib/route";
 
-type Notice = { id: number; kind: "due_soon" | "overdue" | "escalation" | "approval" | "decision"; subject_type: string; subject_id: number; project_id: number | null; message: string; created_at: string; read_at: string | null };
+type Notice = { id: number; kind: "due_soon" | "overdue" | "escalation" | "approval" | "decision" | "acknowledgement"; subject_type: string; subject_id: number; project_id: number | null; message: string; created_at: string; read_at: string | null };
 type Preferences = { enabled: boolean; task_lead_days: number; project_lead_days: number; escalate_after_days: number; delivery: string };
 
 const isOpen = ref(false);
@@ -76,7 +76,7 @@ async function savePreferences() {
   }
 }
 
-const kindLabels: Record<Notice["kind"], string> = { escalation: "Escalation", overdue: "Overdue", due_soon: "Due soon", approval: "For your decision", decision: "Decision" };
+const kindLabels: Record<Notice["kind"], string> = { escalation: "Escalation", overdue: "Overdue", due_soon: "Due soon", approval: "For your decision", decision: "Decision", acknowledgement: "Acknowledgement" };
 
 function link(notice: Notice): string {
   if (notice.subject_type === "document") return detailHref("document", notice.subject_id);

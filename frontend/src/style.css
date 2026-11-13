@@ -3153,3 +3153,111 @@ input[type="radio"] {
     grid-template-columns: 1fr;
   }
 }
+
+/* Acknowledgement campaigns */
+.ack-bar {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  height: 6px;
+  margin: 4px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line-subtle);
+}
+.ack-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.ack-units td .ack-bar {
+  display: inline-block;
+  width: 90px;
+  margin: 0 6px 0 0;
+  vertical-align: middle;
+}
+.ack-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.ack-percent {
+  color: var(--accent);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 2rem;
+}
+.ack-mine {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-subtle);
+  border-left: 3px solid var(--warning);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+.ack-mine.is-overdue {
+  border-left-color: var(--danger);
+}
+.ack-mine p {
+  margin: 0;
+}
+.ack-picker {
+  display: grid;
+  gap: 10px;
+}
+.ack-picker-unit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+}
+.ack-subunits {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.ack-picker-scroll {
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  margin-top: 6px;
+  overflow: auto;
+}
+.ack-units {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ack-units th,
+.ack-units td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-subtle);
+  text-align: left;
+  font-weight: normal;
+  white-space: nowrap;
+}
+.ack-units thead th {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.ack-units tr.is-selected {
+  background: var(--accent-wash);
+}
+.ack-unit-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ack-unit-button:hover,
+.ack-unit-button:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.detail-card:has(> .ack-units) {
+  overflow-x: auto;
+}

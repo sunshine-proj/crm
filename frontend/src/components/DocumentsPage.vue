@@ -7,13 +7,16 @@ import { treeRows, type OrgUnit } from "../lib/org";
 import { documentQuery, emptyFilters, parseTags, statusLabels, statusTone, type Confidentiality, type DocumentDetail, type DocumentStatus, type DocumentSummary, type DocumentTypeInfo } from "../lib/documents";
 import DocumentTypesPanel from "./DocumentTypesPanel.vue";
 import ApprovalInbox from "./ApprovalInbox.vue";
+import AcknowledgementInbox from "./AcknowledgementInbox.vue";
+import AcknowledgementCampaigns from "./AcknowledgementCampaigns.vue";
 
 type Page = { items: DocumentSummary[]; total: number; limit: number; offset: number };
 
 const PAGE_SIZE = 25;
 const isClerk = isDmsAdminToken(localStorage.getItem("crm_token"));
 
-const view = ref<"registry" | "inbox" | "types">("registry");
+const view = ref<"registry" | "inbox" | "acknowledge" | "campaigns" | "types">("registry");
+const ackCounts = ref<{ to_acknowledge: number; overdue: number }>({ to_acknowledge: 0, overdue: 0 });
 const counts = ref<{ awaiting: number; overdue: number; consultations: number }>({ awaiting: 0, overdue: 0, consultations: 0 });
 const types = ref<DocumentTypeInfo[]>([]);
 const units = ref<OrgUnit[]>([]);
@@ -114,7 +117,10 @@ function formatWhen(value: string) {
 
 async function loadCounts() {
   try {
-    counts.value = await apiRequest<typeof counts.value>("/dms/approvals/counts");
+    [counts.value, ackCounts.value] = await Promise.all([
+      apiRequest<typeof counts.value>("/dms/approvals/counts"),
+      apiRequest<typeof ackCounts.value>("/dms/acknowledgements/counts"),
+    ]);
   } catch {
     // The counter is a hint; the inbox tab loads the real list.
   }
@@ -146,6 +152,10 @@ onMounted(async () => {
       <button type="button" role="tab" :aria-selected="view === 'inbox'" @click="view = 'inbox'">
         Awaiting me <span v-if="counts.awaiting" class="notification-badge" :aria-label="`${counts.awaiting} awaiting, ${counts.overdue} overdue`">{{ counts.awaiting }}</span>
       </button>
+      <button type="button" role="tab" :aria-selected="view === 'acknowledge'" @click="view = 'acknowledge'">
+        To acknowledge <span v-if="ackCounts.to_acknowledge" class="notification-badge" :aria-label="`${ackCounts.to_acknowledge} to acknowledge, ${ackCounts.overdue} overdue`">{{ ackCounts.to_acknowledge }}</span>
+      </button>
+      <button type="button" role="tab" :aria-selected="view === 'campaigns'" @click="view = 'campaigns'">Acknowledgement status</button>
       <button v-if="isClerk" type="button" role="tab" :aria-selected="view === 'types'" @click="view = 'types'">Document types</button>
     </div>
 
@@ -153,6 +163,8 @@ onMounted(async () => {
 
     <DocumentTypesPanel v-if="view === 'types'" @changed="loadReferenceData" />
     <ApprovalInbox v-else-if="view === 'inbox'" @counted="(count) => (counts.awaiting = count)" />
+    <AcknowledgementInbox v-else-if="view === 'acknowledge'" @counted="(count) => (ackCounts.to_acknowledge = count)" />
+    <AcknowledgementCampaigns v-else-if="view === 'campaigns'" />
 
     <template v-else>
       <form v-if="isFormOpen" class="article-form" @submit.prevent="createDocument">

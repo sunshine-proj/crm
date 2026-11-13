@@ -5,8 +5,9 @@
 #
 # Usage: API_URL=http://localhost:8081 ADMIN_EMAIL=... ADMIN_PASSWORD=... USER_EMAIL=... USER_PASSWORD=... scripts/verify-dms-e2e.sh
 # Optional: APPROVERS="a@x:pw b@x:pw c@x:pw" (three users without a position) adds the approval checks: the script builds
-# its own small structure (the user reports to the three of them) and approves in parallel. USER must have no
-# current primary position.
+# its own small structure (the user reports to the three of them) and approves in parallel, then runs an
+# acknowledgement request through it (simultaneous confirmations and reminders, partial boards, CSV and PDF exports).
+# USER must have no current primary position.
 # Requires: curl, jq. The admin needs ROLE_ADMIN (which includes ROLE_DMS_ADMIN); the other users need no extra role.
 set -Eeuo pipefail
 
@@ -92,6 +93,28 @@ if [ -n "${APPROVERS:-}" ]; then
   check "the approved document is registered automatically" "$(jq -r .status <<<"$document") $(jq -r .registration_number <<<"$document")" "in_force P${s: -8}-$year-001"
   first_step="$(head -1 "$work/steps")"
   check "a repeated decision is refused" "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$API_URL/api/dms/approvals/steps/${first_step#* }/decision" -H "Authorization: Bearer ${first_step%% *}" -H 'Content-Type: application/json' -d '{"decision":"approve"}')" "409"
+
+  # Acknowledgement: the head of UNIT (approver 2) asks UNIT and everything below it to read the registered order.
+  unit_id=$(api "${tokens[1]}" GET "/dms/documents/$doc/acknowledgements/audience" | jq -r '.units | map(select(.name == "Approval 2 '"$s"'")) | .[0].id')
+  sent="$(api "${tokens[1]}" POST "/dms/documents/$doc/acknowledgements" -d "{\"targets\":[{\"kind\":\"unit\",\"id\":$unit_id,\"include_subunits\":true}],\"due_on\":\"$today\"}")"
+  request=$(jq -r .id <<<"$sent")
+  check "a unit head asks their subtree (the sender excluded)" "$(jq -r '[.recipients[].user.id] | sort | map(tostring) | join(",")' <<<"$sent")" "$(printf '%s\n' "${approver_ids[0]}" "$user_id" | sort -n | paste -sd,)"
+  check "the board starts at the first unit with people of its own" "$(jq -r '[.units[] | "\(.depth):\(.total.total)"] | join(" ")' <<<"$sent")" "0:2"
+  check "a unit outside the sender's subtree is refused" "$(status "${tokens[0]}" POST "/dms/documents/$doc/acknowledgements" -H 'Content-Type: application/json' -d "{\"targets\":[{\"kind\":\"unit\",\"id\":$unit_id}]}")" "409"
+  mine=$(api "$USER" GET /dms/acknowledgements/inbox | jq -r '.[0].id')
+  check "confirming before opening is refused" "$(status "$USER" POST "/dms/acknowledgements/recipients/$mine/acknowledge")" "409"
+  status "$USER" GET "/dms/documents/$doc/versions/1/file" >/dev/null
+  codes="$(for _ in 1 2; do echo x; done | xargs -P 2 -I{} curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API_URL/api/dms/acknowledgements/recipients/$mine/acknowledge" -H "Authorization: Bearer $USER" | sort | tr '\n' ' ')"
+  check "two simultaneous confirmations count once" "$codes" "200 409 "
+  check "one acknowledged event" "$(api "$USER" GET "/dms/documents/$doc" | jq -r '[.events[] | select(.action == "acknowledged")] | length')" "1"
+  codes="$(for _ in 1 2; do echo x; done | xargs -P 2 -I{} curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$API_URL/api/dms/acknowledgements/$request/remind" -H "Authorization: Bearer ${tokens[1]}" -H 'Content-Type: application/json' -d '{"recipient_ids":null}' | sort | tr '\n' ' ')"
+  check "simultaneous 'remind all' succeed or answer 409" "$(tr ' ' '\n' <<<"$codes" | grep -cvE '^(200|409)?$' || true)" "0"
+  check "the pending person got exactly one manual reminder" "$(api "${tokens[0]}" GET '/notifications?limit=50' | jq -r '[.items[] | select(.message | startswith("Reminder from"))] | length')" "1"
+  board="$(api "${tokens[0]}" GET "/dms/acknowledgements/$request")"
+  check "the section head sees only their section" "$(jq -r '"\(.is_partial) \(.counts.total) \(.units[0].depth)"' <<<"$board")" "true 2 0"
+  check "status export is CSV with a header and two people" "$(curl -sS "$API_URL/api/dms/acknowledgements/$request/export.csv" -H "Authorization: Bearer ${tokens[1]}" | wc -l | tr -d ' ')" "3"
+  check "acknowledgement sheet is a PDF" "$(curl -sS -o /dev/null -w '%{content_type}' "$API_URL/api/dms/acknowledgements/$request/sheet.pdf" -H "Authorization: Bearer ${tokens[1]}")" "application/pdf"
+  check "the user's history lists the confirmation" "$(api "$USER" GET /dms/acknowledgements/history | jq -r '.[0].status')" "acknowledged"
 fi
 
 [ "$failures" -eq 0 ] && echo "All document registry checks passed." || { echo "$failures check(s) failed."; exit 1; }

@@ -211,6 +211,38 @@ final class OrgChart
         return $this->sortUsers(array_values($result));
     }
 
+    /** @return list<Employment> active employments on the position, by holder e-mail */
+    public function holdersOf(int $positionId): array
+    {
+        $result = [];
+        foreach ($this->employments as $list) {
+            foreach ($list as $employment) {
+                if ($employment->getPosition()->getId() === $positionId) {
+                    $result[] = $employment;
+                }
+            }
+        }
+        usort($result, static fn (Employment $a, Employment $b): int => [$a->getUser()->getUserIdentifier(), $a->getId()] <=> [$b->getUser()->getUserIdentifier(), $b->getId()]);
+
+        return $result;
+    }
+
+    /**
+     * The user's employment in one of the given units (primary first), else null.
+     *
+     * @param list<int> $unitIds
+     */
+    public function employmentIn(User $user, array $unitIds): ?Employment
+    {
+        foreach ($this->employmentsOf($user) as $employment) {
+            if (in_array((int) $employment->getPosition()->getUnit()->getId(), $unitIds, true)) {
+                return $employment;
+            }
+        }
+
+        return null;
+    }
+
     public function memberCount(int $unitId): int
     {
         return count($this->members($unitId));

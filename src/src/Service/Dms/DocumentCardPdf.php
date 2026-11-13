@@ -10,7 +10,8 @@ use Dompdf\Options;
 
 /**
  * Registration card: the document's identity (number, dates, owner), the exact file versions with their SHA-256
- * and the trail of actions. Phase 3 adds the approval sheet and Phase 4 the acknowledgement sheet to this output.
+ * and the trail of actions. The acknowledgement sheet is a separate PDF (AcknowledgementSheetPdf); an approval sheet is
+ * not produced yet.
  * Rendered without remote resources; every value is escaped.
  */
 final class DocumentCardPdf

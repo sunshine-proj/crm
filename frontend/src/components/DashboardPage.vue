@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import { apiRequest } from "../lib/api";
 
 type DashboardSummary = {
   client_count: number;
@@ -10,6 +11,19 @@ type DashboardSummary = {
 const summary = ref<DashboardSummary | null>(null);
 const errorMessage = ref("");
 const isLoading = ref(true);
+const documentCounts = ref<{ toAcknowledge: number; awaitingDecision: number } | null>(null);
+
+async function loadDocumentCounts() {
+  try {
+    const [acknowledgements, approvals] = await Promise.all([
+      apiRequest<{ to_acknowledge: number }>("/dms/acknowledgements/counts"),
+      apiRequest<{ awaiting: number }>("/dms/approvals/counts"),
+    ]);
+    documentCounts.value = { toAcknowledge: acknowledgements.to_acknowledge, awaitingDecision: approvals.awaiting };
+  } catch {
+    // The document counters are a convenience; the Documents section shows the real lists.
+  }
+}
 
 async function loadSummary() {
   try {
@@ -26,7 +40,10 @@ async function loadSummary() {
   }
 }
 
-onMounted(loadSummary);
+onMounted(() => {
+  void loadSummary();
+  void loadDocumentCounts();
+});
 </script>
 
 <template>
@@ -49,6 +66,8 @@ onMounted(loadSummary);
         <div><span>Clients</span><strong>{{ isLoading ? "..." : summary?.client_count ?? 0 }}</strong></div>
         <div><span>Active projects</span><strong>{{ isLoading ? "..." : summary?.active_project_count ?? 0 }}</strong></div>
         <div><span>Open tasks</span><strong>{{ isLoading ? "..." : summary?.open_task_count ?? 0 }}</strong></div>
+        <div v-if="documentCounts"><span>Documents to acknowledge</span><strong>{{ documentCounts.toAcknowledge }}</strong></div>
+        <div v-if="documentCounts"><span>Documents awaiting my approval</span><strong>{{ documentCounts.awaitingDecision }}</strong></div>
       </div>
     </div>
   </div>

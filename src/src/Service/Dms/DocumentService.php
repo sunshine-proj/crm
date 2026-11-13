@@ -15,6 +15,7 @@ use App\Entity\OrgUnit;
 use App\Entity\Project;
 use App\Entity\StoredFile;
 use App\Entity\User;
+use App\Repository\AcknowledgementRequestRepository;
 use App\Repository\DocumentLinkRepository;
 use App\Repository\DocumentRepository;
 use App\Repository\DocumentTypeRepository;
@@ -43,6 +44,7 @@ final class DocumentService
         private readonly DocumentLinkRepository $linkRepository,
         private readonly UserRepository $userRepository,
         private readonly SubordinationService $subordination,
+        private readonly AcknowledgementRequestRepository $acknowledgementRequests,
     ) {
     }
 
@@ -177,6 +179,13 @@ final class DocumentService
         $this->access->assertRegistrar();
         $document->archive();
         $this->record($document, $actor, 'archived');
+        // Nobody should still be asked to acknowledge an archived document.
+        foreach ($this->acknowledgementRequests->findForDocument($document) as $request) {
+            if ($request->isOpen()) {
+                $request->close($actor->getUserIdentifier(), new \DateTimeImmutable());
+                $this->record($document, $actor, 'acknowledgement_closed', ['request' => $request->getId(), 'reason' => 'archived']);
+            }
+        }
         $this->entityManager->flush();
     }
 

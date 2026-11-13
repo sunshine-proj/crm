@@ -3,6 +3,7 @@
 namespace App\Repository;
 
 use App\Dto\DocumentSearch;
+use App\Entity\AcknowledgementRecipient;
 use App\Entity\ApprovalStep;
 use App\Entity\Document;
 use App\Entity\OrgUnit;
@@ -19,7 +20,8 @@ class DocumentRepository extends ServiceEntityRepository
 
     /**
      * Documents matching the filters that the viewer may read. A null viewer means unrestricted (registry clerks).
-     * The visibility predicate mirrors DocumentAccess::canRead().
+     * The visibility predicate mirrors DocumentAccess::canRead(), including approval participants and people asked to
+     * acknowledge the document.
      *
      * @param list<int> $managedUnitIds units the viewer heads (with sub-units)
      * @param list<int> $actingForIds the viewer and the people they deputize for (approval participation)
@@ -55,11 +57,14 @@ class DocumentRepository extends ServiceEntityRepository
         $participant = $this->getEntityManager()->createQueryBuilder()->select('1')->from(ApprovalStep::class, 'participation')
             ->join('participation.stage', 'participationStage')->join('participationStage.route', 'participationRoute')
             ->where('participationRoute.document = document')->andWhere('IDENTITY(participation.assignee) IN (:actingFor)');
+        $recipient = $this->getEntityManager()->createQueryBuilder()->select('1')->from(AcknowledgementRecipient::class, 'asked')
+            ->join('asked.request', 'askedRequest')->where('askedRequest.document = document')->andWhere('asked.user = :viewer');
         $visible = $query->expr()->orX(
             'document.author = :viewer',
             ':viewer MEMBER OF document.readers',
             $query->expr()->andX('document.confidentiality = :general', 'document.status IN (:published)'),
             $query->expr()->exists($participant->getDQL()),
+            $query->expr()->exists($recipient->getDQL()),
         );
         $query->setParameter('actingFor', $actingForIds !== [] ? $actingForIds : [(int) $viewer->getId()]);
         if ($managedUnitIds !== []) {

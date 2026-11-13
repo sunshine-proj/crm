@@ -22,6 +22,7 @@ import SettingsPage from "./components/SettingsPage.vue";
 import OrganizationPage from "./components/OrganizationPage.vue";
 import DocumentsPage from "./components/DocumentsPage.vue";
 import DocumentDetailPage from "./components/DocumentDetailPage.vue";
+import AcknowledgementBoard from "./components/AcknowledgementBoard.vue";
 import { setOrganizationDefaultCurrency } from "./lib/organizationSettings";
 
 type LoginResponse = {
@@ -221,6 +222,7 @@ function signOut() {
       <ClientDetailPage v-else-if="detailRoute?.kind === 'client'" :client-id="detailRoute.id" :key="`client-${detailRoute.id}`" />
       <ProjectDetailPage v-else-if="detailRoute?.kind === 'project'" :project-id="detailRoute.id" :key="`project-${detailRoute.id}`" />
       <DocumentDetailPage v-else-if="detailRoute?.kind === 'document'" :document-id="detailRoute.id" :key="`document-${detailRoute.id}`" />
+      <AcknowledgementBoard v-else-if="detailRoute?.kind === 'acknowledgement'" :request-id="detailRoute.id" :key="`acknowledgement-${detailRoute.id}`" />
       <component v-else :is="pageComponents[activeSection as keyof typeof pageComponents]" />
     </section>
   </main>

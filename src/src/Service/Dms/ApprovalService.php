@@ -31,7 +31,7 @@ final class ApprovalService
         private readonly EntityManagerInterface $entityManager,
         private readonly DocumentAccess $access,
         private readonly DocumentService $documents,
-        private readonly ApprovalNotifier $notifier,
+        private readonly DmsNotifier $notifier,
         private readonly ApprovalRouteRepository $routeRepository,
         private readonly DocumentVersionRepository $versionRepository,
         private readonly UserRepository $userRepository,

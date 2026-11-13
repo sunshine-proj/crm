@@ -60,6 +60,10 @@ final class ApiAccessPolicyTest extends TestCase
         'api_dms_approvals_forward_candidates', 'api_dms_approvals_history', 'api_dms_approvals_candidates',
         'api_dms_approvals_submit', 'api_dms_approvals_withdraw', 'api_dms_approvals_reviewers',
         'api_dms_review_comments_list', 'api_dms_review_comments_create', 'api_dms_review_comments_resolve', 'api_dms_review_compare',
+        // Acknowledgement: senders (unit heads, clerks), managers of affected units and recipients, checked inline by AcknowledgementService.
+        'api_dms_ack_inbox', 'api_dms_ack_counts', 'api_dms_ack_history', 'api_dms_ack_list', 'api_dms_ack_show', 'api_dms_ack_export', 'api_dms_ack_sheet',
+        'api_dms_ack_remind', 'api_dms_ack_deadline', 'api_dms_ack_recipients', 'api_dms_ack_close', 'api_dms_ack_reissue', 'api_dms_ack_acknowledge',
+        'api_dms_ack_excuse', 'api_dms_ack_reinstate', 'api_dms_ack_document', 'api_dms_ack_audience', 'api_dms_ack_send',
     ];
 
     /** Routes that require ROLE_FINANCE (administrators inherit it). */

@@ -21,5 +21,8 @@ describe("detail routes", () => {
     expect(sectionForRoute({ kind: "client", id: 1 })).toBe("Clients");
     expect(detailHref("document", 4)).toBe("#/documents/4");
     expect(sectionForRoute({ kind: "document", id: 4 })).toBe("Documents");
+    expect(detailHref("acknowledgement", 6)).toBe("#/acknowledgements/6");
+    expect(parseDetailRoute("#/acknowledgements/6")).toEqual({ kind: "acknowledgement", id: 6 });
+    expect(sectionForRoute({ kind: "acknowledgement", id: 6 })).toBe("Documents");
   });
 });

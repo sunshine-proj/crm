@@ -13,6 +13,7 @@ use App\Repository\EmploymentRepository;
 use App\Repository\OrgUnitRepository;
 use App\Repository\PositionRepository;
 use App\Repository\UserRepository;
+use App\Service\Dms\AcknowledgementAudience;
 use App\Service\Org\OrgChart;
 use App\Service\Org\OrgStructureRules;
 use App\Service\Org\OrgViews;
@@ -46,6 +47,7 @@ final class OrgController extends AbstractController
         private readonly OrgViews $views,
         private readonly EntityManagerInterface $entityManager,
         #[Autowire(service: 'monolog.logger.audit')] private readonly LoggerInterface $auditLogger,
+        private readonly AcknowledgementAudience $acknowledgementAudience,
     ) {
     }
 
@@ -329,6 +331,7 @@ final class OrgController extends AbstractController
         }
         $this->entityManager->persist($employment);
         $this->entityManager->flush();
+        $this->addJoiners();
         $this->auditLogger->info('Employment created.', ['employment_id' => $employment->getId(), 'user_id' => $user->getId(), 'position_id' => $position->getId(), 'actor' => $this->actorName()]);
 
         return $this->json($this->views->employment($employment, new \DateTimeImmutable('today')), Response::HTTP_CREATED);
@@ -375,6 +378,7 @@ final class OrgController extends AbstractController
             return $this->error($exception->getMessage(), Response::HTTP_CONFLICT);
         }
         $this->entityManager->flush();
+        $this->addJoiners();
         $this->auditLogger->info('Employment updated.', ['employment_id' => $id, 'actor' => $this->actorName()]);
 
         return $this->json($this->views->employment($employment, new \DateTimeImmutable('today')));
@@ -500,6 +504,19 @@ final class OrgController extends AbstractController
     private function error(string $message, int $status): JsonResponse
     {
         return $this->json(['error' => $message], $status);
+    }
+
+    /**
+     * Someone who now holds a post in a unit or position targeted by an open acknowledgement request is added to it.
+     * The employment is already saved, so a failure here is logged and retried by the scheduler.
+     */
+    private function addJoiners(): void
+    {
+        try {
+            $this->acknowledgementAudience->addJoiners();
+        } catch (\Doctrine\DBAL\Exception $exception) {
+            $this->auditLogger->warning('Adding joiners to acknowledgement requests failed; the scheduler will retry.', ['error' => $exception->getMessage()]);
+        }
     }
 
     private function actorName(): string

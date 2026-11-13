@@ -336,6 +336,42 @@ The README Phase 3 section and both AGENTS.md files are updated, including the P
 ===================================================
 
 
+Phase 4, acknowledgement requests, is built and passes all its checks; nothing is committed. The new screens haven't been tried in a browser yet.
+
+How it works:
+
+Who can send: unit and section heads, for their own units and everything below them, and registry clerks for the whole organization. You pick units (optionally with their sub-units), positions or individual people. Only registered documents can be sent, and the request is tied to the exact current version.
+Who was asked: everyone is recorded with the unit and position they held at the time, so later reorganizations don't rewrite the list. If the "add people who join" option is on, new hires into a chosen unit or position are added automatically.
+Each person's status:
+Opened: set the first time they open or download the file. Just viewing the document page doesn't count.
+Acknowledged: their own "I have read and understood" click, recorded with the time and the file's fingerprint. By default they must open the file first.
+Overdue: still not confirmed after the deadline. Late confirmations are accepted and marked late.
+Excused: set by a manager, with a reason. It can be undone, and excused people don't count against completion.
+Status page: for the sender, completion is shown per unit and its sub-units. You can click into a unit, filter people by status, export to CSV, and print an acknowledgement sheet PDF with a blank signature column.
+Heads of affected units see only their own part.
+The sender can remind everyone or one person (at most once per person per day), extend the deadline, add people, close the request, or re-issue it for a new edition.
+The scheduler sends deadline reminders and escalates to the person's direct superior.
+For employees: a "To acknowledge" tab with a counter, a personal history, and dashboard counters for documents to acknowledge and approvals awaiting them.
+Decisions to check:
+
+Deputies can't acknowledge for someone. The original plan redirected acknowledgements to deputies, but confirming that someone else has read a document makes no sense. Managers mark absent people as excused instead. The README is updated to match; tell me if you want the original behaviour.
+Re-issuing: registered documents can't take new versions, so a new edition is normally a new document linked as replacing or amending the old one. Re-issuing asks the same people again for that document and closes the old request.
+Archiving a document closes its open requests.
+The status page starts at the first unit with people of its own. A request to one department doesn't show the whole organization above it.
+Verification:
+
+Backend: 255 tests pass (8 new). The new database migration applies, reverses and re-applies cleanly on PostgreSQL 17.
+End-to-end: the document end-to-end script now has 13 acknowledgement checks, and all 32 checks pass against a throwaway setup on real PostgreSQL. Its first run failed one check because of a bug in the script itself, now fixed.
+Concurrency checks are only smoke tests. Two simultaneous confirmations counting once, and two simultaneous "remind all" clicks producing exactly one reminder, show the concurrent path works, not that the locks are needed.
+Frontend: 59 tests, type-check and build pass.
+Code changes outside the new files:
+
+I renamed ApprovalNotifier to DmsNotifier, since acknowledgements use it too.
+Two simultaneous confirmations or reminders now return a conflict response instead of a server error.
+
+
+
+===================================================
 
 
 

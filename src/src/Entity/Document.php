@@ -35,6 +35,8 @@ class Document
     public const EDITABLE = [self::DRAFT, self::REJECTED, self::WITHDRAWN, self::APPROVED];
     /** States after registration; such documents are visible organization-wide unless confidential. */
     public const REGISTERED_STATES = [self::REGISTERED, self::IN_FORCE, self::SUPERSEDED, self::ARCHIVED];
+    /** States in which management can ask people to acknowledge the document. */
+    public const ACKNOWLEDGEABLE = [self::REGISTERED, self::IN_FORCE];
 
     public const GENERAL = 'general';
     public const CONFIDENTIAL = 'confidential';

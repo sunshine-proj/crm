@@ -5,6 +5,7 @@ import { detailHref } from "../lib/route";
 import { personLabel, treeRows, type OrgUnit, type Person } from "../lib/org";
 import ApprovalPanel from "./ApprovalPanel.vue";
 import DocumentCommentsPanel from "./DocumentCommentsPanel.vue";
+import AcknowledgementPanel from "./AcknowledgementPanel.vue";
 import {
   eventLabel,
   fieldLabel,
@@ -311,6 +312,7 @@ onMounted(async () => {
       </section>
 
       <ApprovalPanel :document-id="document.id" :type-name="document.type.name" :key="`approval-${document.id}`" @changed="load" />
+      <AcknowledgementPanel :document-id="document.id" :versions="document.versions" :key="`acknowledgement-${document.id}-${document.status}`" @changed="load" />
 
       <div class="detail-grid">
         <section class="detail-card" aria-labelledby="doc-details-title">

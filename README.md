@@ -121,7 +121,7 @@ Decisions to confirm before building:
 - [x] Add `Position` (title, unit, is-head flag) and `Employment` (user, position, primary flag, valid from/to) so a user can hold a primary and an acting position.
 - [x] Derive reporting lines: a user's direct superior is the head of their unit, or the head of the parent unit if the user is the head. Allow an optional explicit `reportsTo` override per employment.
 - [x] Add a `SubordinationService` that returns a user's chain of superiors, direct and transitive subordinates, and the units under a manager. Cover it with unit tests for cycles, vacancies (head position empty, so skip to the next level up), and acting positions.
-- [x] Add substitution/delegation: a user can name a deputy for a date range, and approval and acknowledgement tasks are redirected to the deputy with both names recorded. (Deputies are resolved by `OrgChart::deputyFor()`; approvals are redirected since Phase 3, acknowledgements follow in Phase 4.)
+- [x] Add substitution/delegation: a user can name a deputy for a date range, and approval and acknowledgement tasks are redirected to the deputy with both names recorded. (Deputies are resolved by `OrgChart::deputyFor()`; approvals are redirected since Phase 3. Acknowledgements deliberately stay personal: a deputy cannot confirm that someone else has read a document, so managers mark absent people excused instead; see Phase 4.)
 - [x] Add admin APIs and a Vue org-chart editor (tree view, drag to re-parent, assign heads/employees), plus a minimal selector endpoint like the existing manager selector.
 - [x] Add a Doctrine migration, version org changes in record history, and make sure historical approvals keep the snapshot of approver/unit names that applied at the time. (Approval steps snapshot the assignee's position and unit since Phase 3.)
 
@@ -142,8 +142,8 @@ Phase 1 notes:
 - [x] Add `DocumentVersion` records holding file, content SHA-256, uploader, and change comment. Versions are immutable. Editing an approved document creates a new draft version and invalidates earlier approvals for it.
 - [x] Add check-out/check-in locking so two people cannot overwrite each other's draft, with an admin override that is logged.
 - [x] Add attachments (supporting files) separate from the main version, and related-document links (replaces, amends, refers to).
-- [ ] Render a PDF of each version for in-browser preview. Add a server-generated approval sheet / acknowledgement sheet PDF (`application/pdf`) with a hash and registration stamp. (Done: in-browser preview for PDF, image and text versions, and a registration card PDF with number, versions and their SHA-256, and history. Open: converting Word/Excel/OpenDocument files to PDF needs a converter such as LibreOffice in the image; the approval and acknowledgement sheets come with Phases 3 and 4.)
-- [x] Apply access control on the backend: author, approvers, recipients, owner-unit managers and `ROLE_DMS_ADMIN` can read; confidential documents are visible only to named readers. Flag confidential reads in the audit log. Add allowed/denied regression tests for every route. (Approval participants were added in Phase 3; acknowledgement recipients join in Phase 4.)
+- [ ] Render a PDF of each version for in-browser preview. Add a server-generated approval sheet / acknowledgement sheet PDF (`application/pdf`) with a hash and registration stamp. (Done: in-browser preview for PDF, image and text versions, and a registration card PDF with number, versions and their SHA-256, and history. The acknowledgement sheet PDF was added in Phase 4. Open: converting Word/Excel/OpenDocument files to PDF needs a converter such as LibreOffice in the image, and there is no approval sheet PDF yet; the approval history is shown on the document page.)
+- [x] Apply access control on the backend: author, approvers, recipients, owner-unit managers and `ROLE_DMS_ADMIN` can read; confidential documents are visible only to named readers. Flag confidential reads in the audit log. Add allowed/denied regression tests for every route. (Approval participants were added in Phase 3 and acknowledgement recipients in Phase 4.)
 - [ ] Add full-text and metadata search (PostgreSQL `tsvector` over title, summary, number and extracted PDF/DOCX text) with filters by type, status, unit, author, and date range. (Done: word-by-word search over number, title, summary, tags, type and text extracted from text, DOCX, XLSX and ODT files, plus every filter listed. Open: `tsvector` ranking and stemming, which would need native SQL that the application's ORM-only rule does not allow yet, and PDF text extraction, which needs a parser library.)
 
 Phase 2 notes:
@@ -159,7 +159,7 @@ Phase 2 notes:
 - **API:** `/api/dms/types` (list for everyone, writes for clerks) and `/api/dms/documents`: list with search and filters, create, show, update, delete, `versions` (multipart upload and file download, `inline=1` preview for safe types), `checkout` (`force` for clerks), `checkin`, `register`, `archive`, `readers`, `attachments`, `links`, `card.pdf`. Every action is recorded in the document's history, including downloads.
 - **Storage:** files live in `src/var/project-documents/dms`, inside the folder the daily backup already archives (see [docs/BACKUP.md](docs/BACKUP.md)). They use the same 10 MB limit, content-detected type checks and random storage names as project documents, plus OpenDocument text. There is no virus scanning yet (Phase 5).
 - **UI:** a new **Documents** section with search and filters, a new-draft form (with optional first file), a document page (actions, details, versions with preview and download, attachments, related documents, access, history) at `#/documents/<id>`, and a **Document types** tab for clerks.
-- **Not yet:** moving an in-force document to `superseded` when a replacing document takes effect, and the scheduled `registered` → `in_force` switch on the effective date (both Phase 5); approval (Phase 3) and acknowledgement (Phase 4).
+- **Not yet:** moving an in-force document to `superseded` when a replacing document takes effect, and the scheduled `registered` → `in_force` switch on the effective date (both Phase 5). Approval and acknowledgement were added in Phases 3 and 4.
 - **Verification:** backend suite 229 tests / 2,728 assertions (16 new: entity rules, text extraction, and HTTP flows for lifecycle, numbering, visibility, confidentiality, check-out, attachments, links, deletion and validation). `scripts/verify-migrations.sh` passes on PostgreSQL 17 (30 migrations). The new `scripts/verify-dms-e2e.sh` passes against a throwaway API on PostgreSQL 17 (13 checks, including eight concurrent registrations receiving consecutive numbers); its first run found and fixed a search-escaping defect. Frontend: 49 tests, type-check and build pass. The new pages were not checked in a browser. Not applied to any deployed database.
 
 **Phase 3 — Approval workflow (by subordination)** (done; see notes below)
@@ -214,16 +214,62 @@ Phase 3 notes:
   - **End-to-end:** `scripts/verify-dms-e2e.sh` with the new optional `APPROVERS` checks passes against a throwaway API (19 checks: two simultaneous submissions create one round, and three simultaneous approvals of an `all` stage complete it once and register exactly one number). A run with the row lock temporarily removed also passed, so that check is a smoke test of the concurrent path, not proof the lock is needed; the lock remains in place.
   - **Frontend:** 54 tests, type-check and build pass. The new screens were not checked in a browser. Not applied to any deployed database.
 
-**Phase 4 — Acknowledgement (familiarization) campaigns**
+**Phase 4 — Acknowledgement (familiarization) campaigns** (done; see notes below)
 
-- [ ] Add an `AcknowledgementRequest` for a document version: sender, message, due date, whether opening the document is required before confirming, and whether people who join later are added automatically.
-- [ ] Let recipients be chosen by unit/section (with an "include sub-units" toggle), by position, or by individual employee. Senders can target only units in their own management subtree; `ROLE_DMS_ADMIN` can target the whole organization.
-- [ ] Snapshot the recipient list at send time (user, unit, position) as `AcknowledgementRecipient` rows, so later org changes do not rewrite who was asked. Add employees who join later to open requests when that option is on.
-- [ ] Track per-recipient state: `pending` → `viewed` (first open of the document, timestamp) → `acknowledged` (explicit "I have read and understood" confirmation with timestamp and version hash). Add `overdue` past the due date, and `excused` (manager marks leave or absence, with a reason).
-- [ ] Add a status dashboard for the sender and managers of affected units: completion % per unit/section tree, drill-down to employees, filters (pending / overdue / acknowledged), CSV export, and a printable acknowledgement sheet PDF.
-- [ ] Add actions: remind all pending, remind one, extend the deadline, and add recipients. Reminders and escalation to the employee's direct superior go through the scheduler.
-- [ ] When a document is re-issued as a new version, optionally launch a re-acknowledgement campaign for the new version only.
-- [ ] Add an employee "To acknowledge" inbox with counters on the dashboard, plus each employee's history of acknowledged documents.
+- [x] Add an `AcknowledgementRequest` for a document version: sender, message, due date, whether opening the document is required before confirming, and whether people who join later are added automatically.
+- [x] Let recipients be chosen by unit/section (with an "include sub-units" toggle), by position, or by individual employee. Senders can target only units in their own management subtree; `ROLE_DMS_ADMIN` can target the whole organization.
+- [x] Snapshot the recipient list at send time (user, unit, position) as `AcknowledgementRecipient` rows, so later org changes do not rewrite who was asked. Add employees who join later to open requests when that option is on.
+- [x] Track per-recipient state: `pending` → `viewed` (first open of the document, timestamp) → `acknowledged` (explicit "I have read and understood" confirmation with timestamp and version hash). Add `overdue` past the due date, and `excused` (manager marks leave or absence, with a reason).
+- [x] Add a status dashboard for the sender and managers of affected units: completion % per unit/section tree, drill-down to employees, filters (pending / overdue / acknowledged), CSV export, and a printable acknowledgement sheet PDF.
+- [x] Add actions: remind all pending, remind one, extend the deadline, and add recipients. Reminders and escalation to the employee's direct superior go through the scheduler.
+- [x] When a document is re-issued as a new version, optionally launch a re-acknowledgement campaign for the new version only. (Registered documents cannot take new versions, so a new edition is normally a new document linked as replacing or amending the old one; re-issuing works for both cases.)
+- [x] Add an employee "To acknowledge" inbox with counters on the dashboard, plus each employee's history of acknowledged documents.
+
+Phase 4 notes:
+
+- **Who can send:**
+  - **Unit and section heads** (including acting heads) can address the units they head and everything below them: whole units (optionally with sub-units), positions in those units, and people employed there. Anything outside answers `409`.
+  - **Registry clerks** (`ROLE_DMS_ADMIN`) can address the whole organization, including people without a position.
+  - **Documents:** only registered documents that are `registered` or `in_force`. The request is pinned to the current version's number and SHA-256. The sender is never on their own list.
+- **Who was asked:**
+  - **Snapshot:** each person is recorded with the unit and position that put them on the list. Later moves, renames and departures do not change the record; the status tree rolls those units up the current structure.
+  - **Joiners:** with "add people who join" on, someone who starts in a targeted unit or position is added when the employment is recorded, and again by `app:reminders:run` for employments that start on a later date. Individually named people are not re-resolved.
+- **States:**
+  - **Viewed** is set the first time the person downloads or previews the requested version's file. Opening only the document page does not count.
+  - **Acknowledged** is the person's own confirmation, with time and the version's SHA-256. When the request requires opening (the default), confirming before opening answers `409`. Simultaneous confirmations count once (row lock).
+  - **Overdue** means still open after the deadline. A confirmation after the deadline is accepted and marked late.
+  - **Excused** is set by the sender, a clerk or a head of the person's recorded unit, with a reason. It can be undone ("ask again"), and people cannot excuse themselves. Excused people do not count against completion.
+  - **Deputies:** acknowledgements are personal, so deputies do not confirm on someone's behalf. This replaces the Phase 1 plan; managers excuse absent people instead.
+- **Roles on a request:**
+  - **Sender and clerks** add recipients, move the deadline (only later), close and re-issue it.
+  - **Heads of affected units** see the part of the board for the units they manage and can remind and excuse those people.
+  - **Recipients** may read the document, including confidential ones.
+  - **Everyone else** gets `404`.
+- **Status board** (`#/acknowledgements/<id>`):
+  - **Summary:** completion % and counts.
+  - **Units:** a unit tree with completion per unit and its sub-units. It starts at the first unit that has people of its own, so a request to one department does not show the whole organization above it. Select a unit to drill down.
+  - **People:** filters (still to confirm, overdue, not opened, opened, acknowledged, excused) and per-person remind, excuse and ask-again.
+  - **Exports:** CSV export (with a spreadsheet formula guard) and a printable acknowledgement sheet PDF with the version's SHA-256 and a blank signature column.
+- **Reminders:**
+  - **Manual:** "remind everyone pending" and "remind one", at most one manual reminder per person per day.
+  - **Scheduled:** `app:reminders:run` sends due-soon and overdue reminders for requests with a deadline (task lead time), and escalates to the person's direct superior after the escalation threshold, or to the sender when there is none.
+  - **Completion:** the sender is told once when nobody owes a confirmation any more.
+- **Re-issue:** from the board, the same targets are asked again for the document's newer version or for a document linked as replacing or amending it. The old request is closed and linked as "previous". Archiving a document closes its open requests.
+- **API:**
+  - **Per document:** `GET`/`POST /api/dms/documents/{id}/acknowledgements` and `GET .../acknowledgements/audience`.
+  - **Personal:** `GET /api/dms/acknowledgements/inbox`, `/counts` and `/history`.
+  - **Requests:** `GET /api/dms/acknowledgements?status=open|closed` and `GET /api/dms/acknowledgements/{id}` (`?status=` filters people), `export.csv`, `sheet.pdf`, and `POST remind` (optional `recipient_ids`), `deadline`, `recipients`, `close`, `reissue`.
+  - **Per person:** `POST /api/dms/acknowledgements/recipients/{id}/acknowledge`, and `POST`/`DELETE .../excuse`.
+- **UI:**
+  - **Document page:** an Acknowledgement panel with the person's own request ("Open v1", then "I have read and understood"), the send form with a unit/position/people picker, and the requests with progress.
+  - **Documents section:** "To acknowledge" (with counter and "My history") and "Acknowledgement status" tabs.
+  - **Elsewhere:** the status board page, dashboard counters for documents to acknowledge and approvals awaiting the user, and an "Acknowledgement" label in the bell.
+- **Not yet:** e-mail delivery (blocked as described in P1), a per-person deadline (the deadline is per request), and acknowledging on paper with a scanned signature; the PDF only has a blank signature column.
+- **Verification:**
+  - **Backend:** 255 tests / 3,625 assertions (8 new: recipient and request rules, completion counts and the unit tree, plus HTTP flows for sending scope, opening before confirming, partial boards, excusing, exports and completion; clerk scope and confidential access; reminders, scheduler escalation, deadlines, added recipients, joiners and closing; re-issue for a replacing document and closing on archive).
+  - **Migrations:** `scripts/verify-migrations.sh` passes on PostgreSQL 17 (32 migrations).
+  - **End-to-end:** `scripts/verify-dms-e2e.sh` with `APPROVERS` passes against a throwaway API on PostgreSQL 17. It has 32 checks, 13 of them new: subtree scope, the board on PostgreSQL, opening before confirming, two simultaneous confirmations counting once, simultaneous "remind all" giving exactly one reminder, the partial board, CSV and PDF. As with Phase 3, the concurrency checks are smoke tests of the concurrent path, not proof that the locks are needed.
+  - **Frontend:** 59 tests (5 new), type-check and build pass. The new screens were not checked in a browser. Not applied to any deployed database.
 
 **Phase 5 — Records lifecycle, audit and hardening**
 

@@ -16,6 +16,7 @@ use App\Repository\DocumentEventRepository;
 use App\Repository\DocumentLinkRepository;
 use App\Repository\DocumentRepository;
 use App\Repository\DocumentVersionRepository;
+use App\Service\Dms\AcknowledgementService;
 use App\Service\Dms\DmsFileStorage;
 use App\Service\Dms\DocumentAccess;
 use App\Service\Dms\DocumentAccessDenied;
@@ -56,6 +57,7 @@ final class DocumentController extends AbstractController
         private readonly DocumentViews $views,
         private readonly DmsFileStorage $storage,
         private readonly DocumentCardPdf $cardPdf,
+        private readonly AcknowledgementService $acknowledgements,
         #[Autowire(service: 'monolog.logger.audit')] private readonly LoggerInterface $auditLogger,
     ) {
     }
@@ -152,6 +154,8 @@ final class DocumentController extends AbstractController
             }
             $this->flagConfidentialRead($document, 'version '.$number);
             $this->documents->recordDownload($document, $this->viewer(), 'v'.$number.' '.$version->getOriginalName(), $version->getSha256());
+            // Opening the requested version is what an acknowledgement request counts as "viewed".
+            $this->acknowledgements->markViewed($document, $this->viewer(), $number);
 
             return $this->serveFile($version->getStoredName(), $version->getOriginalName(), $version->getMimeType(), $request->query->getBoolean('inline'));
         });
