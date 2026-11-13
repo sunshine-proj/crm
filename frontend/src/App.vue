@@ -19,6 +19,7 @@ import { parseDetailRoute, sectionForRoute } from "./lib/route";
 import InventoryPage from "./components/InventoryPage.vue";
 import OperationsPage from "./components/OperationsPage.vue";
 import SettingsPage from "./components/SettingsPage.vue";
+import OrganizationPage from "./components/OrganizationPage.vue";
 import { setOrganizationDefaultCurrency } from "./lib/organizationSettings";
 
 type LoginResponse = {
@@ -47,7 +48,7 @@ function openSection(section: string) {
 }
 const organizationSettingsReady = ref(false);
 const organizationSettingsError = ref("");
-const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Bank", "Settings"];
+const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Bank", "Organization", "Settings"];
 const isFinance = computed(() => isFinanceToken(token.value));
 const sections = computed(() => allSections.filter((section) => (section !== "Finance" && section !== "Bank") || isFinance.value));
 const pageComponents = {
@@ -64,6 +65,7 @@ const pageComponents = {
   Bank: BankPage,
   Inventory: InventoryPage,
   Operations: OperationsPage,
+  Organization: OrganizationPage,
   Settings: SettingsPage,
 };
 
@@ -196,6 +198,8 @@ function signOut() {
                             ? "&#9638;"
                             : section === "Operations"
                               ? "&#9881;"
+                                : section === "Organization"
+                                  ? "&#9783;"
                                 : section === "Settings"
                                   ? "&#9881;"
                             : "&#36;"

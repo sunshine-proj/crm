@@ -5,6 +5,9 @@ namespace App\Service;
 use App\Entity\Client;
 use App\Entity\ClientContact;
 use App\Entity\Deal;
+use App\Entity\Employment;
+use App\Entity\OrgUnit;
+use App\Entity\Position;
 use App\Entity\Product;
 use App\Entity\Project;
 use App\Entity\ProjectMilestone;
@@ -30,6 +33,9 @@ final class TrackedRecords
         'product' => Product::class,
         'supplier' => Supplier::class,
         'warehouse' => Warehouse::class,
+        'org_unit' => OrgUnit::class,
+        'org_position' => Position::class,
+        'employment' => Employment::class,
     ];
 
     /** @return list<string> */

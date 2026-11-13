@@ -104,6 +104,82 @@ P2 progress (the software cannot validate tax law; every checkbox stays unticked
 
 Without a recorded sign-off, invoices are untaxed and keep ID-based numbers. Invoices are never claimed to be legally compliant, and currencies are not converted.
 
+### P2 — Document management (DMS) module
+
+Goal: a document workspace with registered, versioned documents. Employees can send documents for approval up their reporting line. Management can send documents to units and sections for acknowledgement and track who has confirmed. The model follows established DMS/ECM products (registration, versioning, routed approval with an approval sheet, acknowledgement lists, an audit trail, retention). Phase 1 (organization structure) is implemented; Phases 2-5 are not yet. The current `ProjectDocument` upload stays as it is. The DMS is a separate module that reuses its storage, MIME and size-limit rules, the in-app `Notification` mechanism, and the append-only decision history pattern used by purchase-order and expense approvals.
+
+Decisions to confirm before building:
+
+- [ ] Who counts as "management staff": heads of a unit/section acting within their own subtree only (proposed), plus a new `ROLE_DMS_ADMIN` (registry clerk / HR) acting organization-wide; `ROLE_ADMIN` inherits it.
+- [ ] Approval routing rule: either (a) the submitter picks approvers from their own chain of superiors only (proposed default), or (b) routes are generated automatically from per-document-type templates (direct head → unit head → N levels up), or both.
+- [ ] Whether a simple electronic confirmation (authenticated user + timestamp + content hash) is enough for approvals and acknowledgements, or whether qualified e-signatures (eIDAS) are required. Qualified signatures would be a separate integration.
+- [ ] Retention periods per document type and the legal-hold policy; this links to the open P0 retention item.
+
+**Phase 1 — Organization structure and subordination (prerequisite)** (done; see notes below)
+
+- [x] Add `OrgUnit` as a tree (organization → unit → section → sub-section, depth-limited, no cycles) with code, name, parent, head position, and active/archived state.
+- [x] Add `Position` (title, unit, is-head flag) and `Employment` (user, position, primary flag, valid from/to) so a user can hold a primary and an acting position.
+- [x] Derive reporting lines: a user's direct superior is the head of their unit, or the head of the parent unit if the user is the head. Allow an optional explicit `reportsTo` override per employment.
+- [x] Add a `SubordinationService` that returns a user's chain of superiors, direct and transitive subordinates, and the units under a manager. Cover it with unit tests for cycles, vacancies (head position empty, so skip to the next level up), and acting positions.
+- [x] Add substitution/delegation: a user can name a deputy for a date range, and approval and acknowledgement tasks are redirected to the deputy with both names recorded. (Deputies are recorded and resolved by `OrgChart::deputyFor()`; the redirection itself lands with the Phase 3 and Phase 4 workflows.)
+- [x] Add admin APIs and a Vue org-chart editor (tree view, drag to re-parent, assign heads/employees), plus a minimal selector endpoint like the existing manager selector.
+- [x] Add a Doctrine migration, version org changes in record history, and make sure historical approvals keep the snapshot of approver/unit names that applied at the time. (The snapshot columns belong to the Phase 3 approval records.)
+
+Phase 1 notes:
+
+- **Model:** `org_unit` (one top-level organization; units and sections below it, at most 8 levels, unique codes), `org_position` (at most one active head post per unit), `employment` (dated; at most one primary post per person at a time, one holder per head post, optional `reports_to` override, acting/secondary flags) and `delegation` (deputy for a date range; revoked, never edited). Units and positions that have been used are archived rather than deleted. Employments are ended with an end date; deleting one is only for correcting mistakes. Unit, position and employment changes are versioned in `/api/history`.
+- **Subordination rules** (`App\Service\Org\OrgChart`, built per day by `SubordinationService`): a person's direct superior is their `reports_to` override, otherwise the head of their unit, or of the parent unit when they head their own. Vacant head posts are skipped. Chains stop at reporting cycles, and the API refuses overrides that would create one. A manager's subtree is every active unit below the units they head, including as acting head. Deputy chains are followed up to five hops.
+- **API:** `GET /api/org/units|positions|employments|people|me`, `/api/org/units/{id}/members?include_subunits=1` and `/api/org/users/{id}/reporting-line` are open to every signed-in user. Writes under `/api/org` need `ROLE_ADMIN`. `/api/delegations` lets users name and revoke their own deputies; administrators can act for anyone and list everything.
+- **UI:** a new **Organization** section with the user's reporting line, deputies, a structure tree (drag a unit onto another to move it; there is also a parent selector in the edit form), unit details, positions, employees and change history.
+- **Not yet:** user display names (people are identified by e-mail and position), bulk import of an existing org chart, and a date picker for viewing the structure on a past day (the API computes it per day internally).
+- **Verification:** backend suite 213 tests / 2,225 assertions (21 new: entity rules, `OrgChart` subordination cases, HTTP flows for access, invariants and delegations), frontend 44 tests including `lib/org.ts`, `npm run build` passes, and `scripts/verify-migrations.sh` passes on PostgreSQL 17 (29 migrations). Not applied to any deployed database.
+
+**Phase 2 — Document registry, storage and versioning**
+
+- [ ] Add `DocumentType` (e.g. order, policy, instruction, memo, contract, regulation) with a registration-number pattern, required metadata fields, default approval route template, default retention period, and confidentiality level.
+- [ ] Add a `Document` entity: type, title, summary, author, owner unit, status (`draft` → `in_approval` → `approved` / `rejected` / `withdrawn` → `registered` → `in_force` → `superseded` / `archived`), registration number and date, effective date, expiry/review date, confidentiality, tags, and links to client/project/deal records.
+- [ ] Number registered documents gaplessly per type and year under a row lock, reusing the `NumberSequence` approach used for invoices.
+- [ ] Add `DocumentVersion` records holding file, content SHA-256, uploader, and change comment. Versions are immutable. Editing an approved document creates a new draft version and invalidates earlier approvals for it.
+- [ ] Add check-out/check-in locking so two people cannot overwrite each other's draft, with an admin override that is logged.
+- [ ] Add attachments (supporting files) separate from the main version, and related-document links (replaces, amends, refers to).
+- [ ] Render a PDF of each version for in-browser preview. Add a server-generated approval sheet / acknowledgement sheet PDF (`application/pdf`) with a hash and registration stamp.
+- [ ] Apply access control on the backend: author, approvers, recipients, owner-unit managers and `ROLE_DMS_ADMIN` can read; confidential documents are visible only to named readers. Flag confidential reads in the audit log. Add allowed/denied regression tests for every route.
+- [ ] Add full-text and metadata search (PostgreSQL `tsvector` over title, summary, number and extracted PDF/DOCX text) with filters by type, status, unit, author, and date range.
+
+**Phase 3 — Approval workflow (by subordination)**
+
+- [ ] Add `ApprovalRoute` and `ApprovalStep` records with sequential and parallel stages, step types (review / approve / sign), a per-step due date, and a rule for whether a step needs all approvers or any one of them.
+- [ ] When a document is submitted, validate approvers against the `SubordinationService`. A user may send only to people in their own chain of superiors (or to the route template's resolved approvers). Self-approval is impossible, and the server rejects out-of-hierarchy approvers.
+- [ ] Add approver actions: approve, approve with comments, reject (reason required), return for revision (back to the author with comments), and delegate/forward to a subordinate for review (the delegating approver still owes the decision). Store every action as append-only history with actor, on-behalf-of, timestamp, comment and version hash.
+- [ ] Add author actions: withdraw before the final decision, resubmit a revised version (route restarts or continues from the rejecting step, per type setting), and add a reviewer.
+- [ ] Add inline comments/remarks per version and a side-by-side comparison of two versions (text diff for extracted text).
+- [ ] Handle deadlines: in-app reminders before the due date and escalation to the approver's superior when overdue, via the existing `app:reminders:run` scheduler and `ReminderPreference`. E-mail delivery stays blocked as described in P1.
+- [ ] Send a final approved document to registration automatically, or for the registry clerk to register, per type.
+- [ ] Add Vue screens: "My documents", "Awaiting my approval" inbox with counters, a document card with a route timeline (who, status, when, comments), and a route builder that offers only eligible superiors.
+
+**Phase 4 — Acknowledgement (familiarization) campaigns**
+
+- [ ] Add an `AcknowledgementRequest` for a document version: sender, message, due date, whether opening the document is required before confirming, and whether people who join later are added automatically.
+- [ ] Let recipients be chosen by unit/section (with an "include sub-units" toggle), by position, or by individual employee. Senders can target only units in their own management subtree; `ROLE_DMS_ADMIN` can target the whole organization.
+- [ ] Snapshot the recipient list at send time (user, unit, position) as `AcknowledgementRecipient` rows, so later org changes do not rewrite who was asked. Add employees who join later to open requests when that option is on.
+- [ ] Track per-recipient state: `pending` → `viewed` (first open of the document, timestamp) → `acknowledged` (explicit "I have read and understood" confirmation with timestamp and version hash). Add `overdue` past the due date, and `excused` (manager marks leave or absence, with a reason).
+- [ ] Add a status dashboard for the sender and managers of affected units: completion % per unit/section tree, drill-down to employees, filters (pending / overdue / acknowledged), CSV export, and a printable acknowledgement sheet PDF.
+- [ ] Add actions: remind all pending, remind one, extend the deadline, and add recipients. Reminders and escalation to the employee's direct superior go through the scheduler.
+- [ ] When a document is re-issued as a new version, optionally launch a re-acknowledgement campaign for the new version only.
+- [ ] Add an employee "To acknowledge" inbox with counters on the dashboard, plus each employee's history of acknowledged documents.
+
+**Phase 5 — Records lifecycle, audit and hardening**
+
+- [ ] Handle the lifecycle: make a document effective on its effective date, send review-date reminders to the owner, mark it superseded when a replacing document comes into force, and archive it on expiry.
+- [ ] Add retention per type, legal hold (blocks deletion), and an admin-approved disposal step that leaves a tombstone record. No hard deletes of registered documents.
+- [ ] Add an audit trail covering view, download, version upload, every route action, acknowledgement, and access change, with filtering per document.
+- [ ] Add reports: documents by status/type/unit, average approval time per step, overdue approvals per approver, and acknowledgement completion per unit.
+- [ ] Before production, run virus scanning on upload, verify that DMS files are included in the P0 off-host backup, and move to object storage if volume requires it.
+- [ ] Add backend PHPUnit tests (subordination, routing validation, concurrency of numbering and decisions, access denial), frontend unit tests for the inbox, route builder and status dashboard, and an e2e script in `scripts/` (submit → approve → register → acknowledgement campaign → status report).
+- [ ] Update [PRD.md](PRD.md) and [NOTES.md](NOTES.md) with the DMS requirements, decisions and remaining gaps.
+
+Out of scope for this phase: qualified e-signatures, external (inter-organization) correspondence and incoming/outgoing mail registration, OCR of scanned paper, a WYSIWYG document editor or co-authoring, and e-mail delivery while `symfony/mime` remains blocked.
+
 ### Later — Validate demand before expanding ERP scope
 
 - [ ] Confirm user demand and scope before starting manufacturing/MRP, payroll, advanced planning, BI, or other broad ERP modules.

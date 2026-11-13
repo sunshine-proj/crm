@@ -44,6 +44,10 @@ final class ApiAccessPolicyTest extends TestCase
         'api_sales_quotes_convert', 'api_sales_orders_list', 'api_sales_shipments_create', 'api_sales_orders_invoice',
         'api_tasks_list', 'api_tasks_create', 'api_tasks_show', 'api_tasks_dependencies_list',
         'api_tasks_dependencies_update', 'api_tasks_update', 'api_tasks_delete',
+        'api_org_units_list', 'api_org_units_members', 'api_org_positions_list', 'api_org_employments_list',
+        'api_org_people', 'api_org_me', 'api_org_reporting_line',
+        // Delegations: own records only; naming a deputy for someone else, listing all and revoking others' need ROLE_ADMIN inline.
+        'api_delegations_list', 'api_delegations_create', 'api_delegations_revoke',
     ];
 
     /** Routes that require ROLE_FINANCE (administrators inherit it). */
@@ -103,6 +107,9 @@ final class ApiAccessPolicyTest extends TestCase
 
         'api_operations_user_cost_rate',
         'api_organization_settings_update', 'api_organization_settings_restore',
+        'api_org_units_create', 'api_org_units_update', 'api_org_units_archive', 'api_org_units_restore', 'api_org_units_delete',
+        'api_org_positions_create', 'api_org_positions_update', 'api_org_positions_archive', 'api_org_positions_delete',
+        'api_org_employments_create', 'api_org_employments_update', 'api_org_employments_delete',
 
     ];
 

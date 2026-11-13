@@ -212,6 +212,29 @@ Please check: docs/PAYMENTS_AND_BANKING.md and docs/COMPLIANCE_SCOPE.md end with
 ===================================================
 
 
+I've added a new section to README.md, P2 — Document management (DMS) module, placed just before "Later". It's only roadmap text: no code was written and nothing is committed.
+
+The org structure has to come first. The app has no units, sections, positions or reporting lines today, and roles are only ROLE_USER/FINANCE/INVENTORY/ADMIN. Approval by subordination and sending documents to units need that structure, so it's Phase 1.
+
+The five phases:
+
+Org structure: a tree of units and sections, positions, and employees assigned to positions. It includes a service that works out each user's chain of superiors and subordinates, handles vacant head posts, and supports deputies for absences.
+Document registry: document types, a lifecycle (draft through archived), registration numbers per type and year, read-only past versions with check-out locking, attachments and links between documents, preview and printable approval sheets, access control including confidential documents, and full-text search.
+Approval by subordination: sequential and parallel steps. The server only accepts approvers from the sender's own chain of superiors, and nobody can approve their own document. Approvers can approve, reject with a reason, return for revision or forward for review. Every action is kept in a history that can't be edited. Overdue approvals send reminders and escalate to the approver's superior. Includes an "Awaiting my approval" inbox and a route timeline.
+Acknowledgement: managers send documents to units or sections (optionally including sub-units), positions or individual people, but only within the part of the organisation they manage. Admins can reach everyone. The recipient list is saved when the request is sent. Each person moves from pending to viewed to acknowledged, or is marked overdue or excused. Managers get a completion dashboard by unit with drill-down to employees, CSV export, reminders, and a fresh acknowledgement round when a document gets a new version.
+Lifecycle and hardening: effective, review and expiry dates, retention periods, legal hold, a full audit trail, reports, virus scanning and backups, and tests.
+Open decisions at the top of the section that you should settle first:
+
+Who counts as "management staff": I proposed unit and section heads acting within their own part of the organisation, plus a new DMS admin role.
+How approval routes are chosen: the sender picks from their own superiors, routes are generated from per-type templates, or both.
+Whether a simple electronic confirmation is enough: the alternative is qualified e-signatures (eIDAS).
+Retention periods.
+Things like incoming/outgoing mail registration, OCR and co-authoring are listed as out of scope. Email notifications are also out of scope because the mail library is still blocked by Composer's security policy, as already noted in P1.
+
+
+
+===================================================
+
 
 
 
