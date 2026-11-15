@@ -10,6 +10,7 @@ use App\Entity\Task;
 use App\Entity\TaskStatus;
 use App\Entity\User;
 use App\Repository\NotificationRepository;
+use App\Service\Module\ModuleConfigurator;
 use App\Service\ReminderGenerator;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
@@ -135,5 +136,18 @@ final class ReminderGeneratorTest extends KernelTestCase
         $this->entityManager->flush();
 
         self::assertSame(1, $this->generator->run(new \DateTimeImmutable('2026-11-09'))['due_soon']);
+    }
+
+    public function test_task_reminders_follow_the_project_module(): void
+    {
+        $this->task('2026-11-04');
+        $configurator = self::getContainer()->get(ModuleConfigurator::class);
+        $configurator->configure('projects', null, ['ROLE_FINANCE'], null, 'test');
+        self::assertSame(0, $this->generator->run(new \DateTimeImmutable('2026-11-03 09:00'))['due_soon'], 'the assignee cannot open projects');
+        $configurator->applyEnabledSet(['news'], 'test');
+        $configurator->configure('projects', null, [], null, 'test');
+        self::assertSame(0, $this->generator->run(new \DateTimeImmutable('2026-11-03 09:00'))['due_soon'], 'the module is off');
+        $configurator->applyEnabledSet(['clients', 'projects'], 'test');
+        self::assertSame(1, $this->generator->run(new \DateTimeImmutable('2026-11-03 09:00'))['due_soon']);
     }
 }

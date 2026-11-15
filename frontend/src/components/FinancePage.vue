@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { whenModule } from "../lib/modules";
 import { computed, onMounted, ref } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 
@@ -384,7 +385,7 @@ function pickPurchaseOrder() {
 
 async function loadPurchaseOrders() {
   try {
-    purchaseOrders.value = (await request<PurchaseOrderOption[]>("/inventory/purchase-orders")).filter((order) => ["open", "partially_received", "received"].includes(order.status));
+    purchaseOrders.value = (await whenModule("inventory", () => request<PurchaseOrderOption[]>("/inventory/purchase-orders"), [])).filter((order) => ["open", "partially_received", "received"].includes(order.status));
   } catch {
     purchaseOrders.value = [];
   }

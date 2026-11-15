@@ -26,6 +26,7 @@ import DocumentsPage from "./components/DocumentsPage.vue";
 import DocumentDetailPage from "./components/DocumentDetailPage.vue";
 import AcknowledgementBoard from "./components/AcknowledgementBoard.vue";
 import { setOrganizationDefaultCurrency } from "./lib/organizationSettings";
+import { detailRouteModules, hasModule, loadModules, moduleStates, resetModules, sectionVisible } from "./lib/modules";
 
 type LoginResponse = {
   token: string;
@@ -55,7 +56,15 @@ const organizationSettingsReady = ref(false);
 const organizationSettingsError = ref("");
 const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Timesheet", "Time Report", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Bank", "Documents", "Organization", "Settings"];
 const isFinance = computed(() => isFinanceToken(token.value));
-const sections = computed(() => allSections.filter((section) => (section !== "Finance" && section !== "Bank") || isFinance.value));
+const sections = computed(() => allSections.filter((section) => ((section !== "Finance" && section !== "Bank") || isFinance.value) && sectionVisible(section, moduleStates.value)));
+/** Label of the module a blocked section or detail link needs, or null when the page may be shown. */
+const unavailableModule = computed(() => {
+  const route = detailRoute.value;
+  const key = route ? detailRouteModules[route.kind] : null;
+  if (key && !hasModule(key, moduleStates.value)) return moduleStates.value?.find((state) => state.key === key)?.label ?? key;
+  if (!route && !sectionVisible(activeSection.value, moduleStates.value)) return activeSection.value;
+  return null;
+});
 const pageComponents = {
   Dashboard: DashboardPage,
   News: NewsPage,
@@ -103,6 +112,8 @@ async function loadOrganizationSettings() {
   }
 
   try {
+    // Modules decide which sections are shown; when they cannot be loaded nothing is hidden and the API still enforces them.
+    void loadModules().catch(() => resetModules());
     const response = await fetch("/api/settings", {
       headers: { Authorization: `Bearer ${token.value}` },
     });
@@ -150,6 +161,7 @@ function signOut() {
   localStorage.removeItem("crm_token");
   localStorage.removeItem("crm_user_email");
   setOrganizationDefaultCurrency(null);
+  resetModules();
   token.value = null;
   userEmail.value = null;
   activeSection.value = "Dashboard";
@@ -227,6 +239,12 @@ function signOut() {
     <section class="workspace" aria-live="polite">
       <p v-if="organizationSettingsError" class="error" role="alert">{{ organizationSettingsError }}</p>
       <div v-if="!organizationSettingsReady" class="empty-page"><h2>Loading organization settings...</h2></div>
+      <div v-else-if="unavailableModule" class="empty-page">
+        <span class="empty-icon" aria-hidden="true">&#9675;</span>
+        <h2>{{ unavailableModule }} is not available.</h2>
+        <p class="muted">This module is turned off for your organization or not available for your role. An administrator can change this under Settings → Modules. Existing data is kept.</p>
+        <button class="edit-button" type="button" @click="openSection('Dashboard')">Go to the dashboard</button>
+      </div>
       <ClientDetailPage v-else-if="detailRoute?.kind === 'client'" :client-id="detailRoute.id" :key="`client-${detailRoute.id}`" />
       <ProjectDetailPage v-else-if="detailRoute?.kind === 'project'" :project-id="detailRoute.id" :key="`project-${detailRoute.id}`" />
       <DocumentDetailPage v-else-if="detailRoute?.kind === 'document'" :document-id="detailRoute.id" :key="`document-${detailRoute.id}`" />

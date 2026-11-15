@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { whenModule } from "../lib/modules";
 import { computed, onMounted, ref } from "vue";
 import ClientActivityPanel from "./ClientActivityPanel.vue";
 import ClientContactsPanel from "./ClientContactsPanel.vue";
@@ -102,7 +103,7 @@ async function loadClients() {
   try {
     const [loadedClients, projects] = await Promise.all([
       request<Client[]>("/clients"),
-      request<(ProjectSummary & { client_id: number | null })[]>("/projects"),
+      whenModule("projects", () => request<(ProjectSummary & { client_id: number | null })[]>("/projects"), []),
     ]);
     clients.value = loadedClients;
     projectsByClient.value = projects.reduce<Record<number, ProjectSummary[]>>((grouped, project) => {

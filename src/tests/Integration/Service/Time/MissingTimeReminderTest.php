@@ -9,6 +9,7 @@ use App\Entity\ReminderPreference;
 use App\Entity\TimeEntry;
 use App\Entity\User;
 use App\Repository\NotificationRepository;
+use App\Service\Module\ModuleConfigurator;
 use App\Service\Time\MissingTimeReminder;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
@@ -89,5 +90,21 @@ final class MissingTimeReminderTest extends KernelTestCase
         self::assertSame([], $this->inbox($occasional), 'no time in the four weeks before');
         self::assertSame([], $this->inbox($optedOut), 'reminders turned off');
         self::assertSame(0, $this->reminder->run(new \DateTimeImmutable('2026-11-16 18:00')), 'a second run does not repeat the reminder');
+    }
+
+    public function test_no_reminders_when_the_setting_or_the_module_is_off_or_hidden_from_the_role(): void
+    {
+        $forgetful = $this->user('forgetful');
+        $this->logTime($forgetful, '2026-11-02');
+        $configurator = self::getContainer()->get(ModuleConfigurator::class);
+
+        $configurator->configure('time_tracking', null, null, ['missing_time_reminders' => false], 'test');
+        self::assertSame(0, $this->reminder->run(new \DateTimeImmutable('2026-11-16 08:00')));
+        $configurator->configure('time_tracking', null, ['ROLE_FINANCE'], ['missing_time_reminders' => true], 'test');
+        self::assertSame(0, $this->reminder->run(new \DateTimeImmutable('2026-11-16 08:00')), 'the role cannot open the timesheet');
+        $configurator->configure('time_tracking', false, [], null, 'test');
+        self::assertSame(0, $this->reminder->run(new \DateTimeImmutable('2026-11-16 08:00')));
+        $configurator->configure('time_tracking', true, null, null, 'test');
+        self::assertSame(1, $this->reminder->run(new \DateTimeImmutable('2026-11-16 08:00')));
     }
 }

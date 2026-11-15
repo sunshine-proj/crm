@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hasModule } from "../lib/modules";
 import { computed, onMounted, ref } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 import EntityNotesPanel from "./EntityNotesPanel.vue";
@@ -425,7 +426,7 @@ async function deleteProject() {
               <div><label :for="`milestone-currency-${project.id}`">Currency</label><select :id="`milestone-currency-${project.id}`" v-model="milestoneCurrency"><option>EUR</option><option>GBP</option><option>USD</option></select></div>
               <button class="edit-button" type="submit" :disabled="isSaving">Add milestone</button>
             </form>
-            <ul v-if="milestones.length" class="milestone-list"><li v-for="milestone in milestones" :key="milestone.id"><div><strong>{{ milestone.title }}</strong><span>{{ milestone.due_date ?? "No due date" }} · {{ milestone.status }}<span v-if="milestone.amount"> · {{ milestone.amount }} {{ milestone.currency }}</span></span><p v-if="milestone.description">{{ milestone.description }}</p></div><div><button v-if="milestone.status === 'planned'" class="edit-button" type="button" @click="completeMilestone(milestone)">Complete</button><button v-if="milestone.status === 'completed' && milestone.amount !== null" class="edit-button" type="button" @click="invoiceMilestone(milestone)">Create draft invoice</button><span v-if="milestone.invoice_id">Invoice #{{ milestone.invoice_id }}</span></div></li></ul>
+            <ul v-if="milestones.length" class="milestone-list"><li v-for="milestone in milestones" :key="milestone.id"><div><strong>{{ milestone.title }}</strong><span>{{ milestone.due_date ?? "No due date" }} · {{ milestone.status }}<span v-if="milestone.amount"> · {{ milestone.amount }} {{ milestone.currency }}</span></span><p v-if="milestone.description">{{ milestone.description }}</p></div><div><button v-if="milestone.status === 'planned'" class="edit-button" type="button" @click="completeMilestone(milestone)">Complete</button><button v-if="milestone.status === 'completed' && milestone.amount !== null && hasModule('invoices')" class="edit-button" type="button" @click="invoiceMilestone(milestone)">Create draft invoice</button><span v-if="milestone.invoice_id">Invoice #{{ milestone.invoice_id }}</span></div></li></ul>
             <p v-else class="muted">No milestones yet.</p>
           </section>
         </div>

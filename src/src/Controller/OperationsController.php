@@ -18,6 +18,7 @@ use App\Service\Time\TimeEntryFilter;
 use App\Service\Time\TimeEntryRecorder;
 use App\Service\Time\TimeEntryRejected;
 use App\Service\Time\TimeVisibility;
+use App\Service\Module\ModuleGate;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
 use App\Entity\Expense;
 use App\Entity\ExpenseApproval;
@@ -53,9 +54,6 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[IsGranted('ROLE_USER')]
 final class OperationsController extends AbstractController
 {
-    /** Share of the project budget consumed by approved cost at which the profitability summary warns. */
-    public const BUDGET_WARNING_PERCENT = 80;
-
     public function __construct(
         private readonly ProjectRepository $projectRepository,
         private readonly TimeEntryRepository $timeEntryRepository,
@@ -73,6 +71,7 @@ final class OperationsController extends AbstractController
         private readonly TimeEntryRecorder $timeEntryRecorder,
         private readonly TimeVisibility $timeVisibility,
         private readonly ValidatorInterface $validator,
+        private readonly ModuleGate $modules,
         #[Autowire(service: 'monolog.logger.audit')] private readonly LoggerInterface $auditLogger,
     ) {
     }
@@ -294,6 +293,7 @@ final class OperationsController extends AbstractController
         $cost = $laborCost + $expenseCost;
         $margin = $revenue - $cost;
         $budget = $project->getBudgetCurrency() === $currency ? $project->getBudgetMinor() : null;
+        $warningPercent = (int) $this->modules->setting('project_operations', 'budget_warning_percent');
 
         return $this->json([
             'project_id' => $id,
@@ -309,8 +309,8 @@ final class OperationsController extends AbstractController
             'budget' => $budget !== null ? $this->money->formatMinor($budget) : null,
             'budget_variance' => $budget !== null && $from === null && $to === null ? $this->money->formatMinor($budget - $cost) : null,
             'budget_consumed_percent' => $budget !== null && $budget > 0 && $from === null && $to === null ? intdiv($cost * 100, $budget) : null,
-            'budget_warning' => $budget !== null && $from === null && $to === null && $cost * 100 >= $budget * self::BUDGET_WARNING_PERCENT,
-            'budget_warning_percent' => self::BUDGET_WARNING_PERCENT,
+            'budget_warning' => $budget !== null && $from === null && $to === null && $cost * 100 >= $budget * $warningPercent,
+            'budget_warning_percent' => $warningPercent,
             'unpriced_billable_entries' => $billableUnpriced,
             'uncosted_approved_time_entries' => $uncostedApprovedTime,
             'excluded_expenses_other_currency' => $excludedExpenses,

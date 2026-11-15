@@ -38,7 +38,7 @@ final class ApiAccessPolicyTest extends TestCase
         'api_operations_expense_decision', 'api_operations_expense_reimbursements_list',
         'api_operations_documents_list', 'api_operations_documents_upload', 'api_operations_documents_download',
         'api_operations_documents_delete',
-        'api_organization_settings_show',
+        'api_organization_settings_show', 'api_modules_list',
         'api_projects_list', 'api_projects_managers', 'api_projects_create', 'api_projects_show',
         'api_projects_milestones_list', 'api_projects_milestones_create', 'api_projects_milestones_complete',
         'api_projects_update', 'api_projects_delete',
@@ -132,6 +132,7 @@ final class ApiAccessPolicyTest extends TestCase
         'api_records_revisions_list', 'api_records_revisions_restore',
 
         'api_operations_user_cost_rate',
+        'api_modules_update', 'api_modules_preset', 'api_modules_history', 'api_modules_restore',
         'api_organization_settings_update', 'api_organization_settings_restore',
         'api_org_units_create', 'api_org_units_update', 'api_org_units_archive', 'api_org_units_restore', 'api_org_units_delete',
         'api_org_positions_create', 'api_org_positions_update', 'api_org_positions_archive', 'api_org_positions_delete',

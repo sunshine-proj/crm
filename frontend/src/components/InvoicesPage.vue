@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { whenModule } from "../lib/modules";
 import { computed, onMounted, ref } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 import { isFinanceToken } from "../lib/session";
@@ -160,8 +161,8 @@ async function loadPage() {
     const [loadedClients, loadedManagers, loadedProjects, loadedTasks] = await Promise.all([
       request<Client[]>("/clients"),
       request<Manager[]>("/projects/managers"),
-      request<Project[]>("/projects"),
-      request<Task[]>("/tasks"),
+      whenModule("projects", () => request<Project[]>("/projects"), []),
+      whenModule("projects", () => request<Task[]>("/tasks"), []),
     ]);
     clients.value = loadedClients;
     managers.value = loadedManagers;

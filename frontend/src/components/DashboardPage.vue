@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hasModule, whenModule } from "../lib/modules";
 import { onMounted, ref } from "vue";
 import { apiRequest } from "../lib/api";
 
@@ -16,8 +17,8 @@ const documentCounts = ref<{ toAcknowledge: number; awaitingDecision: number } |
 async function loadDocumentCounts() {
   try {
     const [acknowledgements, approvals] = await Promise.all([
-      apiRequest<{ to_acknowledge: number }>("/dms/acknowledgements/counts"),
-      apiRequest<{ awaiting: number }>("/dms/approvals/counts"),
+      whenModule("document_management", () => apiRequest<{ to_acknowledge: number }>("/dms/acknowledgements/counts"), { to_acknowledge: 0 }),
+      whenModule("document_management", () => apiRequest<{ awaiting: number }>("/dms/approvals/counts"), { awaiting: 0 }),
     ]);
     documentCounts.value = { toAcknowledge: acknowledgements.to_acknowledge, awaitingDecision: approvals.awaiting };
   } catch {
@@ -63,11 +64,11 @@ onMounted(() => {
       </article>
       <div class="metric-list">
         <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
-        <div><span>Clients</span><strong>{{ isLoading ? "..." : summary?.client_count ?? 0 }}</strong></div>
-        <div><span>Active projects</span><strong>{{ isLoading ? "..." : summary?.active_project_count ?? 0 }}</strong></div>
-        <div><span>Open tasks</span><strong>{{ isLoading ? "..." : summary?.open_task_count ?? 0 }}</strong></div>
-        <div v-if="documentCounts"><span>Documents to acknowledge</span><strong>{{ documentCounts.toAcknowledge }}</strong></div>
-        <div v-if="documentCounts"><span>Documents awaiting my approval</span><strong>{{ documentCounts.awaitingDecision }}</strong></div>
+        <div v-if="hasModule('clients')"><span>Clients</span><strong>{{ isLoading ? "..." : summary?.client_count ?? 0 }}</strong></div>
+        <div v-if="hasModule('projects')"><span>Active projects</span><strong>{{ isLoading ? "..." : summary?.active_project_count ?? 0 }}</strong></div>
+        <div v-if="hasModule('projects')"><span>Open tasks</span><strong>{{ isLoading ? "..." : summary?.open_task_count ?? 0 }}</strong></div>
+        <div v-if="documentCounts && hasModule('document_management')"><span>Documents to acknowledge</span><strong>{{ documentCounts.toAcknowledge }}</strong></div>
+        <div v-if="documentCounts && hasModule('document_management')"><span>Documents awaiting my approval</span><strong>{{ documentCounts.awaitingDecision }}</strong></div>
       </div>
     </div>
   </div>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { whenModule } from "../lib/modules";
 import { computed, onMounted, ref } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 
@@ -132,7 +133,7 @@ async function loadPage() {
       request<Product[]>("/products"),
       request<SalesDocument[]>("/quotes"),
       request<SalesDocument[]>("/sales-orders"),
-      request<Invoice[]>("/invoices"),
+      whenModule("invoices", () => request<Invoice[]>("/invoices"), []),
     ]);
     clients.value = loadedClients;
     products.value = loadedProducts;

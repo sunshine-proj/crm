@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { isValidDateTimeRange } from "../lib/planning";
+import { hasModule } from "../lib/modules";
 import { elapsedMinutes, estimateProgress, formatMinutes, isoDate, loadTimer, parseDuration, saveTimer, type RunningTimer } from "../lib/timeTracking";
 
 type Task = {
@@ -340,7 +341,7 @@ async function deleteTask() {
     </div>
 
     <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
-    <div v-if="timer" class="task-timer-bar" role="status">
+    <div v-if="timer && hasModule('time_tracking')" class="task-timer-bar" role="status">
       <span class="task-timer-dot" aria-hidden="true"></span>
       <span>Timer running on <strong>{{ timer.title }}</strong> · {{ formatMinutes(elapsedMinutes(timer.startedAt, now)) }}</span>
       <button class="edit-button" type="button" :disabled="isStoppingTimer" @click="stopTimer">{{ isStoppingTimer ? "Logging..." : "Stop and log" }}</button>
@@ -438,7 +439,7 @@ async function deleteTask() {
           <h2>{{ task.title }}</h2>
           <p class="muted">{{ task.description }}</p>
           <p class="card-kicker">{{ formatTaskDate(task.start_datetime) }} to {{ formatTaskDate(task.end_datetime) }}<span v-if="task.due_date"> · Due {{ task.due_date }}<strong v-if="task.due_status === 'overdue'"> · OVERDUE</strong></span></p>
-          <div class="task-time" :class="{ 'is-over': task.over_estimate }">
+          <div v-if="hasModule('time_tracking') || task.estimated_minutes" class="task-time" :class="{ 'is-over': task.over_estimate }">
             <span>Logged {{ formatMinutes(task.logged_minutes) }}<template v-if="task.estimated_minutes"> of {{ formatMinutes(task.estimated_minutes) }} estimated</template><template v-if="task.logged_minutes !== task.approved_minutes"> ({{ formatMinutes(task.approved_minutes) }} approved)</template></span>
             <span v-if="task.estimated_minutes" class="time-progress" aria-hidden="true"><span :style="{ width: `${Math.min(100, estimateProgress(task.estimated_minutes, task.logged_minutes).percent ?? 0)}%` }"></span></span>
             <strong v-if="task.over_estimate">Over estimate by {{ formatMinutes(task.logged_minutes - (task.estimated_minutes ?? 0)) }}</strong>
@@ -453,7 +454,7 @@ async function deleteTask() {
         </div>
         <div class="task-item-actions">
           <button class="edit-button" type="button" @click="editTask(task)">Edit</button>
-          <button v-if="task.project_id !== null && timer === null" class="edit-button" type="button" :aria-label="`Start timer on ${task.title}`" @click="startTimer(task)">Start timer</button>
+          <button v-if="task.project_id !== null && timer === null && hasModule('time_tracking')" class="edit-button" type="button" :aria-label="`Start timer on ${task.title}`" @click="startTimer(task)">Start timer</button>
         </div>
       </article>
       <p v-if="visibleTasks.length === 0" class="muted">No tasks match the selected filters.</p>

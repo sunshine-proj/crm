@@ -2,6 +2,8 @@
 
 namespace App\Controller;
 
+use App\Service\Module\ModuleCatalog;
+use App\Service\Module\ModuleGate;
 use App\Dto\NoteInput;
 use App\Entity\Note;
 use App\Entity\User;
@@ -23,6 +25,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 final class NoteController extends AbstractController
 {
     public function __construct(
+        private readonly ModuleGate $modules,
         private readonly NoteRepository $noteRepository,
         private readonly ClientRepository $clientRepository,
         private readonly ProjectRepository $projectRepository,
@@ -38,6 +41,7 @@ final class NoteController extends AbstractController
     #[IsGranted('ROLE_USER')]
     public function list(string $entityType, int $entityId): JsonResponse
     {
+        if (($hidden = $this->hiddenModule($entityType)) !== null) return $hidden;
         $notes = $this->noteRepository->findByEntity($entityType, $entityId);
 
         return $this->json(array_map(fn (Note $note): array => $this->serializeItem($note), $notes));
@@ -47,6 +51,7 @@ final class NoteController extends AbstractController
     #[IsGranted('ROLE_USER')]
     public function create(string $entityType, int $entityId, #[MapRequestPayload] NoteInput $input): JsonResponse
     {
+        if (($hidden = $this->hiddenModule($entityType)) !== null) return $hidden;
         if ($input->content === null || trim($input->content) === '') {
             return $this->json(['error' => 'Note content is required.'], JsonResponse::HTTP_BAD_REQUEST);
         }
@@ -85,6 +90,7 @@ final class NoteController extends AbstractController
     #[IsGranted('ROLE_USER')]
     public function update(string $entityType, int $entityId, int $noteId, #[MapRequestPayload] NoteInput $input): JsonResponse
     {
+        if (($hidden = $this->hiddenModule($entityType)) !== null) return $hidden;
         $note = $this->noteRepository->find($noteId);
         if ($note === null || $note->getEntityType() !== $entityType || $note->getEntityId() !== $entityId) {
             return $this->json(['error' => 'Note not found.'], JsonResponse::HTTP_NOT_FOUND);
@@ -122,6 +128,7 @@ final class NoteController extends AbstractController
     #[IsGranted('ROLE_USER')]
     public function delete(string $entityType, int $entityId, int $noteId): JsonResponse
     {
+        if (($hidden = $this->hiddenModule($entityType)) !== null) return $hidden;
         $note = $this->noteRepository->find($noteId);
         if ($note === null || $note->getEntityType() !== $entityType || $note->getEntityId() !== $entityId) {
             return $this->json(['error' => 'Note not found.'], JsonResponse::HTTP_NOT_FOUND);
@@ -157,6 +164,18 @@ final class NoteController extends AbstractController
         $user = $this->getUser();
 
         return $this->isGranted('ROLE_ADMIN') || ($user instanceof User && $note->getAuthor()?->getId() === $user->getId());
+    }
+
+    /** Notes belong to their record's module: hidden (404) while that module is off or not available to the caller. */
+    private function hiddenModule(string $entityType): ?JsonResponse
+    {
+        $module = $entityType === 'client' ? 'clients' : 'projects';
+        $user = $this->getUser();
+        if ($this->modules->isAvailableTo($module, $user instanceof User ? $user : null)) {
+            return null;
+        }
+
+        return $this->json(['error' => sprintf('The %s module is not available.', ModuleCatalog::MODULES[$module]['label']), 'module' => $module], JsonResponse::HTTP_NOT_FOUND);
     }
 
     private function getAuditActor(): string

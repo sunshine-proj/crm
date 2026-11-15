@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hasModule, whenModule } from "../lib/modules";
 import { computed, onMounted, ref, watch } from "vue";
 import { getOrganizationDefaultCurrency } from "../lib/organizationSettings";
 import { isFinanceToken } from "../lib/session";
@@ -14,7 +15,9 @@ type ProjectDocument = { id: number; project_id: number; original_name: string; 
 
 const tabs = ["Time entries", "Expenses", "Approvals", "Documents"] as const;
 type Tab = (typeof tabs)[number];
-const tab = ref<Tab>("Time entries");
+/** Time entries belong to Time tracking; expenses and documents to Project expenses; approvals show whichever is on. */
+const visibleTabs = computed(() => tabs.filter((item) => item === "Approvals" || (item === "Time entries" ? hasModule("time_tracking") : hasModule("project_operations"))));
+const tab = ref<Tab>(hasModule("time_tracking") ? "Time entries" : "Expenses");
 const projects = ref<Project[]>([]);
 const tasks = ref<Task[]>([]);
 const teamMembers = ref<TeamMember[]>([]);
@@ -71,7 +74,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 async function loadTimeEntries() {
-  if (selectedProjectId.value === null) {
+  if (selectedProjectId.value === null || !hasModule("time_tracking")) {
     timeEntries.value = [];
     return;
   }
@@ -80,7 +83,7 @@ async function loadTimeEntries() {
 }
 
 async function loadProfitability() {
-  if (timeProjectId.value === null || !isFinanceToken(localStorage.getItem("crm_token"))) {
+  if (timeProjectId.value === null || !isFinanceToken(localStorage.getItem("crm_token")) || !hasModule("project_operations")) {
     profitability.value = null;
     return;
   }
@@ -90,7 +93,7 @@ async function loadProfitability() {
 }
 
 async function loadDocuments() {
-  if (selectedProjectId.value === null) {
+  if (selectedProjectId.value === null || !hasModule("project_operations")) {
     documents.value = [];
     return;
   }
@@ -104,8 +107,8 @@ async function loadOperations() {
     const [loadedProjects, loadedTasks, loadedExpenses, pending, loadedTeamMembers] = await Promise.all([
       request<Project[]>("/projects"),
       request<Task[]>("/tasks"),
-      request<Expense[]>("/operations/expenses"),
-      request<Expense[]>("/operations/expenses/pending-approval"),
+      whenModule("project_operations", () => request<Expense[]>("/operations/expenses"), []),
+      whenModule("project_operations", () => request<Expense[]>("/operations/expenses/pending-approval"), []),
       request<TeamMember[]>("/projects/managers"),
     ]);
     projects.value = loadedProjects;
@@ -371,7 +374,7 @@ async function downloadDocument(uploadedDocument: ProjectDocument) {
 <template>
   <div class="page-content operations-page">
     <div class="page-heading"><div><p class="eyebrow">Project operations</p><h1>Plan, record, and review the work.</h1></div></div>
-    <nav class="sales-tabs" aria-label="Operations sections"><button v-for="item in tabs" :key="item" type="button" :class="{ active: tab === item }" :aria-pressed="tab === item" @click="tab = item; errorMessage = ''; noticeMessage = ''">{{ item }}</button></nav>
+    <nav class="sales-tabs" aria-label="Operations sections"><button v-for="item in visibleTabs" :key="item" type="button" :class="{ active: tab === item }" :aria-pressed="tab === item" @click="tab = item; errorMessage = ''; noticeMessage = ''">{{ item }}</button></nav>
     <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p><p v-if="noticeMessage" class="sales-notice" role="status">{{ noticeMessage }}</p>
     <div v-if="isLoading" class="empty-page"><h2>Loading operations...</h2></div>
 
@@ -380,7 +383,7 @@ async function downloadDocument(uploadedDocument: ProjectDocument) {
         <details class="operations-rate-settings"><summary>Configure a team member cost rate</summary><p class="finance-report-basis">Admin-only; changes apply to new time entries and do not rewrite historical rate snapshots.</p><form class="operations-form-grid" @submit.prevent="saveCostRate"><div><label for="cost-rate-user">Team member</label><select id="cost-rate-user" v-model.number="costRateUserId"><option v-for="member in teamMembers" :key="member.id" :value="member.id">{{ member.email }}</option></select></div><div><label for="cost-rate-value">Hourly cost rate</label><input id="cost-rate-value" v-model="costRate" inputmode="decimal" placeholder="Leave blank to clear" /></div><div><label for="cost-rate-currency">Currency</label><select id="cost-rate-currency" v-model="costRateCurrency"><option>EUR</option><option>GBP</option><option>USD</option></select></div><button class="edit-button" type="submit" :disabled="isSaving">Save rate</button></form></details>
         <form class="operations-form-grid" @submit.prevent="saveTimeEntry"><div><label for="time-project">Project</label><select id="time-project" v-model.number="timeProjectId"><option :value="null" disabled>Select project</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.title }}</option></select></div><div><label for="time-task">Task</label><select id="time-task" v-model.number="timeTaskId"><option :value="null">No task</option><option v-for="task in projectTasks" :key="task.id" :value="task.id">{{ task.title }}</option></select></div><div><label for="time-date">Work date</label><input id="time-date" v-model="timeDate" type="date" required /></div><div><label for="time-minutes">Duration (minutes)</label><input id="time-minutes" v-model.number="timeMinutes" type="number" min="1" max="1440" step="1" required /></div><div><label for="time-description">Work summary</label><input id="time-description" v-model="timeDescription" maxlength="255" required /></div><label class="operations-checkbox"><input v-model="timeBillable" type="checkbox" /> Billable</label><button class="edit-button" type="submit" :disabled="isSaving">{{ isSaving ? "Recording..." : "Record time" }}</button></form>
         <div class="operations-summary"><span>{{ timeEntries.length }} entries</span><strong>{{ Math.floor(totalLoggedMinutes / 60) }}h {{ totalLoggedMinutes % 60 }}m logged</strong></div>
-        <div v-if="invoicableTimeEntries.length" class="operations-form-grid"><div><label for="time-invoice-date">Draft invoice date</label><input id="time-invoice-date" v-model="invoiceDate" type="date" /></div><button class="edit-button" type="button" :disabled="isSaving" @click="createInvoiceFromTime">Create draft invoice from {{ invoicableTimeEntries.length }} entries</button></div>
+        <div v-if="invoicableTimeEntries.length && hasModule('invoices')" class="operations-form-grid"><div><label for="time-invoice-date">Draft invoice date</label><input id="time-invoice-date" v-model="invoiceDate" type="date" /></div><button class="edit-button" type="button" :disabled="isSaving" @click="createInvoiceFromTime">Create draft invoice from {{ invoicableTimeEntries.length }} entries</button></div>
         <div v-if="timeEntries.length" class="operations-record-list"><article v-for="entry in timeEntries" :key="entry.id"><div><p class="card-kicker">{{ entry.work_date }} · {{ entry.user_email }} · {{ entry.billable ? "Billable" : "Non-billable" }} · {{ entry.approval_status.replaceAll("_", " ") }}</p><h3>{{ entry.description }}</h3><span>{{ entry.project_title }}<span v-if="entry.task_title"> · {{ entry.task_title }}</span></span><span v-if="entry.billing_amount"> · {{ entry.billing_amount }} {{ entry.billing_currency }}</span><span v-if="entry.cost_amount"> · Cost {{ entry.cost_amount }} {{ entry.cost_currency }}</span><span v-if="entry.invoice_id"> · Invoice draft #{{ entry.invoice_id }}</span></div><div><strong>{{ Math.floor(entry.duration_minutes / 60) }}h {{ entry.duration_minutes % 60 }}m</strong><div v-if="entry.approval_status === 'pending_approval'" class="operations-approval-actions"><button class="edit-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'approved')">Approve</button><button class="edit-button danger-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'rejected')">Reject</button></div><div class="operations-approval-actions"><button v-if="entry.approval_status === 'approved' && !entry.invoice_id" class="edit-button" type="button" :disabled="isSaving" @click="reopenTimeEntry(entry)">Reopen</button><button v-if="entry.user_email === currentUserEmail && !entry.invoice_id && (entry.approval_status === 'pending_approval' || entry.approval_status === 'rejected')" class="edit-button danger-button" type="button" :disabled="isSaving" @click="withdrawTimeEntry(entry)">Withdraw</button></div></div></article></div><p v-else class="muted">No time entries for this project.</p>
         <section v-if="profitability" class="operations-section"><div class="finance-section-heading"><div><p class="card-kicker">Budget and profitability · {{ profitability.currency }}</p><h2>Approved work and cost summary</h2></div></div><div class="operations-summary"><span>Billable revenue {{ profitability.approved_billable_revenue }}</span><span>Labor {{ profitability.approved_labor_cost }}</span><span>Expenses {{ profitability.approved_expense_cost }}</span><strong>Margin {{ profitability.gross_margin }}</strong></div><p class="finance-report-basis">{{ profitability.basis }} Budget {{ profitability.budget ?? "not configured" }}; variance {{ profitability.budget_variance ?? "not available" }}. {{ profitability.unpriced_billable_entries }} unpriced billable entries, {{ profitability.uncosted_approved_time_entries }} approved entries without cost rates, and {{ profitability.excluded_expenses_other_currency }} expenses excluded for currency mismatch.</p></section>
       </section>
@@ -394,8 +397,8 @@ async function downloadDocument(uploadedDocument: ProjectDocument) {
     </template>
 
     <template v-else-if="tab === 'Approvals'">
-      <section class="operations-section"><div class="finance-section-heading"><div><p class="card-kicker">Approval workflow</p><h2>Pending timesheets</h2></div></div><div v-if="pendingTimeEntries.length" class="operations-record-list"><article v-for="entry in pendingTimeEntries" :key="entry.id"><div><p class="card-kicker">{{ entry.project_title }} · {{ entry.work_date }} · {{ entry.user_email }}</p><h3>{{ entry.description }}</h3><label :for="`time-decision-${entry.id}`">Decision note</label><input :id="`time-decision-${entry.id}`" v-model="timeDecisionComments[entry.id]" maxlength="500" placeholder="Optional explanation" /></div><div class="operations-approval-actions"><button class="edit-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'approved')">Approve</button><button class="edit-button danger-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'rejected')">Reject</button></div></article></div><p v-else class="muted">No pending time entries for the selected project.</p></section>
-      <section class="operations-section"><div class="finance-section-heading"><div><p class="card-kicker">Approval workflow</p><h2>Pending project expenses</h2></div></div>
+      <section v-if="hasModule('time_tracking')" class="operations-section"><div class="finance-section-heading"><div><p class="card-kicker">Approval workflow</p><h2>Pending timesheets</h2></div></div><div v-if="pendingTimeEntries.length" class="operations-record-list"><article v-for="entry in pendingTimeEntries" :key="entry.id"><div><p class="card-kicker">{{ entry.project_title }} · {{ entry.work_date }} · {{ entry.user_email }}</p><h3>{{ entry.description }}</h3><label :for="`time-decision-${entry.id}`">Decision note</label><input :id="`time-decision-${entry.id}`" v-model="timeDecisionComments[entry.id]" maxlength="500" placeholder="Optional explanation" /></div><div class="operations-approval-actions"><button class="edit-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'approved')">Approve</button><button class="edit-button danger-button" type="button" :disabled="isSaving" @click="decideTimeEntry(entry, 'rejected')">Reject</button></div></article></div><p v-else class="muted">No pending time entries for the selected project.</p></section>
+      <section v-if="hasModule('project_operations')" class="operations-section"><div class="finance-section-heading"><div><p class="card-kicker">Approval workflow</p><h2>Pending project expenses</h2></div></div>
         <div v-if="pendingExpenses.length" class="operations-record-list"><article v-for="expense in pendingExpenses" :key="expense.id"><div><p class="card-kicker">{{ expense.project_title }} · {{ expense.expense_date }} · {{ expense.submitter_email }}</p><h3>{{ expense.description }}</h3><strong>{{ expense.amount }} {{ expense.currency }}</strong><label :for="`approval-comment-${expense.id}`">Decision note</label><input :id="`approval-comment-${expense.id}`" v-model="approvalComments[expense.id]" maxlength="255" placeholder="Optional explanation" /></div><div class="operations-approval-actions"><button class="edit-button" type="button" :disabled="isSaving" @click="decideExpense(expense, 'approved')">Approve</button><button class="edit-button danger-button" type="button" :disabled="isSaving" @click="decideExpense(expense, 'rejected')">Reject</button></div></article></div><p v-else class="muted">No expenses are awaiting your approval.</p>
       </section>
     </template>

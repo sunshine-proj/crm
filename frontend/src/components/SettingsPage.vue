@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { setOrganizationDefaultCurrency } from "../lib/organizationSettings";
 import RecordHistoryPanel from "./RecordHistoryPanel.vue";
 import JurisdictionPanel from "./JurisdictionPanel.vue";
+import ModuleSettingsPanel from "./ModuleSettingsPanel.vue";
 
 type Country = { code: string; name: string; default_currency: string };
 type Currency = { code: string; name: string };
@@ -243,6 +244,8 @@ function formatDate(value: string): string {
           </li>
         </ol>
       </section>
+
+      <ModuleSettingsPanel v-if="settings.can_manage" />
 
       <JurisdictionPanel v-if="settings.can_manage" />
 

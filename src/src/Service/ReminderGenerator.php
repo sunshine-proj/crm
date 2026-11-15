@@ -18,6 +18,7 @@ use App\Repository\ProjectRepository;
 use App\Repository\ReminderPreferenceRepository;
 use App\Repository\TaskRepository;
 use App\Repository\UserRepository;
+use App\Service\Module\ModuleGate;
 use App\Service\Org\SubordinationService;
 use Doctrine\ORM\EntityManagerInterface;
 
@@ -55,6 +56,7 @@ final class ReminderGenerator
         private readonly AcknowledgementRequestRepository $acknowledgementRequestRepository,
         private readonly AcknowledgementRecipientRepository $acknowledgementRecipientRepository,
         private readonly DocumentRepository $documentRepository,
+        private readonly ModuleGate $modules,
     ) {
     }
 
@@ -65,27 +67,33 @@ final class ReminderGenerator
         $this->created = [];
         $counts = [Notification::DUE_SOON => 0, Notification::OVERDUE => 0, Notification::ESCALATION => 0];
 
-        foreach ($this->taskRepository->findAll() as $task) {
+        $projects = $this->modules->isEnabled('projects');
+        foreach ($projects ? $this->taskRepository->findAll() : [] as $task) {
             if (in_array($task->getStatus(), [TaskStatus::Done, TaskStatus::Cancelled], true)) {
                 continue;
             }
             $due = $task->getDueDate() ?? $task->getEndDatetime();
             $assignee = $task->getAssignee();
-            if ($due === null || $assignee === null) {
+            if ($due === null || $assignee === null || !$this->modules->isAvailableTo('projects', $assignee)) {
                 continue;
             }
             $this->remind($counts, $assignee, 'task', (int) $task->getId(), $task->getProject()?->getId(), sprintf('Task "%s"', $task->getTitle()), $due->setTime(0, 0), $today, 'lead_task', $task->getProject()?->getManager());
         }
-        foreach ($this->projectRepository->findAll() as $project) {
+        foreach ($projects ? $this->projectRepository->findAll() : [] as $project) {
             if (in_array($project->getStatus(), [ProjectStatus::Completed, ProjectStatus::Cancelled], true)) {
                 continue;
             }
             $due = $project->getEndDate();
             $manager = $project->getManager();
-            if ($due === null || $manager === null) {
+            if ($due === null || $manager === null || !$this->modules->isAvailableTo('projects', $manager)) {
                 continue;
             }
             $this->remind($counts, $manager, 'project', (int) $project->getId(), $project->getId(), sprintf('Project "%s"', $project->getTitle()), $due->setTime(0, 0), $today, 'lead_project', null);
+        }
+        if (!$this->modules->isEnabled('document_management')) {
+            $this->entityManager->flush();
+
+            return ['due_soon' => $counts[Notification::DUE_SOON], 'overdue' => $counts[Notification::OVERDUE], 'escalations' => $counts[Notification::ESCALATION]];
         }
         $chart = $this->subordination->chartOn($today);
         $verbs = ['review' => 'Review', 'approve' => 'Approval', 'sign' => 'Signature', 'consult' => 'Requested review'];
@@ -153,6 +161,11 @@ final class ReminderGenerator
     /** @param array<string, int> $counts */
     private function notify(array &$counts, User $user, string $kind, string $type, int $id, ?int $projectId, string $message, string $dedupeKey): void
     {
+        // Never notify about work in a module the recipient's role cannot open (for example an escalation).
+        $module = $type === 'document' ? 'document_management' : 'projects';
+        if (!$this->modules->isAvailableTo($module, $user)) {
+            return;
+        }
         $local = $user->getId().'|'.$dedupeKey;
         if (isset($this->created[$local]) || $this->notificationRepository->exists($user, $dedupeKey)) {
             return;

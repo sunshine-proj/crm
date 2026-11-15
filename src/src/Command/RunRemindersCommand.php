@@ -4,6 +4,7 @@ namespace App\Command;
 
 use App\Service\Dms\AcknowledgementAudience;
 use App\Service\ReminderGenerator;
+use App\Service\Module\ModuleGate;
 use App\Service\Time\MissingTimeReminder;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -14,7 +15,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'app:reminders:run', description: 'Add people who joined targeted units to open acknowledgement requests, then create due-soon, overdue and escalation notifications for tasks, projects, approvals and acknowledgements, and missing-time reminders for the previous working day (safe to run repeatedly).')]
 final class RunRemindersCommand extends Command
 {
-    public function __construct(private readonly ReminderGenerator $generator, private readonly AcknowledgementAudience $audience, private readonly MissingTimeReminder $missingTime)
+    public function __construct(private readonly ReminderGenerator $generator, private readonly AcknowledgementAudience $audience, private readonly MissingTimeReminder $missingTime, private readonly ModuleGate $modules)
     {
         parent::__construct();
     }
@@ -24,7 +25,7 @@ final class RunRemindersCommand extends Command
         $now = new \DateTimeImmutable();
         $io = new SymfonyStyle($input, $output);
         // Employments can start on a future date, so joiners are picked up here as well as when they are recorded.
-        $joined = $this->audience->addJoiners($now);
+        $joined = $this->modules->isEnabled('document_management') ? $this->audience->addJoiners($now) : 0;
         if ($joined > 0) {
             $io->note(sprintf('Added %d person(s) who joined a targeted unit or position to open acknowledgement requests.', $joined));
         }

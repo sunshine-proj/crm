@@ -2,6 +2,7 @@
 
 namespace App\Service;
 
+use App\Service\Module\ModuleGate;
 use App\Entity\FiscalPeriod;
 use App\Entity\JournalEntry;
 use App\Entity\JournalEntryLine;
@@ -16,6 +17,7 @@ use Doctrine\ORM\EntityManagerInterface;
 final class FinancePostingService
 {
     public function __construct(
+        private readonly ModuleGate $modules,
         private readonly OrganizationSettingsRepository $settingsRepository,
         private readonly FiscalPeriodRepository $periodRepository,
         private readonly LedgerAccountRepository $accountRepository,
@@ -34,7 +36,15 @@ final class FinancePostingService
         string $currency,
         string $description,
         array $lines,
-    ): JournalEntry {
+    ): ?JournalEntry {
+        // With the accounting module off, source records are saved without a journal entry; the posting checks
+        // list them as unposted once accounting is turned on.
+        if (!$this->modules->isEnabled('accounting')) {
+            // Callers rely on posting to flush the source record's own changes.
+            $this->entityManager->flush();
+
+            return null;
+        }
         $existing = $this->journalRepository->findOneBy(['sourceType' => $sourceType, 'sourceId' => $sourceId]);
         if ($existing instanceof JournalEntry) {
             return $existing;
@@ -86,6 +96,9 @@ final class FinancePostingService
     /** @param list<string> $roles */
     public function assertCanPost(\DateTimeImmutable $date, array $roles): void
     {
+        if (!$this->modules->isEnabled('accounting')) {
+            return;
+        }
         $period = $this->periodRepository->findContaining($date);
         if (!$period instanceof FiscalPeriod || $period->isClosed()) {
             throw new \DomainException('An open fiscal period is required for automatic posting.');

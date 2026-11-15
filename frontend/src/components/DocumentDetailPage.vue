@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hasModule, whenModule } from "../lib/modules";
 import { computed, onMounted, ref } from "vue";
 import { apiRequest, apiUpload, downloadFile, errorText, previewFile } from "../lib/api";
 import { detailHref } from "../lib/route";
@@ -115,7 +116,7 @@ async function openEdit() {
   isEditing.value = true;
   try {
     if (units.value.length === 0) units.value = await apiRequest<OrgUnit[]>("/org/units");
-    if (clients.value.length === 0) [clients.value, projects.value] = await Promise.all([apiRequest<Named[]>("/clients"), apiRequest<Named[]>("/projects")]);
+    if (clients.value.length === 0) [clients.value, projects.value] = await Promise.all([whenModule("clients", () => apiRequest<Named[]>("/clients"), []), whenModule("projects", () => apiRequest<Named[]>("/projects"), [])]);
   } catch (error) {
     errorMessage.value = errorText(error, "Unable to load the choices for this form.");
   }
@@ -347,14 +348,14 @@ onMounted(async () => {
               <div><label for="edit-review">Review on</label><input id="edit-review" v-model="editReviewOn" type="date" /></div>
             </div>
             <div class="inline-fields">
-              <div>
+              <div v-if="hasModule('clients')">
                 <label for="edit-client">Client</label>
                 <select id="edit-client" v-model.number="editClientId">
                   <option :value="null">None</option>
                   <option v-for="client in clients" :key="client.id" :value="client.id">{{ client.title }}</option>
                 </select>
               </div>
-              <div>
+              <div v-if="hasModule('projects')">
                 <label for="edit-project">Project</label>
                 <select id="edit-project" v-model.number="editProjectId">
                   <option :value="null">None</option>
@@ -377,8 +378,8 @@ onMounted(async () => {
             <dt>Expires</dt><dd>{{ formatDay(document.expires_on) }}</dd>
             <dt>Review</dt><dd>{{ formatDay(document.review_on) }}</dd>
             <dt>Registered</dt><dd>{{ document.registered_at ? `${formatWhen(document.registered_at)} by ${document.registered_by}` : "—" }}</dd>
-            <dt>Client</dt><dd><a v-if="document.client" :href="detailHref('client', document.client.id)">{{ document.client.title }}</a><template v-else>—</template></dd>
-            <dt>Project</dt><dd><a v-if="document.project" :href="detailHref('project', document.project.id)">{{ document.project.title }}</a><template v-else>—</template></dd>
+            <template v-if="hasModule('clients')"><dt>Client</dt><dd><a v-if="document.client" :href="detailHref('client', document.client.id)">{{ document.client.title }}</a><template v-else>—</template></dd></template>
+            <template v-if="hasModule('projects')"><dt>Project</dt><dd><a v-if="document.project" :href="detailHref('project', document.project.id)">{{ document.project.title }}</a><template v-else>—</template></dd></template>
             <dt>Tags</dt><dd>{{ document.tags.length ? document.tags.join(", ") : "—" }}</dd>
           </dl>
         </section>

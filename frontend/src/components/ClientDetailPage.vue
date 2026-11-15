@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { hasModule, whenModule } from "../lib/modules";
 import { onMounted, ref, watch } from "vue";
 import { apiRequest, errorText } from "../lib/api";
 import { detailHref } from "../lib/route";
@@ -31,9 +32,9 @@ async function load() {
   try {
     client.value = await apiRequest<Client>(`/clients/${props.clientId}`);
     const [allProjects, clientDeals, clientInvoices] = await Promise.all([
-      apiRequest<Project[]>("/projects"),
-      apiRequest<Deal[]>(`/deals?client_id=${props.clientId}`),
-      apiRequest<Invoice[]>(`/invoices?client_id=${props.clientId}`),
+      whenModule("projects", () => apiRequest<Project[]>("/projects"), []),
+      whenModule("sales_pipeline", () => apiRequest<Deal[]>(`/deals?client_id=${props.clientId}`), []),
+      whenModule("invoices", () => apiRequest<Invoice[]>(`/invoices?client_id=${props.clientId}`), []),
     ]);
     projects.value = allProjects.filter((project) => project.client_id === props.clientId);
     deals.value = clientDeals;
@@ -83,7 +84,7 @@ watch(() => props.clientId, load);
           <p class="muted">{{ client.notes }}</p>
         </section>
 
-        <section class="detail-card">
+        <section v-if="hasModule('projects')" class="detail-card">
           <h2>Projects <span class="muted">({{ projects.length }})</span></h2>
           <p v-if="projects.length === 0" class="muted">No projects linked to this client.</p>
           <ul v-else class="detail-list">
@@ -95,7 +96,7 @@ watch(() => props.clientId, load);
           </ul>
         </section>
 
-        <section class="detail-card">
+        <section v-if="hasModule('sales_pipeline')" class="detail-card">
           <h2>Deals <span class="muted">({{ deals.length }})</span></h2>
           <p v-if="deals.length === 0" class="muted">No deals for this client.</p>
           <ul v-else class="detail-list">
@@ -103,7 +104,7 @@ watch(() => props.clientId, load);
           </ul>
         </section>
 
-        <section class="detail-card">
+        <section v-if="hasModule('invoices')" class="detail-card">
           <h2>Invoices <span class="muted">({{ invoices.length }})</span></h2>
           <p v-if="invoices.length === 0" class="muted">No invoices for this client.</p>
           <ul v-else class="detail-list">

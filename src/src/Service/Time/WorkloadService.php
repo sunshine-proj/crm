@@ -5,20 +5,21 @@ namespace App\Service\Time;
 use App\Entity\Task;
 use App\Repository\TaskRepository;
 use App\Repository\TimeEntryRepository;
+use App\Service\Module\ModuleGate;
 
 /**
  * Weekly workload per employee: time logged in each week (pending and approved) and planned work, which is the
  * remaining estimate of open assigned tasks placed in the week they are due (due date, else scheduled end).
- * A week is flagged as overloaded when logged plus planned minutes exceed the standard weekly capacity.
+ * A week is flagged as overloaded when logged plus planned minutes exceed the weekly capacity set for the Time tracking module.
  */
 final class WorkloadService
 {
-    public const WEEKLY_CAPACITY_MINUTES = 2400;
     public const MAX_WEEKS = 26;
 
     public function __construct(
         private readonly TimeEntryRepository $timeEntryRepository,
         private readonly TaskRepository $taskRepository,
+        private readonly ModuleGate $modules,
     ) {
     }
 
@@ -41,6 +42,7 @@ final class WorkloadService
             throw new \InvalidArgumentException(sprintf('Choose a period of at most %d weeks.', self::MAX_WEEKS));
         }
 
+        $capacity = 60 * (int) $this->modules->setting('time_tracking', 'weekly_capacity_hours');
         $employees = [];
         $cell = static function (array &$employees, int $id, string $email) use ($weekStarts): void {
             $employees[$id] ??= ['employee_id' => $id, 'employee_email' => $email, 'weeks' => array_fill_keys($weekStarts, ['logged' => 0, 'planned' => 0])];
@@ -80,16 +82,16 @@ final class WorkloadService
             'scope' => $scope->level(),
             'from' => $from->format('Y-m-d'),
             'to' => $to->format('Y-m-d'),
-            'capacity_minutes' => self::WEEKLY_CAPACITY_MINUTES,
+            'capacity_minutes' => $capacity,
             'weeks' => $weekStarts,
-            'employees' => array_map(static function (array $employee): array {
+            'employees' => array_map(static function (array $employee) use ($capacity): array {
                 $weeks = [];
                 foreach ($employee['weeks'] as $start => $minutes) {
                     $weeks[] = [
                         'week_start' => $start,
                         'logged_minutes' => $minutes['logged'],
                         'planned_minutes' => $minutes['planned'],
-                        'overloaded' => $minutes['logged'] + $minutes['planned'] > self::WEEKLY_CAPACITY_MINUTES,
+                        'overloaded' => $minutes['logged'] + $minutes['planned'] > $capacity,
                     ];
                 }
 
@@ -102,7 +104,7 @@ final class WorkloadService
                 ];
             }, $employees),
             'unscheduled_tasks' => $unscheduled,
-            'basis' => 'Logged = pending and approved time by work date. Planned = remaining estimate (estimate minus logged time) of open assigned tasks, placed in the week the task is due; overdue tasks count in the first week shown. Capacity is a standard 40-hour week.',
+            'basis' => 'Logged = pending and approved time by work date. Planned = remaining estimate (estimate minus logged time) of open assigned tasks, placed in the week the task is due; overdue tasks count in the first week shown. Capacity is the standard week set for the Time tracking module.',
         ];
     }
 

@@ -2,6 +2,8 @@
 
 namespace App\Controller;
 
+use App\Service\Module\ModuleGate;
+use App\Entity\User;
 use App\Entity\RecordRevision;
 use App\Repository\RecordRevisionRepository;
 use App\Service\TrackedRecords;
@@ -18,9 +20,18 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[IsGranted('ROLE_USER')]
 final class RecordHistoryController extends AbstractController
 {
+    /** Record types and the switchable module they belong to. */
+    private const MODULE_FOR_TYPE = [
+        'client' => 'clients', 'client_contact' => 'clients',
+        'deal' => 'sales_pipeline', 'project' => 'projects', 'project_milestone' => 'projects', 'task' => 'projects',
+        'product' => 'sales', 'supplier' => 'inventory', 'warehouse' => 'inventory',
+        'org_unit' => 'organization_structure', 'org_position' => 'organization_structure', 'employment' => 'organization_structure',
+    ];
+
     public function __construct(
         private readonly RecordRevisionRepository $revisionRepository,
         private readonly TrackedRecords $trackedRecords,
+        private readonly ModuleGate $modules,
     ) {
     }
 
@@ -28,6 +39,11 @@ final class RecordHistoryController extends AbstractController
     public function show(string $type, int $id): JsonResponse
     {
         if ($this->trackedRecords->classFor($type) === null) {
+            return $this->json(['error' => 'Unknown record type.'], JsonResponse::HTTP_NOT_FOUND);
+        }
+        $module = self::MODULE_FOR_TYPE[$type] ?? null;
+        $user = $this->getUser();
+        if ($module !== null && !$this->modules->isAvailableTo($module, $user instanceof User ? $user : null)) {
             return $this->json(['error' => 'Unknown record type.'], JsonResponse::HTTP_NOT_FOUND);
         }
 

@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Service\Module\ModuleGate;
 use App\Dto\ReminderPreferenceInput;
 use App\Entity\Notification;
 use App\Entity\ReminderPreference;
@@ -23,6 +24,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 final class NotificationController extends AbstractController
 {
     public function __construct(
+        private readonly ModuleGate $modules,
         private readonly NotificationRepository $notificationRepository,
         private readonly ReminderPreferenceRepository $preferenceRepository,
         private readonly EntityManagerInterface $entityManager,
@@ -39,8 +41,8 @@ final class NotificationController extends AbstractController
         }
 
         return $this->json([
-            'unread_count' => $this->notificationRepository->unreadCount($user),
-            'items' => array_map($this->serialize(...), $this->notificationRepository->inbox($user, $request->query->getBoolean('unread'), (int) $limit)),
+            'unread_count' => $this->notificationRepository->unreadCount($user, $this->hiddenSubjectTypes($user)),
+            'items' => array_map($this->serialize(...), $this->notificationRepository->inbox($user, $request->query->getBoolean('unread'), (int) $limit, $this->hiddenSubjectTypes($user))),
         ]);
     }
 
@@ -61,7 +63,7 @@ final class NotificationController extends AbstractController
     #[Route('/read-all', name: 'read_all', methods: ['POST'])]
     public function markAllRead(): Response
     {
-        foreach ($this->notificationRepository->inbox($this->currentUser(), true, 500) as $notification) {
+        foreach ($this->notificationRepository->inbox($this->currentUser(), true, 500, $this->hiddenSubjectTypes($this->currentUser())) as $notification) {
             $notification->markRead();
         }
         $this->entityManager->flush();
@@ -127,5 +129,22 @@ final class NotificationController extends AbstractController
             'created_at' => $notification->getCreatedAt()->format(\DateTimeInterface::ATOM),
             'read_at' => $notification->getReadAt()?->format(\DateTimeInterface::ATOM),
         ];
+    }
+
+    /**
+     * Notifications about modules that are off or hidden from the user stay stored but are not shown.
+     *
+     * @return list<string>
+     */
+    private function hiddenSubjectTypes(User $user): array
+    {
+        $hidden = [];
+        foreach (['task' => 'projects', 'project' => 'projects', 'document' => 'document_management', 'timesheet' => 'time_tracking'] as $type => $module) {
+            if (!$this->modules->isAvailableTo($module, $user)) {
+                $hidden[] = $type;
+            }
+        }
+
+        return $hidden;
     }
 }

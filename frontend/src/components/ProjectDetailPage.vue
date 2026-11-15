@@ -4,6 +4,7 @@ import { apiRequest, errorText } from "../lib/api";
 import { overdueDays, projectManagementStatus } from "../lib/projectManagement";
 import { detailHref } from "../lib/route";
 import { isFinanceToken } from "../lib/session";
+import { hasModule, whenModule } from "../lib/modules";
 import { estimateProgress, formatMinutes, scopeNotes, type TimeReport } from "../lib/timeTracking";
 import EntityNotesPanel from "./EntityNotesPanel.vue";
 import RecordChangeHistory from "./RecordChangeHistory.vue";
@@ -54,7 +55,7 @@ const taskById = computed(() => new Map(tasks.value.map((task) => [task.id, task
 const hours = formatMinutes;
 
 async function loadProfitability() {
-  if (!canSeeFinance || !project.value) return;
+  if (!canSeeFinance || !project.value || !hasModule("project_operations")) return;
   reportError.value = "";
   const currency = project.value.budget_currency ?? project.value.billing_currency ?? "EUR";
   const query = new URLSearchParams({ currency });
@@ -76,10 +77,10 @@ async function load() {
     const [allTasks, loadedMilestones, byEmployee, byTask, loadedExpenses, loadedInvoices] = await Promise.all([
       apiRequest<Task[]>("/tasks"),
       apiRequest<Milestone[]>(`/projects/${props.projectId}/milestones`),
-      apiRequest<TimeReport>(`/operations/time-report?project_id=${props.projectId}&group_by=employee`),
-      apiRequest<TimeReport>(`/operations/time-report?project_id=${props.projectId}&group_by=task`),
-      apiRequest<Expense[]>(`/operations/expenses?project_id=${props.projectId}`),
-      apiRequest<Invoice[]>(`/invoices?project_id=${props.projectId}`),
+      whenModule("time_tracking", () => apiRequest<TimeReport>(`/operations/time-report?project_id=${props.projectId}&group_by=employee`), null),
+      whenModule("time_tracking", () => apiRequest<TimeReport>(`/operations/time-report?project_id=${props.projectId}&group_by=task`), null),
+      whenModule("project_operations", () => apiRequest<Expense[]>(`/operations/expenses?project_id=${props.projectId}`), []),
+      whenModule("invoices", () => apiRequest<Invoice[]>(`/invoices?project_id=${props.projectId}`), []),
     ]);
     tasks.value = allTasks.filter((task) => task.project_id === props.projectId);
     milestones.value = loadedMilestones;
@@ -133,9 +134,9 @@ watch(() => props.projectId, load);
             <dt>Planned start</dt><dd>{{ project.start_date ?? "Unscheduled" }}</dd>
             <dt>Planned end</dt><dd>{{ project.end_date ?? "Unscheduled" }}</dd>
             <dt>Open tasks</dt><dd>{{ openTasks.length }} of {{ tasks.length }}</dd>
-            <dt>Time logged</dt><dd>{{ hours(loggedMinutes) }}<span v-if="timeByEmployee?.scope === 'own'" class="muted"> (yours)</span></dd>
+            <template v-if="hasModule('time_tracking')"><dt>Time logged</dt><dd>{{ hours(loggedMinutes) }}<span v-if="timeByEmployee?.scope === 'own'" class="muted"> (yours)</span></dd>
             <dt>Estimated effort</dt><dd>{{ estimatedMinutes ? hours(estimatedMinutes) : "No estimates" }}<span v-if="unestimatedTasks > 0" class="muted"> · {{ unestimatedTasks }} task{{ unestimatedTasks === 1 ? "" : "s" }} without one</span></dd>
-            <dt>Logged on tasks</dt><dd :class="{ 'time-over-text': projectProgress.over }">{{ hours(loggedOnTasks) }}<template v-if="projectProgress.percent !== null"> · {{ projectProgress.percent }}% of estimate</template></dd>
+            <dt>Logged on tasks</dt><dd :class="{ 'time-over-text': projectProgress.over }">{{ hours(loggedOnTasks) }}<template v-if="projectProgress.percent !== null"> · {{ projectProgress.percent }}% of estimate</template></dd></template>
           </dl>
           <p v-if="lateDays > 0" class="error">Overdue by {{ lateDays }} day{{ lateDays === 1 ? "" : "s" }}.</p>
           <h3>Milestones</h3>
@@ -160,7 +161,7 @@ watch(() => props.projectId, load);
           </ul>
         </section>
 
-        <section class="detail-card">
+        <section v-if="hasModule('time_tracking')" class="detail-card">
           <div class="pm-section-heading">
             <h2>Time by employee</h2>
             <a class="edit-button" :href="`#/time-report/projects/${project.id}`">Open in time report</a>
@@ -175,7 +176,7 @@ watch(() => props.projectId, load);
           </ul>
         </section>
 
-        <section class="detail-card wide">
+        <section v-if="hasModule('time_tracking')" class="detail-card wide">
           <h2>Time by task</h2>
           <p v-if="!timeByTask?.rows.length" class="muted">No time recorded.</p>
           <div v-else class="finance-table-wrap">
@@ -199,7 +200,7 @@ watch(() => props.projectId, load);
           <p class="muted">Progress compares everyone's pending and approved time on the task with its estimate; rejected time is not counted.</p>
         </section>
 
-        <section class="detail-card">
+        <section v-if="hasModule('project_operations')" class="detail-card">
           <h2>Expenses <span class="muted">({{ expenses.length }})</span></h2>
           <p v-if="expenses.length === 0" class="muted">No expenses.</p>
           <ul v-else class="detail-list">
@@ -210,7 +211,7 @@ watch(() => props.projectId, load);
           </ul>
         </section>
 
-        <section class="detail-card">
+        <section v-if="hasModule('invoices')" class="detail-card">
           <h2>Invoices <span class="muted">({{ invoices.length }})</span></h2>
           <p v-if="invoices.length === 0" class="muted">No invoices for this project.</p>
           <ul v-else class="detail-list">
@@ -221,7 +222,7 @@ watch(() => props.projectId, load);
           </ul>
         </section>
 
-        <section v-if="canSeeFinance" class="detail-card">
+        <section v-if="canSeeFinance && hasModule('project_operations')" class="detail-card">
           <h2>Financial report</h2>
           <form class="pm-filters" @submit.prevent="loadProfitability">
             <div><label for="period-from">From</label><input id="period-from" v-model="periodFrom" type="date" /></div>

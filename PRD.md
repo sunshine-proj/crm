@@ -192,6 +192,10 @@ The sales workflow is operational and links to a separate quantity-only inventor
 
 Implemented: time visibility rules, time reports with CSV export, task estimates, weekly timesheet, task timer, missing-time reminders, budget warning and a weekly workload view. The checklist and known limits are in [ROADMAP.md](ROADMAP.md).
 
+### Phase 9: Configurable Modules Per Organization
+
+In progress: per installation, administrators turn functional modules (accounting, project management, time tracking, sales, inventory, invoices, bank, document management and others) on or off in Settings → Modules, limit them to roles, and adjust per-module settings. A disabled module's pages and API are blocked; its data stays in the database and returns when the module is switched on. The checklist, remaining tasks and open decisions are in [ROADMAP.md](ROADMAP.md).
+
 ## Functional Requirements
 
 ### Organization Settings And Localization
