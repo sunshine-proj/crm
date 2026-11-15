@@ -24,6 +24,9 @@ final class TaskInput
         public readonly ?string $priority = null,
         #[Assert\Date]
         public readonly ?string $due_date = null,
+        #[Assert\Positive]
+        #[Assert\LessThanOrEqual(6000000)]
+        public readonly ?int $estimated_minutes = null,
     ) {
     }
 }

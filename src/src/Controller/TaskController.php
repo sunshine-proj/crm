@@ -11,6 +11,7 @@ use App\Entity\User;
 use App\Repository\ProjectRepository;
 use App\Repository\TaskRepository;
 use App\Repository\TaskDependencyRepository;
+use App\Repository\TimeEntryRepository;
 use App\Repository\UserRepository;
 use App\Service\ClientActivityLogger;
 use Doctrine\ORM\EntityManagerInterface;
@@ -33,6 +34,7 @@ class TaskController extends AbstractController
 		private readonly UserRepository $userRepository,
 		private readonly EntityManagerInterface $entityManager,
 		private readonly ClientActivityLogger $activityLogger,
+		private readonly TimeEntryRepository $timeEntryRepository,
 		#[Autowire(service: 'monolog.logger.audit')]
 		private readonly LoggerInterface $auditLogger,
 	) {
@@ -43,8 +45,9 @@ class TaskController extends AbstractController
 	public function list(): JsonResponse
 	{
 		$items = $this->taskRepository->findBy([], ['startDatetime' => 'ASC']);
+		$logged = $this->timeEntryRepository->minutesByTask(array_map(static fn (Task $item): int => (int) $item->getId(), $items));
 
-		return $this->json(array_map(fn (Task $item): array => $this->serializeItem($item), $items));
+		return $this->json(array_map(fn (Task $item): array => $this->serializeItem($item, $logged), $items));
 	}
 
 	#[Route('', name: 'create', methods: ['POST'])]
@@ -77,6 +80,7 @@ class TaskController extends AbstractController
 			->setPriority(TaskPriority::from($input->priority ?? TaskPriority::Normal->value))
 			->setSchedule($input->start_datetime, $input->end_datetime)
 			->setDueDate($input->due_date !== null ? new \DateTimeImmutable($input->due_date) : null)
+			->setEstimatedMinutes($input->estimated_minutes)
 			->setCreatedAt($now)
 			->setUpdatedAt($now);
 
@@ -95,7 +99,7 @@ class TaskController extends AbstractController
 			'task_id' => $item->getId(),
 		]);
 
-		return $this->json($this->serializeItem($item), JsonResponse::HTTP_CREATED);
+		return $this->json($this->serializeItem($item, $this->timeEntryRepository->minutesByTask([(int) $item->getId()])), JsonResponse::HTTP_CREATED);
 	}
 
 	#[Route('/{id<\d+>}', name: 'show', methods: ['GET'])]
@@ -107,7 +111,7 @@ class TaskController extends AbstractController
 			return $this->json(['error' => 'Task not found.'], JsonResponse::HTTP_NOT_FOUND);
 		}
 
-		return $this->json($this->serializeItem($item));
+		return $this->json($this->serializeItem($item, $this->timeEntryRepository->minutesByTask([(int) $item->getId()])));
 	}
 
 		#[Route('/{id<\d+>}/dependencies', name: 'dependencies_list', methods: ['GET'])]
@@ -235,6 +239,7 @@ class TaskController extends AbstractController
 			->setPriority(TaskPriority::from($input->priority ?? $item->getPriority()->value))
 			->setSchedule($startDatetime, $endDatetime)
 			->setDueDate($input->due_date !== null ? new \DateTimeImmutable($input->due_date) : $item->getDueDate())
+			->setEstimatedMinutes($input->estimated_minutes ?? (array_key_exists('estimated_minutes', $request->toArray()) ? null : $item->getEstimatedMinutes()))
 			->setUpdatedAt(new \DateTimeImmutable());
 		$this->activityLogger->record(
 			$item->getProject()?->getClient(),
@@ -250,7 +255,7 @@ class TaskController extends AbstractController
 			'task_id' => $item->getId(),
 		]);
 
-		return $this->json($this->serializeItem($item));
+		return $this->json($this->serializeItem($item, $this->timeEntryRepository->minutesByTask([(int) $item->getId()])));
 	}
 
 	#[Route('/{id<\d+>}', name: 'delete', methods: ['DELETE'])]
@@ -287,9 +292,18 @@ class TaskController extends AbstractController
 		return $user instanceof User ? $user->getUserIdentifier() : 'anonymous';
 	}
 
-	/** @return array<string, int|string|null> */
-	private function serializeItem(Task $item): array
+	/**
+	 * Logged time is an aggregate of every non-rejected entry on the task, shown to all users; individual entries and
+	 * per-employee totals stay behind the time-entry visibility rules.
+	 *
+	 * @param array<int, array{logged: int, approved: int}> $logged minutes by task id
+	 * @return array<string, bool|int|string|null>
+	 */
+	private function serializeItem(Task $item, array $logged): array
 	{
+		$minutes = $logged[(int) $item->getId()] ?? ['logged' => 0, 'approved' => 0];
+		$estimate = $item->getEstimatedMinutes();
+
 		return [
 			'id' => $item->getId(),
 			'title' => $item->getTitle(),
@@ -301,6 +315,10 @@ class TaskController extends AbstractController
 			'status' => $item->getStatus()->value,
 			'priority' => $item->getPriority()->value,
 			'due_date' => $item->getDueDate()?->format('Y-m-d'),
+			'estimated_minutes' => $estimate,
+			'logged_minutes' => $minutes['logged'],
+			'approved_minutes' => $minutes['approved'],
+			'over_estimate' => $estimate !== null && $minutes['logged'] > $estimate,
 			'due_status' => $item->getStatus() === TaskStatus::Cancelled
 				? 'cancelled'
 				: ($item->getDueDate() === null ? null : ($item->getStatus() === TaskStatus::Done ? 'done' : ($item->getDueDate() < new \DateTimeImmutable('today') ? 'overdue' : 'upcoming'))),

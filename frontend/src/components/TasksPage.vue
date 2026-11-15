@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { isValidDateTimeRange } from "../lib/planning";
+import { elapsedMinutes, estimateProgress, formatMinutes, isoDate, loadTimer, parseDuration, saveTimer, type RunningTimer } from "../lib/timeTracking";
 
 type Task = {
   id: number;
@@ -14,6 +15,10 @@ type Task = {
   priority: TaskPriority;
   due_date: string | null;
   due_status: "done" | "cancelled" | "overdue" | "upcoming" | null;
+  estimated_minutes: number | null;
+  logged_minutes: number;
+  approved_minutes: number;
+  over_estimate: boolean;
   start_datetime: string;
   end_datetime: string;
   created_at: string;
@@ -30,6 +35,7 @@ type TaskInput = {
   status: TaskStatus;
   priority: TaskPriority;
   due_date: string | null;
+  estimated_minutes: number | null;
 };
 
 type Project = { id: number; title: string };
@@ -63,6 +69,11 @@ const assigneeId = ref<number | null>(null);
 const status = ref<TaskStatus>("todo");
 const priority = ref<TaskPriority>("normal");
 const dueDate = ref("");
+const estimate = ref("");
+const timer = ref<RunningTimer | null>(loadTimer());
+const now = ref(Date.now());
+const isStoppingTimer = ref(false);
+let clock: number | undefined;
 const startDatetime = ref("");
 const endDatetime = ref("");
 const errorMessage = ref("");
@@ -135,7 +146,52 @@ async function loadTasks() {
   }
 }
 
-onMounted(loadTasks);
+onMounted(() => {
+  void loadTasks();
+  clock = window.setInterval(() => { now.value = Date.now(); }, 15_000);
+});
+onBeforeUnmount(() => window.clearInterval(clock));
+
+function startTimer(task: Task) {
+  if (task.project_id === null || timer.value !== null) return;
+  timer.value = { taskId: task.id, projectId: task.project_id, title: task.title, startedAt: Date.now() };
+  now.value = Date.now();
+  saveTimer(timer.value);
+}
+
+function discardTimer() {
+  if (!window.confirm("Discard the running timer without logging time?")) return;
+  timer.value = null;
+  saveTimer(null);
+}
+
+async function stopTimer() {
+  const running = timer.value;
+  if (running === null) return;
+  const description = window.prompt("What did you work on?", running.title);
+  if (description === null) return;
+  if (description.trim() === "") {
+    errorMessage.value = "Add a description to log the timer.";
+    return;
+  }
+  isStoppingTimer.value = true;
+  errorMessage.value = "";
+  try {
+    await request("/operations/time-entries", {
+      method: "POST",
+      body: JSON.stringify({ project_id: running.projectId, task_id: running.taskId, work_date: isoDate(new Date(running.startedAt)), duration_minutes: elapsedMinutes(running.startedAt, Date.now()), description: description.trim().slice(0, 255), billable: false }),
+    });
+    timer.value = null;
+    saveTimer(null);
+    const refreshed = await request<Task>(`/tasks/${running.taskId}`).catch(() => null);
+    const index = tasks.value.findIndex((item) => item.id === running.taskId);
+    if (refreshed && index !== -1) tasks.value[index] = refreshed;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : "Unable to log the timer.";
+  } finally {
+    isStoppingTimer.value = false;
+  }
+}
 
 function openCreateForm() {
   editingId.value = null;
@@ -146,6 +202,7 @@ function openCreateForm() {
   status.value = "todo";
   priority.value = "normal";
   dueDate.value = "";
+  estimate.value = "";
   startDatetime.value = "";
   endDatetime.value = "";
   errorMessage.value = "";
@@ -161,6 +218,7 @@ function editTask(task: Task) {
   status.value = task.status;
   priority.value = task.priority;
   dueDate.value = task.due_date ?? "";
+  estimate.value = task.estimated_minutes ? formatMinutes(task.estimated_minutes) : "";
   startDatetime.value = toDatetimeLocal(task.start_datetime);
   endDatetime.value = toDatetimeLocal(task.end_datetime);
   errorMessage.value = "";
@@ -172,6 +230,11 @@ function closeForm() {
 }
 
 async function saveTask() {
+  const estimatedMinutes = estimate.value.trim() === "" ? null : parseDuration(estimate.value);
+  if (estimatedMinutes === 0 || (estimate.value.trim() !== "" && estimatedMinutes === null)) {
+    errorMessage.value = "Enter the estimate as a duration, for example 4h, 2:30 or 1.5.";
+    return;
+  }
   const task: TaskInput = {
     title: title.value.trim(),
     description: description.value.trim(),
@@ -182,6 +245,7 @@ async function saveTask() {
     status: status.value,
     priority: priority.value,
     due_date: dueDate.value || null,
+    estimated_minutes: estimatedMinutes,
   };
 
   if (!task.title || !task.description || task.project_id === null || !task.start_datetime || !task.end_datetime) {
@@ -276,6 +340,12 @@ async function deleteTask() {
     </div>
 
     <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
+    <div v-if="timer" class="task-timer-bar" role="status">
+      <span class="task-timer-dot" aria-hidden="true"></span>
+      <span>Timer running on <strong>{{ timer.title }}</strong> · {{ formatMinutes(elapsedMinutes(timer.startedAt, now)) }}</span>
+      <button class="edit-button" type="button" :disabled="isStoppingTimer" @click="stopTimer">{{ isStoppingTimer ? "Logging..." : "Stop and log" }}</button>
+      <button class="edit-button danger-button" type="button" :disabled="isStoppingTimer" @click="discardTimer">Discard</button>
+    </div>
     <div v-if="isLoading" class="empty-page"><h2>Loading tasks...</h2></div>
 
     <form v-else-if="isFormVisible" class="article-form task-form" @submit.prevent="saveTask">
@@ -320,8 +390,17 @@ async function deleteTask() {
         </div>
       </div>
 
-      <label for="task-due">Due date</label>
-      <input id="task-due" v-model="dueDate" type="date" />
+      <div class="task-datetime-grid">
+        <div>
+          <label for="task-due">Due date</label>
+          <input id="task-due" v-model="dueDate" type="date" />
+        </div>
+        <div>
+          <label for="task-estimate">Estimate</label>
+          <input id="task-estimate" v-model="estimate" type="text" inputmode="decimal" placeholder="e.g. 4h, 2:30, 1.5" aria-describedby="task-estimate-hint" />
+          <p id="task-estimate-hint" class="muted">Planned effort; logged time is compared with it.</p>
+        </div>
+      </div>
 
       <div class="task-datetime-grid">
         <div>
@@ -359,6 +438,11 @@ async function deleteTask() {
           <h2>{{ task.title }}</h2>
           <p class="muted">{{ task.description }}</p>
           <p class="card-kicker">{{ formatTaskDate(task.start_datetime) }} to {{ formatTaskDate(task.end_datetime) }}<span v-if="task.due_date"> · Due {{ task.due_date }}<strong v-if="task.due_status === 'overdue'"> · OVERDUE</strong></span></p>
+          <div class="task-time" :class="{ 'is-over': task.over_estimate }">
+            <span>Logged {{ formatMinutes(task.logged_minutes) }}<template v-if="task.estimated_minutes"> of {{ formatMinutes(task.estimated_minutes) }} estimated</template><template v-if="task.logged_minutes !== task.approved_minutes"> ({{ formatMinutes(task.approved_minutes) }} approved)</template></span>
+            <span v-if="task.estimated_minutes" class="time-progress" aria-hidden="true"><span :style="{ width: `${Math.min(100, estimateProgress(task.estimated_minutes, task.logged_minutes).percent ?? 0)}%` }"></span></span>
+            <strong v-if="task.over_estimate">Over estimate by {{ formatMinutes(task.logged_minutes - (task.estimated_minutes ?? 0)) }}</strong>
+          </div>
           <div class="task-dependency-panel">
             <button class="edit-button" type="button" @click="dependenciesTaskId === task.id ? dependenciesTaskId = null : openDependencies(task)">Dependencies</button>
             <div v-if="dependenciesTaskId === task.id" class="task-dependency-options">
@@ -367,7 +451,10 @@ async function deleteTask() {
             </div>
           </div>
         </div>
-        <button class="edit-button" type="button" @click="editTask(task)">Edit</button>
+        <div class="task-item-actions">
+          <button class="edit-button" type="button" @click="editTask(task)">Edit</button>
+          <button v-if="task.project_id !== null && timer === null" class="edit-button" type="button" :aria-label="`Start timer on ${task.title}`" @click="startTimer(task)">Start timer</button>
+        </div>
       </article>
       <p v-if="visibleTasks.length === 0" class="muted">No tasks match the selected filters.</p>
     </div>

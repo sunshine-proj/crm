@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import { apiRequest, errorText } from "../lib/api";
 import { detailHref } from "../lib/route";
 
-type Notice = { id: number; kind: "due_soon" | "overdue" | "escalation" | "approval" | "decision" | "acknowledgement" | "lifecycle" | "disposal"; subject_type: string; subject_id: number; project_id: number | null; message: string; created_at: string; read_at: string | null };
+type Notice = { id: number; kind: "due_soon" | "overdue" | "escalation" | "missing_time" | "approval" | "decision" | "acknowledgement" | "lifecycle" | "disposal"; subject_type: string; subject_id: number; project_id: number | null; message: string; created_at: string; read_at: string | null };
 type Preferences = { enabled: boolean; task_lead_days: number; project_lead_days: number; escalate_after_days: number; delivery: string };
 
 const isOpen = ref(false);
@@ -31,7 +31,13 @@ async function toggle() {
   if (isOpen.value) await refresh();
 }
 
+const emit = defineEmits<{ openSection: [section: string] }>();
+
 async function markRead(notice: Notice) {
+  if (notice.subject_type === "timesheet") {
+    emit("openSection", "Timesheet");
+    isOpen.value = false;
+  }
   if (notice.read_at) return;
   try {
     Object.assign(notice, await apiRequest<Notice>(`/notifications/${notice.id}/read`, { method: "POST" }));
@@ -76,7 +82,7 @@ async function savePreferences() {
   }
 }
 
-const kindLabels: Record<Notice["kind"], string> = { escalation: "Escalation", overdue: "Overdue", due_soon: "Due soon", approval: "For your decision", decision: "Decision", acknowledgement: "Acknowledgement", lifecycle: "Document status", disposal: "Disposal" };
+const kindLabels: Record<Notice["kind"], string> = { escalation: "Escalation", overdue: "Overdue", due_soon: "Due soon", approval: "For your decision", decision: "Decision", acknowledgement: "Acknowledgement", lifecycle: "Document status", disposal: "Disposal", missing_time: "Timesheet" };
 
 function link(notice: Notice): string {
   if (notice.subject_type === "document") return detailHref("document", notice.subject_id);

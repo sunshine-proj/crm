@@ -22,4 +22,28 @@ final class TimeEntryInput
         public readonly ?string $description = null,
     ) {
     }
+
+    /**
+     * Maps one decoded JSON object (a timesheet batch element); null when a field has the wrong JSON type.
+     *
+     * @param array<mixed> $data
+     */
+    public static function fromArray(array $data): ?self
+    {
+        foreach (['project_id', 'task_id', 'duration_minutes'] as $field) {
+            if (isset($data[$field]) && !is_int($data[$field])) {
+                return null;
+            }
+        }
+        foreach (['work_date', 'description'] as $field) {
+            if (isset($data[$field]) && !is_string($data[$field])) {
+                return null;
+            }
+        }
+        if (isset($data['billable']) && !is_bool($data['billable'])) {
+            return null;
+        }
+
+        return new self($data['project_id'] ?? null, $data['task_id'] ?? null, $data['work_date'] ?? null, $data['duration_minutes'] ?? null, $data['billable'] ?? false, $data['description'] ?? null);
+    }
 }

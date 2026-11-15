@@ -32,6 +32,8 @@ final class ApiAccessPolicyTest extends TestCase
         'api_notes_list', 'api_notes_create',
         'api_operations_time_entries_list', 'api_operations_time_entries_create', 'api_operations_time_entry_decision',
         'api_operations_time_entry_reopen', 'api_operations_time_entry_withdraw', 'api_operations_time_entry_history',
+        // Time reports and the timesheet batch: data is limited inline by TimeVisibility (finance/admin all, managers their projects, others their own).
+        'api_operations_time_entries_batch', 'api_operations_time_report', 'api_operations_time_report_export', 'api_operations_time_report_workload',
         'api_operations_expenses_list', 'api_operations_expenses_create', 'api_operations_expenses_pending',
         'api_operations_expense_decision', 'api_operations_expense_reimbursements_list',
         'api_operations_documents_list', 'api_operations_documents_upload', 'api_operations_documents_download',

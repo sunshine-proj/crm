@@ -11,6 +11,8 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(columns: ['assignee_id'], name: 'idx_task_assignee')]
 class Task
 {
+	public const MAX_ESTIMATED_MINUTES = 6000000;
+
 	#[ORM\Id]
 	#[ORM\GeneratedValue]
 	#[ORM\Column]
@@ -38,6 +40,10 @@ class Task
 
 	#[ORM\Column(type: Types::DATE_IMMUTABLE, nullable: true)]
 	private ?\DateTimeImmutable $dueDate = null;
+
+	/** Planned effort in minutes; compared with logged time entries. */
+	#[ORM\Column(nullable: true)]
+	private ?int $estimatedMinutes = null;
 
 	#[ORM\Column]
 	private ?\DateTimeImmutable $startDatetime = null;
@@ -197,6 +203,21 @@ class Task
 	public function setUpdatedAt(\DateTimeImmutable $updatedAt): static
 	{
 		$this->updatedAt = $updatedAt;
+
+		return $this;
+	}
+
+	public function getEstimatedMinutes(): ?int
+	{
+		return $this->estimatedMinutes;
+	}
+
+	public function setEstimatedMinutes(?int $estimatedMinutes): static
+	{
+		if ($estimatedMinutes !== null && ($estimatedMinutes < 1 || $estimatedMinutes > self::MAX_ESTIMATED_MINUTES)) {
+			throw new \InvalidArgumentException('Task estimate must be between 1 minute and 100000 hours.');
+		}
+		$this->estimatedMinutes = $estimatedMinutes;
 
 		return $this;
 	}

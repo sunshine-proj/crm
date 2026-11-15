@@ -14,6 +14,7 @@ use Doctrine\ORM\Mapping as ORM;
 #[ORM\Index(columns: ['project_id', 'work_date'], name: 'idx_time_entry_project_date')]
 #[ORM\Index(columns: ['task_id'], name: 'idx_time_entry_task')]
 #[ORM\Index(columns: ['user_id'], name: 'idx_time_entry_user')]
+#[ORM\Index(columns: ['user_id', 'work_date'], name: 'idx_time_entry_user_date')]
 class TimeEntry
 {
     #[ORM\Id]

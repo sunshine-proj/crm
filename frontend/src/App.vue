@@ -7,6 +7,8 @@ import ClientsPage from "./components/ClientsPage.vue";
 import ProjectsPage from "./components/ProjectsPage.vue";
 import ProjectManagementPage from "./components/ProjectManagementPage.vue";
 import TasksPage from "./components/TasksPage.vue";
+import TimesheetPage from "./components/TimesheetPage.vue";
+import TimeReportPage from "./components/TimeReportPage.vue";
 import InvoicesPage from "./components/InvoicesPage.vue";
 import SalesPage from "./components/SalesPage.vue";
 import FinancePage from "./components/FinancePage.vue";
@@ -51,7 +53,7 @@ function openSection(section: string) {
 }
 const organizationSettingsReady = ref(false);
 const organizationSettingsError = ref("");
-const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Bank", "Documents", "Organization", "Settings"];
+const allSections = ["Dashboard", "News", "Clients", "Deals", "Projects", "Project Management", "Tasks", "Timesheet", "Time Report", "Sales", "Inventory", "Operations", "Invoices", "Finance", "Bank", "Documents", "Organization", "Settings"];
 const isFinance = computed(() => isFinanceToken(token.value));
 const sections = computed(() => allSections.filter((section) => (section !== "Finance" && section !== "Bank") || isFinance.value));
 const pageComponents = {
@@ -62,6 +64,8 @@ const pageComponents = {
   "Project Management": ProjectManagementPage,
   Deals: DealsPage,
   Tasks: TasksPage,
+  Timesheet: TimesheetPage,
+  "Time Report": TimeReportPage,
   Sales: SalesPage,
   Invoices: InvoicesPage,
   Finance: FinancePage,
@@ -160,7 +164,7 @@ function signOut() {
         <span>My CRM</span>
       </div>
       <div class="account-area">
-        <NotificationCenter />
+        <NotificationCenter @open-section="openSection" />
         <span class="account-email">{{ userEmail }}</span>
         <button class="sign-out" type="button" @click="signOut">Sign out</button>
       </div>
@@ -192,6 +196,10 @@ function signOut() {
                       ? "&#9776;"
                     : section === "Tasks"
                       ? "&#10003;"
+                    : section === "Timesheet"
+                      ? "&#9719;"
+                    : section === "Time Report"
+                      ? "&#9201;"
                       : section === "Sales"
                         ? "&#8644;"
                         : section === "Finance"
@@ -222,6 +230,7 @@ function signOut() {
       <ClientDetailPage v-else-if="detailRoute?.kind === 'client'" :client-id="detailRoute.id" :key="`client-${detailRoute.id}`" />
       <ProjectDetailPage v-else-if="detailRoute?.kind === 'project'" :project-id="detailRoute.id" :key="`project-${detailRoute.id}`" />
       <DocumentDetailPage v-else-if="detailRoute?.kind === 'document'" :document-id="detailRoute.id" :key="`document-${detailRoute.id}`" />
+      <TimeReportPage v-else-if="detailRoute?.kind === 'timeReport'" :project-id="detailRoute.id" :key="`time-report-${detailRoute.id}`" />
       <AcknowledgementBoard v-else-if="detailRoute?.kind === 'acknowledgement'" :request-id="detailRoute.id" :key="`acknowledgement-${detailRoute.id}`" />
       <component v-else :is="pageComponents[activeSection as keyof typeof pageComponents]" />
     </section>

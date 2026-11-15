@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { apiRequest, errorText } from "../lib/api";
 import { boardColumns, canMove, filterBoardTasks, groupByStatus, type BoardStatus } from "../lib/kanban";
+import { formatMinutes } from "../lib/timeTracking";
 
 type Task = {
   id: number;
@@ -14,6 +15,9 @@ type Task = {
   priority: string;
   due_date: string | null;
   due_status: "done" | "cancelled" | "overdue" | "upcoming" | null;
+  estimated_minutes: number | null;
+  logged_minutes: number;
+  over_estimate: boolean;
 };
 type Project = { id: number; title: string };
 type Person = { id: number; email: string };
@@ -130,6 +134,9 @@ onMounted(load);
           <span class="muted">{{ task.assignee_email ?? "Unassigned" }}</span>
           <span v-if="task.due_date" class="board-due" :class="{ 'is-overdue': task.due_status === 'overdue' }">
             Due {{ task.due_date }}<template v-if="task.due_status === 'overdue'"> · overdue</template>
+          </span>
+          <span v-if="task.estimated_minutes || task.logged_minutes" class="board-time" :class="{ 'is-over': task.over_estimate }">
+            {{ formatMinutes(task.logged_minutes) }}<template v-if="task.estimated_minutes"> / {{ formatMinutes(task.estimated_minutes) }}</template><template v-if="task.over_estimate"> · over estimate</template>
           </span>
           <label class="board-move">
             <span class="visually-hidden">Move {{ task.title }} to</span>

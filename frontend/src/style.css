@@ -3286,3 +3286,200 @@ input[type="radio"] {
 .report-scroll {
   overflow-x: auto;
 }
+
+/* Time tracking: report, workload, timesheet, task estimates and timer */
+.success {
+  padding: 11px 13px;
+  margin: 4px 0 0;
+  border-left: 3px solid #176b63;
+  color: #135a53;
+  background: #e3f0ea;
+  font-size: 13px;
+}
+.time-scope-note {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+.time-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+.time-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 130px;
+  padding: 12px 14px;
+  border: 1px solid #dce0d8;
+  background: #fbfaf6;
+}
+.time-summary strong {
+  color: #1d2928;
+  font-size: 20px;
+}
+.time-matrix td,
+.time-workload td {
+  vertical-align: top;
+}
+.time-cell {
+  display: grid;
+  gap: 2px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: #176b63;
+  background: transparent;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.time-cell:hover,
+.time-cell.active {
+  border-color: #176b63;
+  background: #e3f0ea;
+}
+.time-cell:focus-visible,
+.timesheet-input:focus-visible {
+  outline: 2px solid #176b63;
+  outline-offset: 1px;
+}
+.time-cell small,
+.time-workload small {
+  color: #8b948d;
+  font-weight: 400;
+}
+.time-detail {
+  margin-top: 20px;
+}
+.time-row-active th,
+.time-row-active td {
+  background: #e3f0ea;
+}
+.time-entry-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.time-entry-list li {
+  display: grid;
+  grid-template-columns: 96px 70px 1fr auto;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid #dce0d8;
+}
+.time-overloaded {
+  background: #f8e8e2;
+}
+.time-flag {
+  display: block;
+  color: #954037;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.time-over-text,
+.task-time.is-over strong,
+.board-time.is-over {
+  color: #954037;
+  font-weight: 600;
+}
+.task-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 8px 0;
+  color: #53645e;
+  font-size: 13px;
+}
+.time-progress {
+  position: relative;
+  width: 120px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #dce0d8;
+}
+.time-progress > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #176b63;
+}
+.task-time.is-over .time-progress > span {
+  background: #b85043;
+}
+.task-item-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.task-timer-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid #176b63;
+  background: #e3f0ea;
+  font-size: 14px;
+}
+.task-timer-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #b85043;
+  animation: task-timer-pulse 1.6s ease-in-out infinite;
+}
+@keyframes task-timer-pulse {
+  50% { opacity: 0.3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-timer-dot { animation: none; }
+}
+.board-time {
+  color: #53645e;
+  font-size: 12px;
+}
+.timesheet-week-nav {
+  display: flex;
+  gap: 8px;
+}
+.timesheet-grid th small {
+  display: block;
+  font-weight: 400;
+  text-transform: none;
+}
+.timesheet-grid td {
+  min-width: 82px;
+}
+.timesheet-existing {
+  display: block;
+  margin-bottom: 4px;
+  color: #8b948d;
+  font-size: 12px;
+}
+.timesheet-input {
+  width: 72px;
+  padding: 6px 8px;
+  border: 1px solid #cbd4ca;
+  border-radius: 2px;
+  background: #fff;
+}
+.timesheet-grid td input[type="text"]:not(.timesheet-input) {
+  min-width: 200px;
+  padding: 6px 8px;
+  border: 1px solid #cbd4ca;
+  border-radius: 2px;
+}
+.timesheet-add-row {
+  margin-top: 16px;
+}
+@media (max-width: 720px) {
+  .time-entry-list li {
+    grid-template-columns: 1fr 1fr;
+  }
+}

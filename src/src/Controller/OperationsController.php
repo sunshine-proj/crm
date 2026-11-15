@@ -12,7 +12,13 @@ use App\Entity\TimeEntryEvent;
 use App\Repository\TimeEntryEventRepository;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use App\Dto\TimeEntryBatchInput;
 use App\Dto\TimeEntryInput;
+use App\Service\Time\TimeEntryFilter;
+use App\Service\Time\TimeEntryRecorder;
+use App\Service\Time\TimeEntryRejected;
+use App\Service\Time\TimeVisibility;
+use Symfony\Component\Validator\Validator\ValidatorInterface;
 use App\Entity\Expense;
 use App\Entity\ExpenseApproval;
 use App\Entity\ExpenseReimbursement;
@@ -26,7 +32,6 @@ use App\Repository\ExpenseRepository;
 use App\Repository\ExpenseReimbursementRepository;
 use App\Repository\ProjectDocumentRepository;
 use App\Repository\ProjectRepository;
-use App\Repository\TaskRepository;
 use App\Repository\TimeEntryRepository;
 use App\Repository\UserRepository;
 use App\Service\FinanceCatalog;
@@ -48,9 +53,11 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 #[IsGranted('ROLE_USER')]
 final class OperationsController extends AbstractController
 {
+    /** Share of the project budget consumed by approved cost at which the profitability summary warns. */
+    public const BUDGET_WARNING_PERCENT = 80;
+
     public function __construct(
         private readonly ProjectRepository $projectRepository,
-        private readonly TaskRepository $taskRepository,
         private readonly TimeEntryRepository $timeEntryRepository,
         private readonly UserRepository $userRepository,
         private readonly ExpenseRepository $expenseRepository,
@@ -63,6 +70,9 @@ final class OperationsController extends AbstractController
         private readonly ProjectDocumentStorage $documentStorage,
         private readonly FinancePostingService $postingService,
         private readonly TimeEntryEventRepository $timeEntryEventRepository,
+        private readonly TimeEntryRecorder $timeEntryRecorder,
+        private readonly TimeVisibility $timeVisibility,
+        private readonly ValidatorInterface $validator,
         #[Autowire(service: 'monolog.logger.audit')] private readonly LoggerInterface $auditLogger,
     ) {
     }
@@ -70,50 +80,62 @@ final class OperationsController extends AbstractController
     #[Route('/time-entries', name: 'time_entries_list', methods: ['GET'])]
     public function timeEntries(Request $request): JsonResponse
     {
-        $projectId = $this->parseOptionalId($request->query->get('project_id'));
-        if (isset($projectId['error'])) return $this->json(['error' => $projectId['error']], JsonResponse::HTTP_BAD_REQUEST);
-        if ($projectId['id'] === null) return $this->json(['error' => 'Choose a project to list time entries.'], JsonResponse::HTTP_BAD_REQUEST);
-        if ($this->projectRepository->find($projectId['id']) === null) return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
-        return $this->json(array_map(fn (TimeEntry $entry): array => $this->serializeTimeEntry($entry), $this->timeEntryRepository->findForProject($projectId['id'])));
+        $actor = $this->getUser();
+        if (!$actor instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
+        try {
+            $filter = TimeEntryFilter::fromQuery($request->query);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], JsonResponse::HTTP_BAD_REQUEST);
+        }
+        if ($request->query->get('mine') === '1') $filter = $filter->forUser((int) $actor->getId());
+        if ($filter->projectId === null && $filter->userId === null) return $this->json(['error' => 'Choose a project or an employee to list time entries.'], JsonResponse::HTTP_BAD_REQUEST);
+        if ($filter->projectId !== null && $this->projectRepository->find($filter->projectId) === null) return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
+        // Entries outside the caller's scope are left out rather than refused, so a project page still lists one's own time.
+        $entries = $this->timeEntryRepository->findVisible($this->timeVisibility->scopeFor($actor), $filter);
+
+        return $this->json(array_map(fn (TimeEntry $entry): array => $this->serializeTimeEntry($entry), $entries));
     }
 
     #[Route('/time-entries', name: 'time_entries_create', methods: ['POST'])]
     public function createTimeEntry(#[MapRequestPayload] TimeEntryInput $input): JsonResponse
     {
-        if ($input->project_id === null || $input->work_date === null || $input->duration_minutes === null || $input->description === null || trim($input->description) === '') {
-            return $this->json(['error' => 'Project, work date, duration, and description are required.'], JsonResponse::HTTP_BAD_REQUEST);
-        }
-        $project = $this->projectRepository->find($input->project_id);
-        if ($project === null) return $this->json(['error' => 'Project not found.'], JsonResponse::HTTP_NOT_FOUND);
-        try { $workDate = $this->parseDate($input->work_date); }
-        catch (\InvalidArgumentException) { return $this->json(['error' => 'Work date must use YYYY-MM-DD.'], JsonResponse::HTTP_BAD_REQUEST); }
-        $task = null;
-        if ($input->task_id !== null) {
-            $task = $this->taskRepository->find($input->task_id);
-            if ($task === null || $task->getProject()?->getId() !== $project->getId()) return $this->json(['error' => 'Task must belong to the selected project.'], JsonResponse::HTTP_BAD_REQUEST);
-        }
         $user = $this->getUser();
         if (!$user instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
-        if ($input->duration_minutes < 1 || $input->duration_minutes > 1440 || mb_strlen(trim($input->description)) > 255) return $this->json(['error' => 'Duration must be 1-1440 minutes and description at most 255 characters.'], JsonResponse::HTTP_BAD_REQUEST);
-        $billingAmount = null;
-        $billingCurrency = null;
-        if ($input->billable) {
-            if ($project->getHourlyRateMinor() === null || $project->getBillingCurrency() === null) {
-                return $this->json(['error' => 'Configure a project billing rate before recording billable time.'], JsonResponse::HTTP_CONFLICT);
-            }
-            $billingAmount = $this->rateForDuration($project->getHourlyRateMinor(), $input->duration_minutes);
-            $billingCurrency = $project->getBillingCurrency();
+        try {
+            $entry = $this->timeEntryRecorder->build($input, $user);
+        } catch (TimeEntryRejected $rejected) {
+            return $this->json(['error' => $rejected->getMessage()], $rejected->status());
         }
-        $costAmount = null;
-        $costCurrency = null;
-        if ($user->getHourlyCostRateMinor() !== null && $user->getHourlyCostCurrency() !== null) {
-            $costAmount = $this->rateForDuration($user->getHourlyCostRateMinor(), $input->duration_minutes);
-            $costCurrency = $user->getHourlyCostCurrency();
-        }
-        $entry = new TimeEntry($project, $task, $user, $workDate, $input->duration_minutes, $input->billable, trim($input->description), $costAmount, $costCurrency, $billingAmount, $billingCurrency);
         $this->entityManager->persist($entry);
         $this->entityManager->flush();
         return $this->json($this->serializeTimeEntry($entry), JsonResponse::HTTP_CREATED);
+    }
+
+    /** Weekly timesheet submit: every entry is validated first and all are saved together, or none is. */
+    #[Route('/time-entries/batch', name: 'time_entries_batch', methods: ['POST'])]
+    public function createTimeEntries(#[MapRequestPayload] TimeEntryBatchInput $input): JsonResponse
+    {
+        $user = $this->getUser();
+        if (!$user instanceof User) return $this->json(['error' => 'Authenticated user is unavailable.'], JsonResponse::HTTP_UNAUTHORIZED);
+        $entries = [];
+        foreach ($input->entries as $index => $raw) {
+            $label = sprintf('Entry %d: ', $index + 1);
+            $item = is_array($raw) ? TimeEntryInput::fromArray($raw) : null;
+            if ($item === null) return $this->json(['error' => $label.'fields have the wrong type.'], JsonResponse::HTTP_BAD_REQUEST);
+            $violations = $this->validator->validate($item);
+            if (count($violations) > 0) return $this->json(['error' => $label.$violations[0]->getPropertyPath().': '.$violations[0]->getMessage()], JsonResponse::HTTP_UNPROCESSABLE_ENTITY);
+            try {
+                $entries[] = $this->timeEntryRecorder->build($item, $user);
+            } catch (TimeEntryRejected $rejected) {
+                return $this->json(['error' => $label.$rejected->getMessage()], $rejected->status());
+            }
+        }
+        foreach ($entries as $entry) {
+            $this->entityManager->persist($entry);
+        }
+        $this->entityManager->flush();
+
+        return $this->json(array_map(fn (TimeEntry $entry): array => $this->serializeTimeEntry($entry), $entries), JsonResponse::HTTP_CREATED);
     }
 
     #[Route('/time-entries/{id<\d+>}/decision', name: 'time_entry_decision', methods: ['POST'])]
@@ -182,7 +204,9 @@ final class OperationsController extends AbstractController
     #[Route('/time-entries/{id<\d+>}/history', name: 'time_entry_history', methods: ['GET'])]
     public function timeEntryHistory(int $id): JsonResponse
     {
-        if ($this->timeEntryRepository->find($id) === null) return $this->json(['error' => 'Time entry not found.'], JsonResponse::HTTP_NOT_FOUND);
+        $entry = $this->timeEntryRepository->find($id);
+        $actor = $this->getUser();
+        if (!$entry instanceof TimeEntry || !$actor instanceof User || !$this->timeVisibility->scopeFor($actor)->canSee($entry)) return $this->json(['error' => 'Time entry not found.'], JsonResponse::HTTP_NOT_FOUND);
 
         return $this->json(array_map(static fn (TimeEntryEvent $event): array => [
             'id' => $event->getId(), 'action' => $event->getAction(), 'actor' => $event->getActor()->getUserIdentifier(),
@@ -284,6 +308,9 @@ final class OperationsController extends AbstractController
             'gross_margin' => $this->money->formatMinor($margin),
             'budget' => $budget !== null ? $this->money->formatMinor($budget) : null,
             'budget_variance' => $budget !== null && $from === null && $to === null ? $this->money->formatMinor($budget - $cost) : null,
+            'budget_consumed_percent' => $budget !== null && $budget > 0 && $from === null && $to === null ? intdiv($cost * 100, $budget) : null,
+            'budget_warning' => $budget !== null && $from === null && $to === null && $cost * 100 >= $budget * self::BUDGET_WARNING_PERCENT,
+            'budget_warning_percent' => self::BUDGET_WARNING_PERCENT,
             'unpriced_billable_entries' => $billableUnpriced,
             'uncosted_approved_time_entries' => $uncostedApprovedTime,
             'excluded_expenses_other_currency' => $excludedExpenses,
@@ -501,21 +528,6 @@ final class OperationsController extends AbstractController
         if ($value === null || $value === '') return ['id' => null];
         if (!ctype_digit($value) || (int) $value < 1) return ['error' => 'Project id must be a positive integer.'];
         return ['id' => (int) $value];
-    }
-
-    private function rateForDuration(int $hourlyRateMinor, int $durationMinutes): int
-    {
-        $quotient = intdiv($hourlyRateMinor, 60);
-        $remainder = $hourlyRateMinor % 60;
-        if ($quotient > 0 && $durationMinutes > intdiv(PHP_INT_MAX, $quotient)) {
-            throw new \OverflowException('Time-entry rate calculation exceeds the supported amount range.');
-        }
-        $wholeAmount = $quotient * $durationMinutes;
-        $fractionAmount = intdiv($remainder * $durationMinutes + 30, 60);
-        if ($fractionAmount > PHP_INT_MAX - $wholeAmount) {
-            throw new \OverflowException('Time-entry rate calculation exceeds the supported amount range.');
-        }
-        return $wholeAmount + $fractionAmount;
     }
 
     private function serializeTimeEntry(TimeEntry $entry): array

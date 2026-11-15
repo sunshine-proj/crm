@@ -188,6 +188,10 @@ The sales workflow is operational and links to a separate quantity-only inventor
 - **Implemented foundation:** lifecycle automation (in force, superseded, archived on expiry), review reminders, retention from the archive date, legal hold, four-eyes disposal leaving a tombstone, a per-document audit trail, registry reports, and ClamAV scanning when configured.
 - **Not implemented:** qualified e-signatures, external correspondence registration, OCR, conversion of office files to PDF, an approval sheet PDF, `tsvector` full-text ranking, e-mail delivery, object storage, and jurisdiction-validated retention schedules. Nothing is represented as a certified records-management system.
 
+### Phase 8: Time Tracking And Workload Reporting
+
+Implemented: time visibility rules, time reports with CSV export, task estimates, weekly timesheet, task timer, missing-time reminders, budget warning and a weekly workload view. The checklist and known limits are in [ROADMAP.md](ROADMAP.md).
+
 ## Functional Requirements
 
 ### Organization Settings And Localization
@@ -331,6 +335,7 @@ Do not present a candidate measure as a live KPI until its source data and calcu
 - Is a client a company/account only, or must the product support individual customers and parent-child organizations?
 - Which project pricing models are required first: fixed fee, time and materials, recurring, or a combination?
 - Should users track billable time in the product, import it, or integrate with an external time-tracking tool?
+- Phase 8 implements this default for viewing other employees' time: administrators and finance see everyone, project managers see their own projects, employees see their own time. Confirm it fits the target organizations, or whether line managers in the organization structure should also see their reports' time.
 - What does bookkeeping mean for the first target users: expense tracking and cash summaries, accounting-system integration, or a general ledger?
 - Which roles need access to client data, project budgets, costs, invoices, and payment details?
 - What audit, export, and deletion controls are required in addition to the initial ten-year reference period and backup policy?

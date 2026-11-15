@@ -15,6 +15,7 @@ class Notification
     public const DUE_SOON = 'due_soon';
     public const OVERDUE = 'overdue';
     public const ESCALATION = 'escalation';
+    public const MISSING_TIME = 'missing_time';
 
     #[ORM\Id]
     #[ORM\GeneratedValue]
